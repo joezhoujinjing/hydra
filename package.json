@@ -1,0 +1,312 @@
+{
+  "name": "hydra",
+  "displayName": "Hydra",
+  "description": "Control panel for managing an army of AI coding agents",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "publisher": "kargnas",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "categories": [
+    "Other",
+    "SCM Providers"
+  ],
+  "keywords": [
+    "tmux",
+    "worktree",
+    "git",
+    "git-worktree",
+    "terminal",
+    "session",
+    "branch",
+    "workflow",
+    "ai-coding",
+    "vibe-coding",
+    "claude-code",
+    "codex",
+    "opencode",
+    "parallel-development",
+    "multi-branch",
+    "coding-agent",
+    "remote-ssh"
+  ],
+  "galleryBanner": {
+    "color": "#1BB352",
+    "theme": "dark"
+  },
+  "badges": [
+    {
+      "url": "https://img.shields.io/visual-studio-marketplace/v/kargnas.vscode-tmux-worktree",
+      "href": "https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree",
+      "description": "VS Marketplace Version"
+    }
+  ],
+  "homepage": "https://github.com/joezhoujinjing/hydra",
+  "bugs": {
+    "url": "https://github.com/joezhoujinjing/hydra/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joezhoujinjing/hydra.git"
+  },
+  "main": "./out/extension.js",
+  "bin": {
+    "hydra": "./out/cli/index.js"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tmux-explorer",
+          "title": "Hydra",
+          "icon": "resources/tmux.svg"
+        }
+      ]
+    },
+    "views": {
+      "tmux-explorer": [
+        {
+          "id": "hydraCopilots",
+          "name": "Copilots"
+        },
+        {
+          "id": "hydraWorkers",
+          "name": "Workers"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "tmux.attachCreate",
+        "title": "Hydra: Attach/Create Session"
+      },
+      {
+        "command": "tmux.newTask",
+        "title": "Hydra: Create Worker"
+      },
+      {
+        "command": "tmux.removeTask",
+        "title": "Hydra: Remove Task"
+      },
+      {
+        "command": "tmux.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "tmux.filter",
+        "title": "Filter Sessions",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "tmux.attach",
+        "title": "Attach in Terminal"
+      },
+      {
+        "command": "tmux.attachInEditor",
+        "title": "Attach in Editor"
+      },
+      {
+        "command": "tmux.openWorktree",
+        "title": "Open Worktree in New Window"
+      },
+      {
+        "command": "tmux.copyPath",
+        "title": "Copy Worktree Path"
+      },
+      {
+        "command": "tmux.newPane",
+        "title": "New Pane (Split)"
+      },
+      {
+        "command": "tmux.newWindow",
+        "title": "New Window"
+      },
+      {
+        "command": "tmux.cleanupOrphans",
+        "title": "Hydra: Cleanup Orphans",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "tmux.terminalPaste",
+        "title": "Hydra: Smart Paste (Image Support)"
+      },
+      {
+        "command": "tmux.pasteImage",
+        "title": "Hydra: Paste Image from Clipboard"
+      },
+      {
+        "command": "tmux.createWorktreeFromBranch",
+        "title": "Create Worktree from This Branch"
+      },
+      {
+        "command": "tmux.switchBackend",
+        "title": "Switch Backend",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "hydra.createCopilot",
+        "title": "Hydra: Create Copilot",
+        "icon": "$(hubot)"
+      },
+      {
+        "command": "hydra.createWorker",
+        "title": "Hydra: Create Worker",
+        "icon": "$(server-process)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "tmux.terminalPaste",
+        "key": "cmd+v",
+        "when": "terminalFocus",
+        "mac": "cmd+v",
+        "linux": "ctrl+shift+v"
+      }
+    ],
+    "configuration": {
+      "title": "Hydra",
+      "properties": {
+        "tmuxWorktree.multiplexer": {
+          "type": "string",
+          "enum": [
+            "tmux",
+            "zellij"
+          ],
+          "default": "tmux",
+          "markdownDescription": "Terminal multiplexer backend to use (`tmux` or `zellij`). Changes apply immediately."
+        },
+        "tmuxWorktree.baseBranch": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Override the base branch used when creating new task worktrees (e.g. `master`, `origin/master`). Leave empty to auto-detect from `origin/main`, `main`, `origin/master`, `master`."
+        },
+        "hydra.baseBranch": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Override the base branch used when creating new worker worktrees (e.g. `master`, `origin/master`). Leave empty to auto-detect. Takes precedence over `tmuxWorktree.baseBranch`."
+        },
+        "hydra.defaultAgent": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex",
+            "gemini",
+            "aider",
+            "custom"
+          ],
+          "default": "claude",
+          "markdownDescription": "Default AI agent to launch in new copilot/worker sessions."
+        },
+        "hydra.agentCommands": {
+          "type": "object",
+          "default": {
+            "claude": "claude",
+            "codex": "codex",
+            "gemini": "gemini",
+            "aider": "aider"
+          },
+          "markdownDescription": "Map of agent type to shell command used to launch the agent."
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "tmux.switchBackend",
+          "when": "view == hydraCopilots || view == hydraWorkers",
+          "group": "navigation"
+        },
+        {
+          "command": "tmux.refresh",
+          "when": "view == hydraCopilots || view == hydraWorkers",
+          "group": "navigation"
+        },
+        {
+          "command": "tmux.filter",
+          "when": "view == hydraCopilots || view == hydraWorkers",
+          "group": "navigation"
+        },
+        {
+          "command": "tmux.cleanupOrphans",
+          "when": "view == hydraCopilots || view == hydraWorkers",
+          "group": "navigation"
+        },
+        {
+          "command": "hydra.createCopilot",
+          "when": "view == hydraCopilots",
+          "group": "navigation"
+        },
+        {
+          "command": "hydra.createWorker",
+          "when": "view == hydraWorkers",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "tmux.attach",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
+          "group": "1_attach"
+        },
+        {
+          "command": "tmux.attachInEditor",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
+          "group": "1_attach"
+        },
+        {
+          "command": "tmux.openWorktree",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
+          "group": "2_open"
+        },
+        {
+          "command": "tmux.copyPath",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
+          "group": "2_open"
+        },
+        {
+          "command": "tmux.newPane",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
+          "group": "3_tmux"
+        },
+        {
+          "command": "tmux.newWindow",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
+          "group": "3_tmux"
+        },
+        {
+          "command": "tmux.createWorktreeFromBranch",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
+          "group": "4_create"
+        },
+        {
+          "command": "tmux.removeTask",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
+          "group": "5_danger"
+        }
+      ]
+    }
+  },
+  "activationEvents": [
+    "onView:hydraCopilots"
+  ],
+  "scripts": {
+    "compile": "tsc -p ./ && node scripts/postcompile.js",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.53.0",
+    "@typescript-eslint/parser": "^8.53.0",
+    "eslint": "^9.39.2",
+    "globals": "^17.0.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "commander": "^14.0.3"
+  }
+}

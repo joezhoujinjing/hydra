@@ -1,0 +1,267 @@
+#!/bin/bash
+# hydra-worker — Create a Hydra worker (worktree + tmux session + agent)
+# Replicates the createWorker.ts flow from the Hydra VS Code extension.
+set -euo pipefail
+
+usage() {
+  cat <<EOF
+Usage: hydra-worker --repo <path> --branch <name> [--agent <type>] [--base <branch>] [--task <prompt>]
+
+Options:
+  --repo    Path to the git repository (required)
+  --branch  Git branch name to create (required)
+  --agent   Agent type to launch: claude, codex, gemini, aider (default: claude)
+  --base    Base branch override (default: auto-detect)
+  --task    Initial task/prompt to give the agent (optional)
+  -h|--help Show this help
+EOF
+  exit "${1:-0}"
+}
+
+# --- Parse arguments ---
+REPO=""
+BRANCH=""
+AGENT="claude"
+BASE_OVERRIDE=""
+TASK=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo)    REPO="$2"; shift 2 ;;
+    --branch)  BRANCH="$2"; shift 2 ;;
+    --agent)   AGENT="$2"; shift 2 ;;
+    --base)    BASE_OVERRIDE="$2"; shift 2 ;;
+    --task)    TASK="$2"; shift 2 ;;
+    -h|--help) usage 0 ;;
+    *) echo "Unknown option: $1" >&2; usage 1 ;;
+  esac
+done
+
+[[ -z "$REPO" ]] && { echo "Error: --repo is required" >&2; usage 1; }
+[[ -z "$BRANCH" ]] && { echo "Error: --branch is required" >&2; usage 1; }
+
+# --- Resolve repo to absolute path ---
+REPO="$(cd "$REPO" && pwd)"
+
+# Verify it's a git repo
+if ! git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "Error: $REPO is not a git repository" >&2
+  exit 1
+fi
+
+# Get the repo root (in case user passed a subdirectory)
+REPO="$(git -C "$REPO" rev-parse --show-toplevel)"
+
+# --- Validate branch name (matches validateBranchName in git.ts) ---
+validate_branch() {
+  local b="$1"
+  [[ -z "$b" ]] && { echo "Branch name is required."; return 1; }
+  [[ "$b" =~ [[:space:]] ]] && { echo "Branch names cannot contain whitespace."; return 1; }
+  [[ "$b" == "@" ]] && { echo 'Branch name "@" is not allowed.'; return 1; }
+  [[ "$b" == -* ]] && { echo 'Branch names cannot start with "-".'; return 1; }
+  [[ "$b" == /* || "$b" == */ ]] && { echo 'Branch names cannot start or end with "/".'; return 1; }
+  [[ "$b" == *. ]] && { echo 'Branch names cannot end with ".".'; return 1; }
+  [[ "$b" == *.lock ]] && { echo 'Branch names cannot end with ".lock".'; return 1; }
+  [[ "$b" == *..* ]] && { echo 'Branch names cannot contain "..".'; return 1; }
+  [[ "$b" == *//* ]] && { echo 'Branch names cannot contain "//".'; return 1; }
+  [[ "$b" == *@\{* ]] && { echo 'Branch names cannot contain "@{".'; return 1; }
+  [[ "$b" =~ [~^:?*\\[] ]] && { echo "Branch names contain invalid characters."; return 1; }
+  return 0
+}
+
+err=$(validate_branch "$BRANCH") || { echo "Error: $err" >&2; exit 1; }
+
+# --- Check branch doesn't already exist locally ---
+if git -C "$REPO" show-ref --verify --quiet "refs/heads/$BRANCH" 2>/dev/null; then
+  echo "Error: Branch \"$BRANCH\" already exists." >&2
+  exit 1
+fi
+
+# --- Compute namespace (matches getRepoSessionNamespace in git.ts) ---
+# Canonical path: expand ~ and resolve to absolute (no symlink resolution per AGENTS.md)
+CANONICAL="$REPO"
+BASENAME="$(basename "$CANONICAL")"
+# Sanitize basename: replace /\s.: with -
+SANITIZED_BASENAME="$(echo "$BASENAME" | sed -E 's/[/\\[:space:].:]+/-/g')"
+[[ -z "$SANITIZED_BASENAME" ]] && SANITIZED_BASENAME="repo"
+ROOT_HASH="$(printf '%s' "$CANONICAL" | shasum -a 1 | cut -c1-8)"
+NAMESPACE="${SANITIZED_BASENAME}-${ROOT_HASH}"
+
+# --- Compute slug (matches branchNameToSlug / sanitizeSessionName) ---
+SLUG="$(echo "$BRANCH" | sed -E 's/[/\\[:space:].:]+/-/g')"
+
+# --- Detect base branch (matches getBaseBranch in git.ts) ---
+detect_base_branch() {
+  if [[ -n "$BASE_OVERRIDE" ]]; then
+    if git -C "$REPO" rev-parse --verify "$BASE_OVERRIDE" >/dev/null 2>&1; then
+      echo "$BASE_OVERRIDE"
+      return
+    fi
+    echo "Error: Configured base branch \"$BASE_OVERRIDE\" not found." >&2
+    exit 1
+  fi
+  for candidate in origin/main main origin/master master; do
+    if git -C "$REPO" rev-parse --verify "$candidate" >/dev/null 2>&1; then
+      echo "$candidate"
+      return
+    fi
+  done
+  echo "Error: No default branch found (tried: origin/main, main, origin/master, master)" >&2
+  exit 1
+}
+
+BASE_BRANCH="$(detect_base_branch)"
+
+# --- Slug collision check (matches isSlugTaken) ---
+WORKTREES_DIR="$REPO/.hydra/worktrees"
+FINAL_SLUG="$SLUG"
+SUFFIX=1
+
+is_slug_taken() {
+  local s="$1"
+  # Reserved main slug
+  [[ "$s" == "main" ]] && return 0
+  # Worktree directory exists
+  [[ -d "$WORKTREES_DIR/$s" ]] && return 0
+  # Tmux session exists
+  local session_name="${NAMESPACE}_${s}"
+  tmux has-session -t "=$session_name" 2>/dev/null && return 0
+  return 1
+}
+
+while is_slug_taken "$FINAL_SLUG"; do
+  SUFFIX=$((SUFFIX + 1))
+  FINAL_SLUG="${SLUG}-${SUFFIX}"
+done
+
+# --- Create worktree ---
+WORKTREE_PATH="$WORKTREES_DIR/$FINAL_SLUG"
+mkdir -p "$WORKTREES_DIR"
+git -C "$REPO" worktree add "$WORKTREE_PATH" -b "$BRANCH" "$BASE_BRANCH"
+
+# Store vscode-merge-base for SCM diff anchoring
+git -C "$REPO" config "branch.${BRANCH}.vscode-merge-base" "$BASE_BRANCH"
+
+# --- Ensure .hydra in .gitignore ---
+GITIGNORE="$REPO/.gitignore"
+if [[ -f "$GITIGNORE" ]]; then
+  if ! grep -qxF '.hydra' "$GITIGNORE" && ! grep -qxF '.hydra/' "$GITIGNORE"; then
+    echo '.hydra' >> "$GITIGNORE"
+  fi
+else
+  echo '.hydra' > "$GITIGNORE"
+fi
+
+# --- Resolve @imports in CLAUDE.md to avoid external import prompts ---
+# Worktrees live outside the repo root, so @AGENTS.md resolves to an "external"
+# path. Inline imported content so agents never hit trust prompts.
+resolve_imports() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  local tmpfile="${file}.tmp"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^@(.+)$ ]]; then
+      local import_ref="${BASH_REMATCH[1]}"
+      local import_path="$REPO/$import_ref"
+      if [[ -f "$import_path" ]]; then
+        cat "$import_path"
+        echo "  Inlined @${import_ref} into $(basename "$file")" >&2
+      else
+        echo "$line"
+      fi
+    else
+      echo "$line"
+    fi
+  done < "$file" > "$tmpfile"
+  mv "$tmpfile" "$file"
+}
+
+for md_file in "$WORKTREE_PATH/CLAUDE.md" "$WORKTREE_PATH/AGENTS.md" "$WORKTREE_PATH/GEMINI.md"; do
+  resolve_imports "$md_file"
+done
+
+# --- Inject worker instructions into worktree ---
+WORKER_INSTRUCTIONS="$HOME/.hydra/WORKER_AGENTS.md"
+if [[ -f "$WORKER_INSTRUCTIONS" ]]; then
+  # Determine target file based on agent type
+  case "$AGENT" in
+    claude|aider) TARGET_FILE="$WORKTREE_PATH/CLAUDE.md" ;;
+    codex)        TARGET_FILE="$WORKTREE_PATH/AGENTS.md" ;;
+    gemini)       TARGET_FILE="$WORKTREE_PATH/GEMINI.md" ;;
+    *)            TARGET_FILE="$WORKTREE_PATH/CLAUDE.md" ;;
+  esac
+
+  # Check for duplicates: skip if <hydra> tag already exists in target
+  if [[ -f "$TARGET_FILE" ]] && grep -q '<hydra>' "$TARGET_FILE"; then
+    echo "  Worker instructions already present in $(basename "$TARGET_FILE"), skipping injection."
+  else
+    {
+      echo ""
+      echo "<hydra>"
+      cat "$WORKER_INSTRUCTIONS"
+      echo "</hydra>"
+    } >> "$TARGET_FILE"
+    echo "  Injected worker instructions into $(basename "$TARGET_FILE")"
+  fi
+fi
+
+# --- Create tmux session ---
+SESSION_NAME="${NAMESPACE}_${FINAL_SLUG}"
+
+# Scrub VS Code env vars to prevent shell integration interference
+tmux new-session -d -s "$SESSION_NAME" -c "$WORKTREE_PATH" \
+  -x 200 -y 50
+
+# Set session metadata
+tmux set-option -t "$SESSION_NAME" '@workdir' "$WORKTREE_PATH"
+tmux set-option -t "$SESSION_NAME" '@hydra-role' 'worker'
+tmux set-option -t "$SESSION_NAME" '@hydra-agent' "$AGENT"
+
+# --- Launch agent ---
+get_agent_command() {
+  local agent="$1"
+  local task="$2"
+  case "$agent" in
+    claude)
+      local claude_flags="--dangerously-skip-permissions --add-dir $REPO"
+      if [[ -n "$task" ]]; then
+        printf "claude %s -- %q" "$claude_flags" "$task"
+      else
+        echo "claude $claude_flags"
+      fi
+      ;;
+    codex)
+      if [[ -n "$task" ]]; then
+        printf 'codex --full-auto %q' "$task"
+      else
+        echo "codex --full-auto"
+      fi
+      ;;
+    gemini)
+      if [[ -n "$task" ]]; then
+        printf 'gemini -y --include-directories /tmp %q' "$task"
+      else
+        echo "gemini -y --include-directories /tmp"
+      fi
+      ;;
+    aider)  echo "aider" ;;
+    *)      echo "$agent" ;;
+  esac
+}
+
+AGENT_CMD="$(get_agent_command "$AGENT" "$TASK")"
+tmux send-keys -t "$SESSION_NAME" "$AGENT_CMD" Enter
+
+# --- Auto-accept Claude trust dialogs (external imports, workspace trust) ---
+# In yolo mode these prompts are just friction. Send Enter after a delay to dismiss them.
+if [[ "$AGENT" == "claude" ]]; then
+  (sleep 8 && tmux send-keys -t "$SESSION_NAME" Enter 2>/dev/null) &
+  disown
+fi
+
+# --- Output ---
+echo "Worker created successfully."
+echo "  Session: $SESSION_NAME"
+echo "  Worktree: $WORKTREE_PATH"
+echo "  Branch: $BRANCH (from $BASE_BRANCH)"
+echo "  Agent: $AGENT"
