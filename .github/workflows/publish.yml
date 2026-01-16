@@ -1,0 +1,112 @@
+name: Publish Extension
+
+on:
+  push:
+    branches: [main]
+
+  schedule:
+    # Monthly patch release: 1st of every month at 09:00 UTC (18:00 KST)
+    - cron: '0 9 1 * *'
+
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type (skip = publish current version without bump)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - skip
+          - patch
+          - minor
+          - major
+
+# 신규 커밋이 들어오면 대기 중인 이전 실행을 취소
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Wait 10 minutes before publishing (on push)
+        if: github.event_name == 'push'
+        run: |
+          echo "⏳ 10분 후 자동 릴리즈가 시작됩니다..."
+          echo "💡 이 시간 동안 새로운 커밋이 push되면 이 실행은 취소되고 새로운 타이머가 시작됩니다."
+          sleep 600
+          echo "✅ 10분 대기 완료. 릴리즈를 시작합니다."
+      
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump Version (auto on push)
+        id: version
+        run: |
+          BUMP_TYPE="${{ github.event.inputs.version_bump || 'patch' }}"
+          
+          if [ "$BUMP_TYPE" = "skip" ]; then
+            VERSION=$(node -p "require('./package.json').version")
+            echo "Skipping version bump, using current: $VERSION"
+          else
+            CURRENT=$(node -p "require('./package.json').version")
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            
+            case "$BUMP_TYPE" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+            esac
+            
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            npm version $VERSION --no-git-tag-version
+            
+            git add package.json package-lock.json
+            git commit -m "chore: release v${VERSION}"
+            git tag "v${VERSION}"
+            git push origin main
+            git push origin "v${VERSION}"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Package VSIX
+        run: npx @vscode/vsce package --out "vscode-tmux-worktree-${{ steps.version.outputs.version }}.vsix"
+
+      - name: Publish to VS Code Marketplace
+        run: npx @vscode/vsce publish -p ${{ secrets.VSCE_PAT }}
+        continue-on-error: false
+
+      - name: Publish to Open VSX
+        run: npx ovsx publish "vscode-tmux-worktree-${{ steps.version.outputs.version }}.vsix" -p ${{ secrets.OVSX_PAT }}
+        continue-on-error: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: vscode-tmux-worktree-${{ steps.version.outputs.version }}.vsix
+          generate_release_notes: true
