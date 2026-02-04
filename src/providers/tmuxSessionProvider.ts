@@ -25,6 +25,20 @@ interface SessionWithStatus extends TmuxSession {
   slug: string;
 }
 
+function normalizeFsPath(targetPath?: string): string | undefined {
+  if (!targetPath) return undefined;
+  return path.resolve(targetPath);
+}
+
+function isCurrentWorkspacePath(targetPath: string | undefined, activeWorkspacePath: string): boolean {
+  const normalizedTarget = normalizeFsPath(targetPath);
+  return Boolean(normalizedTarget && normalizedTarget === activeWorkspacePath);
+}
+
+function withCurrentBadge(label: string, isCurrentWorkspace?: boolean): string {
+  return isCurrentWorkspace ? `${label} [current]` : label;
+}
+
 function getWorktreeLabel(worktree: Worktree, repoName: string): string {
   if (worktree.isMain) return '(root)';
 
@@ -172,30 +186,30 @@ export class RepoGroupItem extends TmuxItem {
 export class TmuxSessionItem extends TmuxItem {
   public readonly detailItem: TmuxSessionDetailItem;
   public readonly gitStatusItem?: GitStatusItem;
+  public readonly isCurrentWorkspace: boolean;
   
   constructor(
     public readonly session: SessionWithStatus,
     public readonly repoName: string,
     public readonly worktree?: Worktree,
-    labelOverride?: string 
+    labelOverride?: string,
+    isCurrentWorkspace?: boolean
   ) {
-    let label = labelOverride || session.slug;
     const isRoot = Boolean(worktree?.isMain);
-    
-    if (isRoot) {
-        label = '(root)';
-    }
-    
-    super(label, vscode.TreeItemCollapsibleState.Expanded, repoName, session.name);
+    const baseLabel = isRoot ? '(root)' : (labelOverride || session.slug);
+    const displayLabel = withCurrentBadge(baseLabel, isCurrentWorkspace);
+
+    super(displayLabel, vscode.TreeItemCollapsibleState.Expanded, repoName, session.name);
     this.contextValue = 'tmuxSessionWrapper';
     this.iconPath = this.getIcon();
+    this.isCurrentWorkspace = Boolean(isCurrentWorkspace);
     
     this.detailItem = new TmuxSessionDetailItem(session, repoName, worktree, isRoot);
     
     if (session.status.gitDirty > 0) {
         this.gitStatusItem = new GitStatusItem(session.status);
     }
-    
+
     this.tooltip = this.buildTooltip();
   }
 
@@ -250,19 +264,23 @@ export class TmuxSessionDetailItem extends TmuxItem {
 
 export class TmuxWorktreeGroupItem extends TmuxItem {
     public readonly children: TmuxSessionDetailItem[];
+    public readonly isCurrentWorkspace: boolean;
 
     constructor(
         label: string,
         repoName: string,
         sessions: SessionWithStatus[],
-        worktree?: Worktree
+        worktree?: Worktree,
+        isCurrentWorkspace?: boolean
     ) {
-        super(label, vscode.TreeItemCollapsibleState.Expanded, repoName);
+        const displayLabel = withCurrentBadge(label, isCurrentWorkspace);
+        super(displayLabel, vscode.TreeItemCollapsibleState.Expanded, repoName);
         this.contextValue = 'tmuxGroup';
         this.iconPath = new vscode.ThemeIcon('folder-active');
+        this.isCurrentWorkspace = Boolean(isCurrentWorkspace);
         
         this.children = sessions.map(s => {
-            return new TmuxSessionDetailItem(s, repoName, worktree); 
+            return new TmuxSessionDetailItem(s, repoName, worktree, worktree?.isMain); 
         });
 
         this.description = `${sessions.length} sessions`;
@@ -275,19 +293,22 @@ export class TmuxWorktreeGroupItem extends TmuxItem {
 
 export class InactiveWorktreeItem extends TmuxItem {
   public readonly detailItem: InactiveWorktreeDetailItem;
+  public readonly isCurrentWorkspace: boolean;
   
   constructor(
     public readonly worktree: Worktree,
     public readonly repoName: string,
-    public readonly targetSessionName: string
+    public readonly targetSessionName: string,
+    isCurrentWorkspace?: boolean
   ) {
-    const label = getWorktreeLabel(worktree, repoName);
+    const label = withCurrentBadge(getWorktreeLabel(worktree, repoName), isCurrentWorkspace);
     const isRoot = worktree.isMain;
     
     super(label, vscode.TreeItemCollapsibleState.Expanded, repoName, targetSessionName);
     
     this.contextValue = 'tmuxSessionWrapper'; 
     this.iconPath = new vscode.ThemeIcon('primitive-dot', new vscode.ThemeColor('disabledForeground'));
+    this.isCurrentWorkspace = Boolean(isCurrentWorkspace);
     
     this.detailItem = new InactiveWorktreeDetailItem(worktree, repoName, targetSessionName, isRoot);
 
@@ -380,6 +401,7 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
             listWorktrees(repoRoot)
         ]);
         this._error = undefined; // 성공 시 에러 초기화
+        const activeWorkspacePath = path.resolve(repoRoot);
 
         const repoPrefix = `${sanitizeSessionName(repoName)}_`;
         const repoSessions = allSessions.filter(s => s.name.startsWith(repoPrefix));
@@ -418,18 +440,21 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
 
         const items: TmuxItem[] = [];
 
-        for (const [pathKey, entry] of pathMap.entries()) {
+        for (const [, entry] of pathMap.entries()) {
             const { worktree, sessions } = entry;
 
             if (sessions.length === 0 && worktree) {
                 const slug = getWorktreeSlug(worktree, repoName);
                 const sessionName = buildSessionName(repoName, slug);
-                items.push(new InactiveWorktreeItem(worktree, repoName, sessionName));
+                const isCurrentWorkspace = isCurrentWorkspacePath(worktree.path, activeWorkspacePath);
+                items.push(new InactiveWorktreeItem(worktree, repoName, sessionName, isCurrentWorkspace));
                 continue;
             }
 
             if (sessions.length === 1) {
-                items.push(new TmuxSessionItem(sessions[0], repoName, worktree));
+                const sessionPath = worktree?.path || sessions[0].worktreePath;
+                const isCurrentWorkspace = isCurrentWorkspacePath(sessionPath, activeWorkspacePath);
+                items.push(new TmuxSessionItem(sessions[0], repoName, worktree, undefined, isCurrentWorkspace));
                 continue;
             }
 
@@ -442,7 +467,9 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
                     if (label === 'main') label = '(root)';
                 }
 
-                items.push(new TmuxWorktreeGroupItem(label, repoName, sessions, worktree));
+                const sessionPath = worktree?.path || sessions[0].worktreePath;
+                const isCurrentWorkspace = isCurrentWorkspacePath(sessionPath, activeWorkspacePath);
+                items.push(new TmuxWorktreeGroupItem(label, repoName, sessions, worktree, isCurrentWorkspace));
             }
         }
 
@@ -495,6 +522,10 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
 
   private sortAndFilter(items: TmuxItem[]): TmuxItem[] {
       items.sort((a, b) => {
+          const currentA = this.isCurrentWorkspaceItem(a);
+          const currentB = this.isCurrentWorkspaceItem(b);
+          if (currentA !== currentB) return currentA ? -1 : 1;
+
           const scoreA = this.getScore(a);
           const scoreB = this.getScore(b);
           if (scoreA !== scoreB) return scoreA - scoreB;
@@ -536,5 +567,12 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
           return minScore;
       }
       return 10;
+  }
+
+  private isCurrentWorkspaceItem(item: TmuxItem): boolean {
+      if (item instanceof TmuxSessionItem) return item.isCurrentWorkspace;
+      if (item instanceof InactiveWorktreeItem) return item.isCurrentWorkspace;
+      if (item instanceof TmuxWorktreeGroupItem) return item.isCurrentWorkspace;
+      return false;
   }
 }

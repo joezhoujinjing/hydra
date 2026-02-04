@@ -4,7 +4,7 @@ This document serves as the primary rule file for AI Agents working on this proj
 **ALWAYS** update this file when you discover new patterns or finish significant tasks.
 
 ## Instruction
-- After every task and changes, install the compiled extension to `antigravity` (not `code`). The version should be increased by 1 patch.
+- After every task and changes, install the compiled extension to `code`, `code-insiders`, `antigravity`. The version should be increased by 1 patch.
 
 ## Tested VS Code
 - `code` (VS Code)
@@ -38,7 +38,8 @@ This document serves as the primary rule file for AI Agents working on this proj
 
 - **Polymorphism**: Commands must handle `TmuxItem` base class and variants (`TmuxSessionItem`, `InactiveWorktreeItem`, etc.).
 - **Path Handling**: Use `getWorktreePath(item)` helper.
-- **Root Detection**: Determine `(root)` by comparing worktree path to repo root (normalized), not by branch naming or folder basename.
+- **Root Detection**: Determine `(root)` by comparing worktree path to the primary worktree path derived from `git rev-parse --git-common-dir`, not by branch naming, folder basename, or the current workspace folder.
+- **Current Workspace Indicator**: Highlight the active VS Code workspace by comparing worktree/session paths against the current workspace folder (not the primary worktree path). Current items should sort to the top and display a `[current]` badge in the label.
 - **External Worktrees**: If the worktree folder name matches the repo name, derive a unique slug/label from the parent directory.
 - **Error Handling**: Use `try-catch` in TS and check `err != nil` in Go. Fail gracefully and notify the user.
 - **Async/Await**: Use `async/await` for all I/O operations in TypeScript.

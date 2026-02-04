@@ -61,13 +61,31 @@ export async function ensureWorktreesDir(repoRoot: string): Promise<string> {
   return worktreesDir;
 }
 
+async function getMainWorktreePath(repoRoot: string): Promise<string> {
+  try {
+    // Use the shared git dir to find the primary worktree, not the current one.
+    const commonDirRaw = await exec('git rev-parse --git-common-dir', { cwd: repoRoot });
+    const commonDir = commonDirRaw.trim();
+    if (!commonDir) return repoRoot;
+
+    const resolvedCommonDir = path.isAbsolute(commonDir)
+      ? commonDir
+      : path.resolve(repoRoot, commonDir);
+
+    return path.dirname(resolvedCommonDir);
+  } catch {
+    return repoRoot;
+  }
+}
+
 // worktree 목록 조회 (prunable 제외)
 export async function listWorktrees(repoRoot: string): Promise<Worktree[]> {
   try {
     const output = await exec('git worktree list --porcelain', { cwd: repoRoot });
     const worktrees: Worktree[] = [];
     const blocks = output.split('\n\n').filter(b => b.trim());
-    const normalizedRepoRoot = path.resolve(repoRoot);
+    const mainWorktreePath = await getMainWorktreePath(repoRoot);
+    const normalizedMainWorktreePath = path.resolve(mainWorktreePath);
     
     for (const block of blocks) {
       const lines = block.split('\n');
@@ -99,7 +117,7 @@ export async function listWorktrees(repoRoot: string): Promise<Worktree[]> {
           branch,
           // Root worktree is defined by path equality, not branch naming.
           // External worktrees (e.g. Codex) often reuse repo names or branches.
-          isMain: normalizedPath === normalizedRepoRoot
+          isMain: normalizedPath === normalizedMainWorktreePath
         });
       }
     }
