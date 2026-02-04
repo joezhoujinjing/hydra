@@ -38,6 +38,8 @@ This document serves as the primary rule file for AI Agents working on this proj
 
 - **Polymorphism**: Commands must handle `TmuxItem` base class and variants (`TmuxSessionItem`, `InactiveWorktreeItem`, etc.).
 - **Path Handling**: Use `getWorktreePath(item)` helper.
+- **Root Detection**: Determine `(root)` by comparing worktree path to repo root (normalized), not by branch naming or folder basename.
+- **External Worktrees**: If the worktree folder name matches the repo name, derive a unique slug/label from the parent directory.
 - **Error Handling**: Use `try-catch` in TS and check `err != nil` in Go. Fail gracefully and notify the user.
 - **Async/Await**: Use `async/await` for all I/O operations in TypeScript.
 
@@ -84,4 +86,3 @@ This document serves as the primary rule file for AI Agents working on this proj
 ## 6. Maintenance
 - **Update this file**: When new rules are established or architecture changes.
 - **Commit Rules**: Descriptive messages, conventionally formatted.
-

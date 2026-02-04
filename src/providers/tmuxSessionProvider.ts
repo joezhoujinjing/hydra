@@ -25,6 +25,36 @@ interface SessionWithStatus extends TmuxSession {
   slug: string;
 }
 
+function getWorktreeLabel(worktree: Worktree, repoName: string): string {
+  if (worktree.isMain) return '(root)';
+
+  const baseName = path.basename(worktree.path);
+  if (baseName !== repoName) return baseName;
+
+  // Disambiguate external worktrees that reuse the repo name as their folder name.
+  const parentName = path.basename(path.dirname(worktree.path));
+  if (parentName && parentName !== baseName) {
+    return `${baseName} (${parentName})`;
+  }
+
+  return baseName;
+}
+
+function getWorktreeSlug(worktree: Worktree, repoName: string): string {
+  if (worktree.isMain) return 'main';
+
+  const baseName = path.basename(worktree.path);
+  if (baseName !== repoName) return baseName;
+
+  // Keep session names unique when worktrees live outside the repo root.
+  const parentName = path.basename(path.dirname(worktree.path));
+  if (parentName && parentName !== baseName) {
+    return `${baseName}-${parentName}`;
+  }
+
+  return baseName;
+}
+
 export class TmuxItem extends vscode.TreeItem {
   constructor(
     public readonly label: string,
@@ -150,21 +180,10 @@ export class TmuxSessionItem extends TmuxItem {
     labelOverride?: string 
   ) {
     let label = labelOverride || session.slug;
-    let isRoot = false;
+    const isRoot = Boolean(worktree?.isMain);
     
-    if (!label || label === repoName) {
+    if (isRoot) {
         label = '(root)';
-        isRoot = true;
-    } else if (session.worktreePath && label === path.basename(session.worktreePath)) {
-        if (label === repoName) {
-            label = '(root)';
-            isRoot = true;
-        }
-    }
-    
-    if (worktree?.isMain && !worktree.path.includes('.worktrees')) {
-        label = '(root)';
-        isRoot = true;
     }
     
     super(label, vscode.TreeItemCollapsibleState.Expanded, repoName, session.name);
@@ -262,18 +281,10 @@ export class InactiveWorktreeItem extends TmuxItem {
     public readonly repoName: string,
     public readonly targetSessionName: string
   ) {
-    let slug = path.basename(worktree.path);
-    let isRoot = false;
+    const label = getWorktreeLabel(worktree, repoName);
+    const isRoot = worktree.isMain;
     
-    if (worktree.isMain && !worktree.path.includes('.worktrees')) {
-        slug = '(root)';
-        isRoot = true;
-    } else if (slug === repoName) {
-        slug = '(root)';
-        isRoot = true;
-    }
-
-    super(slug, vscode.TreeItemCollapsibleState.Expanded, repoName, targetSessionName);
+    super(label, vscode.TreeItemCollapsibleState.Expanded, repoName, targetSessionName);
     
     this.contextValue = 'tmuxSessionWrapper'; 
     this.iconPath = new vscode.ThemeIcon('primitive-dot', new vscode.ThemeColor('disabledForeground'));
@@ -281,7 +292,7 @@ export class InactiveWorktreeItem extends TmuxItem {
     this.detailItem = new InactiveWorktreeDetailItem(worktree, repoName, targetSessionName, isRoot);
 
     const md = new vscode.MarkdownString();
-    md.appendMarkdown(`### ${slug} (Stopped)\n\n`);
+    md.appendMarkdown(`### ${label} (Stopped)\n\n`);
     md.appendMarkdown(`Click to launch tmux session.\n\n`);
     md.appendMarkdown(`- **Path**: \`${worktree.path}\`\n`);
     this.tooltip = md;
@@ -411,12 +422,7 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
             const { worktree, sessions } = entry;
 
             if (sessions.length === 0 && worktree) {
-                let slug = path.basename(worktree.path);
-                if (worktree.isMain && !worktree.path.includes('.worktrees')) {
-                    slug = 'main';
-                } else if (slug === repoName) {
-                    slug = 'main';
-                }
+                const slug = getWorktreeSlug(worktree, repoName);
                 const sessionName = buildSessionName(repoName, slug);
                 items.push(new InactiveWorktreeItem(worktree, repoName, sessionName));
                 continue;
@@ -430,9 +436,7 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
             if (sessions.length > 1) {
                 let label = 'Unknown';
                 if (worktree) {
-                    label = path.basename(worktree.path);
-                    if (worktree.isMain && !worktree.path.includes('.worktrees')) label = '(root)';
-                    else if (label === repoName) label = '(root)';
+                    label = getWorktreeLabel(worktree, repoName);
                 } else {
                     label = sessions[0].slug; 
                     if (label === 'main') label = '(root)';

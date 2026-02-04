@@ -67,6 +67,7 @@ export async function listWorktrees(repoRoot: string): Promise<Worktree[]> {
     const output = await exec('git worktree list --porcelain', { cwd: repoRoot });
     const worktrees: Worktree[] = [];
     const blocks = output.split('\n\n').filter(b => b.trim());
+    const normalizedRepoRoot = path.resolve(repoRoot);
     
     for (const block of blocks) {
       const lines = block.split('\n');
@@ -77,18 +78,28 @@ export async function listWorktrees(repoRoot: string): Promise<Worktree[]> {
       for (const line of lines) {
         if (line.startsWith('worktree ')) {
           wtPath = line.substring(9);
-        } else if (line.startsWith('branch refs/heads/')) {
-          branch = line.substring(18);
+        } else if (line.startsWith('branch ')) {
+          const ref = line.substring(7);
+          if (ref.startsWith('refs/heads/')) {
+            branch = ref.substring('refs/heads/'.length);
+          } else if (ref.startsWith('refs/remotes/')) {
+            branch = ref.substring('refs/remotes/'.length);
+          } else {
+            branch = ref;
+          }
         } else if (line === 'prunable') {
           isPrunable = true;
         }
       }
       
       if (wtPath && !isPrunable) {
+        const normalizedPath = path.resolve(wtPath);
         worktrees.push({
           path: wtPath,
           branch,
-          isMain: !branch.startsWith('task/')
+          // Root worktree is defined by path equality, not branch naming.
+          // External worktrees (e.g. Codex) often reuse repo names or branches.
+          isMain: normalizedPath === normalizedRepoRoot
         });
       }
     }

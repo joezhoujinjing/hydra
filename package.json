@@ -2,7 +2,7 @@
   "name": "vscode-tmux-worktree",
   "displayName": "TMUX Worktree",
   "description": "Manage tmux sessions with git worktrees",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -80,7 +80,6 @@
         "command": "tmux.newWindow",
         "title": "New Window"
       },
-
       {
         "command": "tmux.cleanupOrphans",
         "title": "TMUX: Cleanup Orphans",
@@ -142,7 +141,6 @@
           "when": "view == tmuxSessions && viewItem =~ /^tmuxSession/",
           "group": "3_tmux"
         },
-
         {
           "command": "tmux.removeTask",
           "when": "view == tmuxSessions && viewItem == tmuxSession",
