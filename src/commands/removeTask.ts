@@ -57,9 +57,14 @@ function isMainWorktreeItem(item: TmuxItem): boolean {
   if (item instanceof WorktreeItem) return item.isMainWorktree;
   if (item instanceof TmuxDetailItem && item.worktree) return item.worktree.isMain;
   if (item instanceof InactiveDetailItem && item.worktree) return item.worktree.isMain;
-  if (item instanceof GitStatusItem) {
-    return false;
-  }
+  if (item instanceof GitStatusItem) return false;
+  return false;
+}
+
+function isOrphanItem(item: TmuxItem): boolean {
+  if (item instanceof TmuxSessionItem) return item.session.status.classification === 'orphan';
+  if (item instanceof TmuxDetailItem && item.session) return item.session.status.classification === 'orphan';
+  if (item instanceof WorktreeItem) return !item.hasGit;
   return false;
 }
 
@@ -106,6 +111,25 @@ export async function removeTask(item: TmuxItem): Promise<void> {
     try {
       await killSession(sessionName);
       vscode.window.showInformationMessage(`Killed session: ${sessionName}`);
+    } catch (err) {
+      vscode.window.showErrorMessage(`Failed to kill session: ${err}`);
+    }
+    vscode.commands.executeCommand("tmux.refresh");
+    return;
+  }
+
+  // ── Orphan: worktree 이미 없음, tmux 세션만 종료 ──
+  if (isOrphanItem(item)) {
+    const confirm = await vscode.window.showWarningMessage(
+      `Kill orphan tmux session "${sessionName}"? (Worktree no longer exists)`,
+      { modal: true },
+      "Kill Session",
+    );
+    if (confirm !== "Kill Session") return;
+
+    try {
+      await killSession(sessionName);
+      vscode.window.showInformationMessage(`Killed orphan session: ${sessionName}`);
     } catch (err) {
       vscode.window.showErrorMessage(`Failed to kill session: ${err}`);
     }
