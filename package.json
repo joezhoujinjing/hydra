@@ -7,6 +7,8 @@
     "vscode": "^1.85.0"
   },
   "publisher": "kargnas",
+  "license": "MIT",
+  "icon": "resources/icon.png",
   "categories": [
     "Other"
   ],

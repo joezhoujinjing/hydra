@@ -1,0 +1,101 @@
+name: Publish Extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'resources/**'
+      - '.vscodeignore'
+
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type (skip = publish current version without bump)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - skip
+          - patch
+          - minor
+          - major
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump Version (auto on push)
+        id: version
+        run: |
+          BUMP_TYPE="${{ github.event.inputs.version_bump || 'patch' }}"
+          
+          if [ "$BUMP_TYPE" = "skip" ]; then
+            VERSION=$(node -p "require('./package.json').version")
+            echo "Skipping version bump, using current: $VERSION"
+          else
+            CURRENT=$(node -p "require('./package.json').version")
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            
+            case "$BUMP_TYPE" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+            esac
+            
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            npm version $VERSION --no-git-tag-version
+            
+            git add package.json package-lock.json
+            git commit -m "chore: release v${VERSION}"
+            git tag "v${VERSION}"
+            git push origin main
+            git push origin "v${VERSION}"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Package VSIX
+        run: npx @vscode/vsce package --out "vscode-tmux-worktree-${{ steps.version.outputs.version }}.vsix"
+
+      - name: Publish to VS Code Marketplace
+        run: npx @vscode/vsce publish -p ${{ secrets.VSCE_PAT }}
+        continue-on-error: false
+
+      - name: Publish to Open VSX
+        run: npx ovsx publish "vscode-tmux-worktree-${{ steps.version.outputs.version }}.vsix" -p ${{ secrets.OVSX_PAT }}
+        continue-on-error: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: vscode-tmux-worktree-${{ steps.version.outputs.version }}.vsix
+          generate_release_notes: true
