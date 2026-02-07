@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { getRepoRoot, getRepoName } from '../utils/git';
 import { isTmuxInstalled, listSessions, getSessionWorkdir, attachSession, createSession, setSessionWorkdir, sanitizeSessionName } from '../utils/tmux';
-import { InactiveWorktreeItem, InactiveWorktreeDetailItem, TmuxItem } from '../providers/tmuxSessionProvider';
+import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem } from '../providers/tmuxSessionProvider';
 
 async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
   const sessions = await listSessions();
@@ -46,7 +46,7 @@ async function handleTreeViewItem(item: TmuxItem): Promise<void> {
         return;
     }
     
-    if (item instanceof InactiveWorktreeDetailItem) {
+    if (item instanceof InactiveDetailItem) {
         const worktreePath = item.worktree.path;
         
         await createSession(sessionName, worktreePath);

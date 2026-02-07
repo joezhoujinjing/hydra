@@ -16,6 +16,7 @@ import {
 
 export function activate(context: vscode.ExtensionContext) {
   const sessionProvider = new TmuxSessionProvider();
+  sessionProvider.setExtensionUri(context.extensionUri);
   vscode.window.registerTreeDataProvider('tmuxSessions', sessionProvider);
 
   context.subscriptions.push(

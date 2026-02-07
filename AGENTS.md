@@ -38,9 +38,10 @@ This document serves as the primary rule file for AI Agents working on this proj
 
 - **Polymorphism**: Commands must handle `TmuxItem` base class and variants (`TmuxSessionItem`, `InactiveWorktreeItem`, etc.).
 - **Path Handling**: Use `getWorktreePath(item)` helper.
-- **Root Detection**: Determine `(root)` by comparing worktree path to the primary worktree path derived from `git rev-parse --git-common-dir`, not by branch naming, folder basename, or the current workspace folder.
-- **Current Workspace Indicator**: Highlight the active VS Code workspace by comparing worktree/session paths against the current workspace folder (not the primary worktree path). Current items should sort to the top and display a `[current]` badge in the label.
+- **Root Detection**: Determine the primary worktree by comparing worktree path to the primary worktree path derived from `git rev-parse --git-common-dir`, not by branch naming, folder basename, or the current workspace folder.
+- **Current Workspace Indicator**: Highlight the active VS Code workspace by comparing worktree/session paths against the current workspace folder (not the primary worktree path). Current items should sort to the top and display a `👆` marker in the label.
 - **External Worktrees**: If the worktree folder name matches the repo name, derive a unique slug/label from the parent directory.
+- **Tree Context Menu**: Use a single TreeItem `contextValue` (`tmuxItem`) for levels 2/3/4 so the same context menu always appears.
 - **Error Handling**: Use `try-catch` in TS and check `err != nil` in Go. Fail gracefully and notify the user.
 - **Async/Await**: Use `async/await` for all I/O operations in TypeScript.
 
@@ -81,7 +82,8 @@ This document serves as the primary rule file for AI Agents working on this proj
 - **UI/UX Guidelines**:
   - **Session Presentation**: Two-line layout (Group/Status + Detail).
   - **Terminal Interaction**: Open in Editor Area (Tabs) by default.
-  - **Root Labeling**: Label repository root worktree as `(root)`.
+  - **Root Labeling**: Do not show a `(root)` label; show the branch/HEAD label for the primary worktree like any other.
+  - **Tree Levels**: Level 2 is branch/HEAD with a green circle status (filled = tmux active, outline = stopped, warning = git missing). Level 3 shows tmux usage with `resources/tmux.svg` (inactive uses a grey variant). Level 4 shows git summary (↑ commits, `M/U/D` counts) only when there is something to show.
   - **Deduplication**: Active Session > Inactive Worktree.
 
 ## 6. Maintenance
