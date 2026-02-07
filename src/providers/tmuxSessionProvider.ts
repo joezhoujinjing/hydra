@@ -302,7 +302,8 @@ export class WorktreeItem extends TmuxItem {
     hasTmux: boolean;
     isMainWorktree?: boolean;
   }) {
-    const displayLabel = opts.isCurrentWorkspace ? `${opts.branchLabel} 👆` : opts.branchLabel;
+    const displayLabel = opts.branchLabel;
+    const description = opts.isCurrentWorkspace ? 'This project' : undefined;
     super(displayLabel, vscode.TreeItemCollapsibleState.Expanded, opts.repoName, opts.sessionName);
 
     this.isCurrentWorkspace = opts.isCurrentWorkspace;
@@ -310,6 +311,7 @@ export class WorktreeItem extends TmuxItem {
     this.hasGit = opts.hasGit;
     this.hasTmux = opts.hasTmux;
     this.isMainWorktree = Boolean(opts.isMainWorktree);
+    this.description = description;
 
     this.contextValue = 'tmuxItem';
 

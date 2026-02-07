@@ -92,7 +92,7 @@ export async function removeTask(item: TmuxItem): Promise<void> {
   }
 
   slug = slug || getSlugFromSessionName(sessionName, item.repoName);
-  slug = slug || String(item.label).replace(" 👆", "");
+  slug = slug || String(item.label);
 
   // ── Main worktree: tmux 세션만 종료, 워크트리/브랜치 삭제 불가 ──
   if (isMain) {
