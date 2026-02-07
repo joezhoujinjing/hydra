@@ -1,5 +1,6 @@
 # TMUX Worktree
 
+[![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/kargnas.vscode-tmux-worktree?label=VS%20Marketplace&color=blue)](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree) [![Blog](https://img.shields.io/badge/Blog-kargn.as-green)](https://kargn.as)
 **喺 VS Code 入面同時管理 tmux 工作階段同埋 git worktree。**
 
 🌏 **其他語言:** [English](../README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [繁體中文 (台灣)](README.zh-TW.md) | **繁體中文 (香港)** | [日本語](README.ja.md)

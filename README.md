@@ -2,7 +2,11 @@
 
 **Seamlessly manage tmux sessions alongside git worktrees — right from VS Code.**
 
+[![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/kargnas.vscode-tmux-worktree?label=VS%20Marketplace&color=blue)](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree) [![Blog](https://img.shields.io/badge/Blog-kargn.as-green)](https://kargn.as)
+
 🌏 **Read this in other languages:** **English** | [한국어](docs/README.ko.md) | [简体中文](docs/README.zh-CN.md) | [繁體中文 (台灣)](docs/README.zh-TW.md) | [繁體中文 (香港)](docs/README.zh-HK.md) | [日本語](docs/README.ja.md)
+
+**[Install from VS Marketplace](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree)**
 
 ![TMUX Worktree Screenshot](https://raw.githubusercontent.com/kargnas/vscode-ext-tmux-worktree/main/docs/screenshot.png)
 
