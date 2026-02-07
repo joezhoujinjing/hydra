@@ -11,6 +11,10 @@ on:
       - 'resources/**'
       - '.vscodeignore'
 
+  schedule:
+    # Monthly patch release: 1st of every month at 09:00 UTC (18:00 KST)
+    - cron: '0 9 1 * *'
+
   workflow_dispatch:
     inputs:
       version_bump:
