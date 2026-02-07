@@ -1,62 +1,79 @@
 # TMUX Worktree
 
-**Manage tmux sessions with git worktrees directly from VS Code.**
+**Seamlessly manage tmux sessions alongside git worktrees — right from VS Code.**
 
-![TMUX Worktree Screenshot](docs/screenshot.png)
+![TMUX Worktree Screenshot](https://raw.githubusercontent.com/kargnas/vscode-ext-tmux-worktree/main/docs/screenshot.png)
 
-This project provides a seamless workflow for developers using `git worktree` and `tmux`. It allows you to switch between worktrees and their corresponding tmux sessions easily.
+## Why?
 
-## ✨ Features
+If you use `git worktree` for parallel development and `tmux` for persistent terminal sessions, you know the pain of manually juggling both. This extension bridges the gap:
 
-- **Explorer View**: Visualize all your git worktrees and tmux sessions in a tree view.
-- **Auto-Attach**: Automatically attach to the correct tmux session when opening a worktree.
-- **Session Management**: Create, attach, and manage tmux sessions.
-- **Worktree Integration**: Create new worktrees and associated sessions in one go.
-- **CLI Tool**: Includes a TUI (`tmux-worktree-tui`) for managing sessions from the terminal.
+- **One click** to create a worktree + tmux session together
+- **Tree view** showing all worktrees with their tmux status
+- **Auto-attach** to the right tmux session when you open a worktree
+- **Never lose context** — sessions persist even if VS Code closes
 
-## 💡 Use Case
+### Perfect for AI Coding Agents
 
-**Persistent AI Coding Sessions**
+Run AI coding agents (Claude Code, Codex, OpenCode, Gemini CLI) inside tmux sessions. Your agent keeps running in the background — reconnect from anywhere, even from a phone via Termux.
 
-Run AI coding agents (like `opencode`, `claudecode`, `gemini-cli`) inside tmux sessions. This ensures your working context and agent history are never lost, even if your SSH connection drops or you close VS Code.
+## Features
 
-- **Always On**: AI agents keep running in the background.
-- **Anywhere Access**: Seamlessly resume your coding session from any device (e.g., using **Termux** on Android) without losing state.
+### 🌳 Explorer View
+A dedicated sidebar showing all your git worktrees and their associated tmux sessions at a glance. See session status, pane count, and last activity time.
 
-## 🛠 Tech Stack
+### ⚡ One-Click Task Creation
+Create a new git branch + worktree + tmux session in one step. Start working on a new feature instantly.
 
-- **Extension**: TypeScript, VS Code Extension API.
-- **CLI**: Go, Bubble Tea (TUI Framework).
+### 🔗 Smart Attach
+- **Attach in Terminal** — open tmux session in VS Code's integrated terminal
+- **Attach in Editor** — embed tmux session as an editor tab
+- **Auto-attach** — automatically connect when opening a worktree folder
 
-## 🚀 Getting Started
+### 🧹 Orphan Cleanup
+Detect and clean up tmux sessions that no longer have matching worktrees. Keep your environment tidy.
 
-### Prerequisites
-- **tmux**: Must be installed.
-- **git**: Must be installed.
-- **VS Code**: Version 1.85.0 or higher.
+### 🖥️ Session Management
+- Split panes and create new windows from the context menu
+- Copy worktree paths to clipboard
+- Open worktrees in new VS Code windows
+- Filter sessions by name
 
-### Setup
-1.  Clone the repository.
-2.  Install dependencies:
-    ```bash
-    npm install
-    cd cli && go mod download
-    ```
+## Commands
 
-### Development
-- **Run Extension**: Press `F5` in VS Code.
-- **Build Extension**: `npm run compile`.
-- **Lint**: `npm run lint`.
-- **Run CLI**: `cd cli && go run ./main.go`.
+| Command | Description |
+|---------|-------------|
+| `TMUX: Attach/Create Session` | Attach to or create a tmux session for the current worktree |
+| `TMUX: New Task` | Create a new branch + worktree + tmux session |
+| `TMUX: Remove Task` | Remove a worktree and its tmux session |
+| `TMUX: Cleanup Orphans` | Remove orphaned tmux sessions |
 
-## 🤝 Contributing
+## Requirements
 
-1.  Clone the repository.
-2.  Create a feature branch.
-3.  Make your changes.
-4.  Run lint and build tests.
-5.  Submit a Pull Request.
+- **tmux** — must be installed and available in PATH
+- **git** — must be installed and available in PATH
+- **VS Code** 1.85.0+
 
-## 🤖 AI Agent Setup
+## Getting Started
 
-For AI-assisted development, see [README.ai-ready.md](README.ai-ready.md).
+1. Install the extension
+2. Open a git repository in VS Code
+3. Click the **TMUX** icon in the Activity Bar (sidebar)
+4. Your existing worktrees and tmux sessions will appear automatically
+
+To create a new task: click the **+** button in the TMUX panel header, enter a branch name, and you're ready to go.
+
+## How It Works
+
+```
+Repository (root)
+├── main              → tmux session: "project/main"
+├── feature/login     → tmux session: "project/feature-login"
+└── fix/bug-123       → tmux session: "project/fix-bug-123"
+```
+
+Each worktree gets a dedicated tmux session. Sessions are named based on the repository and branch, so they're easy to find even outside VS Code.
+
+## License
+
+[MIT](LICENSE.md)

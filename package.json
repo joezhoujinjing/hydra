@@ -10,8 +10,34 @@
   "license": "MIT",
   "icon": "resources/icon.png",
   "categories": [
-    "Other"
+    "Other",
+    "SCM Providers"
   ],
+  "keywords": [
+    "tmux",
+    "worktree",
+    "git",
+    "terminal",
+    "session",
+    "branch",
+    "workflow",
+    "ai-coding"
+  ],
+  "galleryBanner": {
+    "color": "#1BB352",
+    "theme": "dark"
+  },
+  "badges": [
+    {
+      "url": "https://img.shields.io/visual-studio-marketplace/v/kargnas.vscode-tmux-worktree",
+      "href": "https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree",
+      "description": "VS Marketplace Version"
+    }
+  ],
+  "homepage": "https://github.com/kargnas/vscode-ext-tmux-worktree",
+  "bugs": {
+    "url": "https://github.com/kargnas/vscode-ext-tmux-worktree/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/kargnas/vscode-ext-tmux-worktree.git"
