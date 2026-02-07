@@ -2,6 +2,8 @@
 
 **Seamlessly manage tmux sessions alongside git worktrees — right from VS Code.**
 
+🌏 **Read this in other languages:** **English** | [한국어](docs/README.ko.md) | [简体中文](docs/README.zh-CN.md) | [繁體中文 (台灣)](docs/README.zh-TW.md) | [繁體中文 (香港)](docs/README.zh-HK.md) | [日本語](docs/README.ja.md)
+
 ![TMUX Worktree Screenshot](https://raw.githubusercontent.com/kargnas/vscode-ext-tmux-worktree/main/docs/screenshot.png)
 
 ## Why?
@@ -16,6 +18,32 @@ If you use `git worktree` for parallel development and `tmux` for persistent ter
 ### Perfect for AI Coding Agents
 
 Run AI coding agents (Claude Code, Codex, OpenCode, Gemini CLI) inside tmux sessions. Your agent keeps running in the background — reconnect from anywhere, even from a phone via Termux.
+
+### Real-World Use Cases
+
+**🤖 Parallel Development with AI Agents**
+```
+project/
+├── main              → tmux: "myapp/main" (Claude Code refactoring)
+├── feature/oauth     → tmux: "myapp/feature-oauth" (manual coding)
+└── fix/memory-leak   → tmux: "myapp/fix-memory-leak" (Codex analyzing)
+```
+Run independent AI agents on each branch, check results in VS Code. Sessions keep working in the background.
+
+**🌐 Remote Server Development**
+Connected to a dev server via SSH:
+- Use VS Code Remote-SSH to connect
+- Manage branch sessions with TMUX Worktree
+- SSH disconnect? tmux sessions persist
+- Reconnect from home, café, or phone
+
+**📱 Mobile Code Review**
+Access from phone via Termux + SSH:
+```bash
+ssh dev-server
+tmux attach -t myapp/feature-oauth
+```
+Review AI-written code during your commute.
 
 ## Features
 
@@ -73,6 +101,12 @@ Repository (root)
 ```
 
 Each worktree gets a dedicated tmux session. Sessions are named based on the repository and branch, so they're easy to find even outside VS Code.
+
+## Learn More
+
+- [Marketplace](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree)
+- [GitHub Repository](https://github.com/kargnas/vscode-ext-tmux-worktree)
+- [Report Issues](https://github.com/kargnas/vscode-ext-tmux-worktree/issues)
 
 ## License
 
