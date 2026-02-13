@@ -91,14 +91,16 @@ export function attachSession(sessionName: string, cwd?: string, location: vscod
     existing.dispose();
   }
   
+  // tmux를 직접 터미널 프로세스로 실행하여 셸 초기화 경합을 방지.
+  // sendText('exec tmux attach ...') 방식은 VS Code Python 확장 등이 먼저
+  // sendText를 보내면 exec가 씹히는 문제가 있었음.
   const terminal = vscode.window.createTerminal({
     name: terminalName,
-    cwd,
+    shellPath: 'tmux',
+    shellArgs: ['attach', '-t', sessionName],
     location,
     iconPath: new vscode.ThemeIcon('server')
   });
-  // exec로 실행하면 tmux가 종료될 때 쉘도 자동으로 종료됨
-  terminal.sendText(`exec tmux attach -t "${sessionName}"`);
   terminal.show();
   return terminal;
 }
