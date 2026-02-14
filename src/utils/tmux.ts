@@ -91,13 +91,20 @@ export function attachSession(sessionName: string, cwd?: string, location: vscod
     existing.dispose();
   }
   
-  // tmux를 직접 터미널 프로세스로 실행하여 셸 초기화 경합을 방지.
-  // sendText('exec tmux attach ...') 방식은 VS Code Python 확장 등이 먼저
-  // sendText를 보내면 exec가 씹히는 문제가 있었음.
+  // /bin/sh -c 'exec tmux attach ...' 방식으로 셸의 표준 PTY 환경에서 tmux를 실행.
+  // shellPath: 'tmux' 방식은 VS Code가 비표준 셸로 인식하여 PTY 설정이 달라지고,
+  // 마우스 드래그 이벤트(tmux pane 리사이즈 등)가 정상 전달되지 않는 문제가 있었음.
+  // exec으로 셸을 tmux로 교체하므로 추가 프로세스 없음.
+  // -c 옵션으로 즉시 실행하므로 다른 확장(Python 등)과의 sendText 경합 문제 없음.
+  const escapedName = sessionName.replace(/'/g, "'\\''");
   const terminal = vscode.window.createTerminal({
     name: terminalName,
-    shellPath: 'tmux',
-    shellArgs: ['attach', '-t', sessionName],
+    shellPath: '/bin/sh',
+    shellArgs: ['-c', `exec tmux attach -t '${escapedName}'`],
+    cwd: cwd,
+    env: {
+      'TERM': 'xterm-256color',
+    },
     location,
     iconPath: new vscode.ThemeIcon('server')
   });
