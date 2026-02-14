@@ -4,7 +4,7 @@ This document serves as the primary rule file for AI Agents working on this proj
 **ALWAYS** update this file when you discover new patterns or finish significant tasks.
 
 ## Instruction
-- After every task and changes, install the compiled extension to `code`, `code-insiders`, `antigravity`. The version should be increased by 1 patch.
+- After every task and changes, install the compiled extension to `code`, `code-insiders`, `antigravity`. DO NOT INCREASE version. (It will be automatically increased when publish, and we don't want to increase it for testing)
 
 ## Tested VS Code
 - `code` (VS Code)
