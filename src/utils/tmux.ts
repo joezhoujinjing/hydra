@@ -104,6 +104,11 @@ export function attachSession(sessionName: string, cwd?: string, location: vscod
     cwd: cwd,
     env: {
       'TERM': 'xterm-256color',
+      // VS Code shell integration 환경변수가 tmux 내부 쉘(zsh/bash)에 상속되면,
+      // 내부 쉘이 OSC 633 시퀀스를 보내 VS Code가 command decoration을 추가하고
+      // interactive shell이 있는 pane에서 마우스 드래그(텍스트 선택)가 안 되는 문제 발생.
+      'VSCODE_SHELL_INTEGRATION': null,
+      'VSCODE_INJECTION': null,
     },
     location,
     iconPath: new vscode.ThemeIcon('server')
