@@ -90,3 +90,14 @@ This document serves as the primary rule file for AI Agents working on this proj
 ## 6. Maintenance
 - **Update this file**: When new rules are established or architecture changes.
 - **Commit Rules**: Descriptive messages, conventionally formatted.
+
+<!-- opencode:reflection:start -->
+### Terminal Creation with Tmux
+- **PTY Configuration Issue**: Using `shellPath: 'tmux'` causes VS Code to treat tmux as a non-standard shell, resulting in different PTY settings and broken mouse drag events (pane resize fails)
+- **Race Condition with Other Extensions**: Using `terminal.sendText('exec tmux attach ...')` causes race conditions with other extensions (e.g., VS Code Python extension) that send commands first, swallowing the `exec` command
+- **Shell Integration Interference**: VS Code shell integration environment variables (`VSCODE_SHELL_INTEGRATION`, `VSCODE_INJECTION`) inherited by tmux internal shell cause OSC 633 sequences that add command decorations, blocking mouse drag text selection in interactive panes
+- **Solution**: Use `/bin/sh -c 'exec tmux attach -t ...'` with environment variables set to `null` for shell integration
+  - `exec` replaces sh with tmux (no extra process)
+  - `-c` executes immediately, avoiding sendText race conditions
+  - Setting `VSCODE_SHELL_INTEGRATION: null` and `VSCODE_INJECTION: null` prevents shell integration from interfering with tmux internal shells
+<!-- opencode:reflection:end -->
