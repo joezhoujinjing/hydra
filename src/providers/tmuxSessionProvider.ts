@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { exec } from '../utils/exec';
 import { getRepoRoot, getRepoName, listWorktrees, Worktree } from '../utils/git';
 import { listSessions, getSessionWorkdir, TmuxSession, buildSessionName, sanitizeSessionName } from '../utils/tmux';
@@ -39,7 +40,7 @@ function isCurrentWorkspacePath(targetPath: string | undefined, activeWorkspaceP
   return Boolean(normalizedTarget && normalizedTarget === activeWorkspacePath);
 }
 
-function getWorktreeSlug(worktree: Worktree, repoName: string): string {
+function getDefaultWorktreeSlug(worktree: Worktree, repoName: string): string {
   if (worktree.isMain) return 'main';
 
   const baseName = path.basename(worktree.path);
@@ -52,6 +53,82 @@ function getWorktreeSlug(worktree: Worktree, repoName: string): string {
   }
 
   return baseName;
+}
+
+function shortPathHash(targetPath: string): string {
+  return createHash('sha1').update(path.resolve(targetPath)).digest('hex').slice(0, 8);
+}
+
+function buildWorktreeSlugMap(worktrees: Worktree[], repoName: string): Map<string, string> {
+  const slugByPath = new Map<string, string>();
+  type Candidate = { worktree: Worktree; slug: string };
+  const pending: Candidate[] = [];
+
+  for (const worktree of worktrees) {
+    const normalizedPath = path.normalize(worktree.path);
+    if (worktree.isMain) {
+      slugByPath.set(normalizedPath, 'main');
+      continue;
+    }
+    pending.push({ worktree, slug: getDefaultWorktreeSlug(worktree, repoName) });
+  }
+
+  const applyCollisionResolver = (
+    candidates: Candidate[],
+    resolver: (candidate: Candidate) => string
+  ): Candidate[] => {
+    const groups = new Map<string, Candidate[]>();
+    for (const candidate of candidates) {
+      const key = sanitizeSessionName(candidate.slug);
+      const grouped = groups.get(key);
+      if (grouped) {
+        grouped.push(candidate);
+      } else {
+        groups.set(key, [candidate]);
+      }
+    }
+
+    const unresolved: Candidate[] = [];
+    for (const group of groups.values()) {
+      if (group.length === 1) {
+        const only = group[0];
+        slugByPath.set(path.normalize(only.worktree.path), only.slug);
+        continue;
+      }
+
+      for (const candidate of group) {
+        unresolved.push({
+          worktree: candidate.worktree,
+          slug: resolver(candidate)
+        });
+      }
+    }
+
+    return unresolved;
+  };
+
+  let unresolved = applyCollisionResolver(pending, (candidate) => {
+    const parentName = path.basename(path.dirname(candidate.worktree.path));
+    const parentSuffix = parentName || 'parent';
+    return `${candidate.slug}-${parentSuffix}`;
+  });
+
+  unresolved = applyCollisionResolver(unresolved, (candidate) => {
+    return `${candidate.slug}-${shortPathHash(candidate.worktree.path)}`;
+  });
+
+  // Extra safety for extremely unlikely hash collisions.
+  for (let i = 0; i < unresolved.length; i++) {
+    const candidate = unresolved[i];
+    const normalizedPath = path.normalize(candidate.worktree.path);
+    const strongHash = createHash('sha1')
+      .update(path.resolve(candidate.worktree.path))
+      .digest('hex')
+      .slice(0, 16);
+    slugByPath.set(normalizedPath, `${candidate.slug}-${strongHash}-${i + 1}`);
+  }
+
+  return slugByPath;
 }
 
 // ─── Utility ──────────────────────────────────────────────
@@ -596,6 +673,7 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
       const worktrees: Worktree[] = listedWorktrees.length > 0
         ? listedWorktrees
         : (!repoHasGit ? [{ path: repoRoot, branch: '', isMain: true }] : []);
+      const worktreeSlugByPath = buildWorktreeSlugMap(worktrees, repoName);
       this._error = undefined;
       const activeWorkspacePath = path.resolve(repoRoot);
       const repoPrefix = `${sanitizeSessionName(repoName)}_`;
@@ -655,10 +733,10 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
         const { worktree, sessions, hasGit } = entry;
 
         if (sessions.length === 0 && worktree) {
-          const slug = getWorktreeSlug(worktree, repoName);
+          const normalizedPath = path.normalize(worktree.path);
+          const slug = worktreeSlugByPath.get(normalizedPath) || getDefaultWorktreeSlug(worktree, repoName);
           const sessionName = buildSessionName(repoName, slug);
           const isCurrentWorkspace = isCurrentWorkspacePath(worktree.path, activeWorkspacePath);
-          const normalizedPath = path.normalize(worktree.path);
           const branchLabel = branchLabelByPath.get(normalizedPath) ||
             worktree.branch || (worktree.isMain ? 'main' : path.basename(worktree.path));
 
