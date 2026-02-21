@@ -5,6 +5,8 @@ import { createHash } from 'crypto';
 import { exec } from '../utils/exec';
 import { getRepoRoot, getRepoName, listWorktrees, Worktree } from '../utils/git';
 import { listSessions, getSessionWorkdir, TmuxSession, buildSessionName, sanitizeSessionName } from '../utils/tmux';
+import { toCanonicalPath } from '../utils/path';
+import { createRepoSessionPrefixConfig, matchRepoSessionName } from '../utils/sessionCompatibility';
 
 export type Classification = 'attached' | 'alive' | 'idle' | 'stopped' | 'orphan';
 export type FilterType = 'all' | 'attached' | 'alive' | 'idle' | 'stopped' | 'orphans';
@@ -30,13 +32,8 @@ interface SessionWithStatus extends TmuxSession {
   slug: string;
 }
 
-function normalizeFsPath(targetPath?: string): string | undefined {
-  if (!targetPath) return undefined;
-  return path.resolve(targetPath);
-}
-
 function isCurrentWorkspacePath(targetPath: string | undefined, activeWorkspacePath: string): boolean {
-  const normalizedTarget = normalizeFsPath(targetPath);
+  const normalizedTarget = toCanonicalPath(targetPath);
   return Boolean(normalizedTarget && normalizedTarget === activeWorkspacePath);
 }
 
@@ -56,7 +53,8 @@ function getDefaultWorktreeSlug(worktree: Worktree, repoName: string): string {
 }
 
 function shortPathHash(targetPath: string): string {
-  return createHash('sha1').update(path.resolve(targetPath)).digest('hex').slice(0, 8);
+  const canonicalPath = toCanonicalPath(targetPath) || path.resolve(targetPath);
+  return createHash('sha1').update(canonicalPath).digest('hex').slice(0, 8);
 }
 
 function buildWorktreeSlugMap(worktrees: Worktree[], repoName: string): Map<string, string> {
@@ -65,7 +63,8 @@ function buildWorktreeSlugMap(worktrees: Worktree[], repoName: string): Map<stri
   const pending: Candidate[] = [];
 
   for (const worktree of worktrees) {
-    const normalizedPath = path.normalize(worktree.path);
+    const normalizedPath = toCanonicalPath(worktree.path);
+    if (!normalizedPath) continue;
     if (worktree.isMain) {
       slugByPath.set(normalizedPath, 'main');
       continue;
@@ -92,7 +91,10 @@ function buildWorktreeSlugMap(worktrees: Worktree[], repoName: string): Map<stri
     for (const group of groups.values()) {
       if (group.length === 1) {
         const only = group[0];
-        slugByPath.set(path.normalize(only.worktree.path), only.slug);
+        const onlyPath = toCanonicalPath(only.worktree.path);
+        if (onlyPath) {
+          slugByPath.set(onlyPath, only.slug);
+        }
         continue;
       }
 
@@ -120,9 +122,10 @@ function buildWorktreeSlugMap(worktrees: Worktree[], repoName: string): Map<stri
   // Extra safety for extremely unlikely hash collisions.
   for (let i = 0; i < unresolved.length; i++) {
     const candidate = unresolved[i];
-    const normalizedPath = path.normalize(candidate.worktree.path);
+    const normalizedPath = toCanonicalPath(candidate.worktree.path);
+    if (!normalizedPath) continue;
     const strongHash = createHash('sha1')
-      .update(path.resolve(candidate.worktree.path))
+      .update(normalizedPath)
       .digest('hex')
       .slice(0, 16);
     slugByPath.set(normalizedPath, `${candidate.slug}-${strongHash}-${i + 1}`);
@@ -675,21 +678,18 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
         : (!repoHasGit ? [{ path: repoRoot, branch: '', isMain: true }] : []);
       const worktreeSlugByPath = buildWorktreeSlugMap(worktrees, repoName);
       this._error = undefined;
-      const activeWorkspacePath = path.resolve(repoRoot);
-      const repoPrefix = `${sanitizeSessionName(repoName)}_`;
-      const repoSessions = allSessions.filter(s => s.name.startsWith(repoPrefix));
-
-      for (const s of repoSessions) s.workdir = await getSessionWorkdir(s.name);
+      const activeWorkspacePath = toCanonicalPath(repoRoot) || path.resolve(repoRoot);
+      const sessionPrefixConfig = createRepoSessionPrefixConfig(repoRoot);
 
       const pathMap = new Map<string, { worktree?: Worktree, sessions: SessionWithStatus[], hasGit: boolean }>();
-      const normalizedRepoRoot = path.normalize(repoRoot);
+      const normalizedRepoRoot = sessionPrefixConfig.canonicalRepoRoot;
       const gitChecks = await Promise.all(worktrees.map(wt => {
-        const normalizedWtPath = path.normalize(wt.path);
+        const normalizedWtPath = toCanonicalPath(wt.path) || path.resolve(wt.path);
         if (!repoHasGit && normalizedWtPath === normalizedRepoRoot) return Promise.resolve(false);
         return isGitInitialized(wt.path);
       }));
       const branchLabels = await Promise.all(worktrees.map((wt, i) => {
-        const normalizedWtPath = path.normalize(wt.path);
+        const normalizedWtPath = toCanonicalPath(wt.path) || path.resolve(wt.path);
         if (!repoHasGit && normalizedWtPath === normalizedRepoRoot) {
           return Promise.resolve(NO_GIT_BRANCH_LABEL);
         }
@@ -700,15 +700,26 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
 
       for (let i = 0; i < worktrees.length; i++) {
         const wt = worktrees[i];
-        const normalizedPath = path.normalize(wt.path);
+        const normalizedPath = toCanonicalPath(wt.path);
+        if (!normalizedPath) continue;
         pathMap.set(normalizedPath, { worktree: wt, sessions: [], hasGit: gitChecks[i] });
         branchLabelByPath.set(normalizedPath, branchLabels[i]);
       }
 
-      for (const session of repoSessions) {
-        const workdir = session.workdir ? path.normalize(session.workdir) : undefined;
-        const status = await getSessionStatus(session.name, workdir);
+      for (const session of allSessions) {
+        session.workdir = await getSessionWorkdir(session.name);
+        const workdir = toCanonicalPath(session.workdir);
+        const matchedSession = matchRepoSessionName(
+          session.name,
+          workdir,
+          sessionPrefixConfig,
+          { allowLegacy: true }
+        );
+        if (!matchedSession) {
+          continue;
+        }
 
+        const status = await getSessionStatus(session.name, workdir);
         let entry = workdir ? pathMap.get(workdir) : undefined;
 
         if (!entry) {
@@ -717,7 +728,7 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
           pathMap.set(workdir || `orphan:${session.name}`, entry);
         }
 
-        const slug = session.name.substring(repoPrefix.length) || 'main';
+        const slug = matchedSession.slug || 'main';
 
         entry.sessions.push({
           ...session,
@@ -733,9 +744,10 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
         const { worktree, sessions, hasGit } = entry;
 
         if (sessions.length === 0 && worktree) {
-          const normalizedPath = path.normalize(worktree.path);
+          const normalizedPath = toCanonicalPath(worktree.path);
+          if (!normalizedPath) continue;
           const slug = worktreeSlugByPath.get(normalizedPath) || getDefaultWorktreeSlug(worktree, repoName);
-          const sessionName = buildSessionName(repoName, slug);
+          const sessionName = buildSessionName(sessionPrefixConfig.repoSessionNamespace, slug);
           const isCurrentWorkspace = isCurrentWorkspacePath(worktree.path, activeWorkspacePath);
           const branchLabel = branchLabelByPath.get(normalizedPath) ||
             worktree.branch || (worktree.isMain ? 'main' : path.basename(worktree.path));
@@ -768,8 +780,10 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
           const isCurrentWorkspace = isCurrentWorkspacePath(sessionPath, activeWorkspacePath);
           let branchLabel: string | undefined;
           if (worktree) {
-            const normalizedPath = path.normalize(worktree.path);
-            branchLabel = branchLabelByPath.get(normalizedPath);
+            const normalizedPath = toCanonicalPath(worktree.path);
+            if (normalizedPath) {
+              branchLabel = branchLabelByPath.get(normalizedPath);
+            }
           } else if (sessionPath) {
             branchLabel = await getWorktreeBranchLabel(sessionPath, sessions[0].slug);
           }
@@ -800,7 +814,11 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
         }
 
         if (itemPath) {
-          const normalized = path.normalize(itemPath);
+          const normalized = toCanonicalPath(itemPath);
+          if (!normalized) {
+            otherItems.push(item);
+            continue;
+          }
           if (item instanceof InactiveWorktreeItem) {
             if (!pathToInactive.has(normalized)) pathToInactive.set(normalized, item);
           } else {

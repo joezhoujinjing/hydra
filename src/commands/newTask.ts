@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getRepoRoot, getRepoName, getBaseBranch, isSlugTaken, addWorktree } from '../utils/git';
+import { getRepoRoot, getRepoSessionNamespace, getBaseBranch, isSlugTaken, addWorktree } from '../utils/git';
 import { isTmuxInstalled, createSession, setSessionWorkdir, attachSession, buildSessionName } from '../utils/tmux';
 
 export async function newTask(): Promise<void> {
@@ -36,7 +36,7 @@ export async function newTask(): Promise<void> {
   try {
     // 3. repoRoot 결정
     const repoRoot = getRepoRoot();
-    const repoName = getRepoName(repoRoot);
+    const repoSessionNamespace = getRepoSessionNamespace(repoRoot);
 
     // 4. 기준 브랜치 결정
     const baseBranch = await getBaseBranch(repoRoot);
@@ -44,7 +44,7 @@ export async function newTask(): Promise<void> {
     // 5. slug 충돌 확인 및 해결
     let finalSlug = slug;
     let suffix = 1;
-    while (await isSlugTaken(finalSlug, repoName, repoRoot)) {
+    while (await isSlugTaken(finalSlug, repoSessionNamespace, repoRoot)) {
       suffix++;
       finalSlug = `${slug}-${suffix}`;
     }
@@ -53,7 +53,7 @@ export async function newTask(): Promise<void> {
     const worktreePath = await addWorktree(repoRoot, finalSlug, baseBranch);
 
     // 7. tmux session 생성
-    const sessionName = buildSessionName(repoName, finalSlug);
+    const sessionName = buildSessionName(repoSessionNamespace, finalSlug);
     await createSession(sessionName, worktreePath);
     await setSessionWorkdir(sessionName, worktreePath);
 

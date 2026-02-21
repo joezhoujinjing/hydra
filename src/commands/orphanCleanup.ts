@@ -3,20 +3,28 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from '../utils/exec';
 import { killSession, listSessions, getSessionWorkdir, TmuxSession } from '../utils/tmux';
-import { getRepoRoot, getRepoName, listWorktrees } from '../utils/git';
+import { getRepoRoot, listWorktrees } from '../utils/git';
+import { createRepoSessionPrefixConfig, isWorkdirInRepo } from '../utils/sessionCompatibility';
 
 export async function cleanupOrphans(): Promise<void> {
   try {
     const repoRoot = getRepoRoot();
-    const repoName = getRepoName(repoRoot);
+    const sessionPrefixConfig = createRepoSessionPrefixConfig(repoRoot);
     
     const allSessions = await listSessions();
-    const repoPrefix = `${repoName}:`;
-    const repoSessions = allSessions.filter(s => s.name.startsWith(repoPrefix));
+    const repoPrefix = sessionPrefixConfig.primaryPrefix;
+    const repoSessions: TmuxSession[] = [];
+    for (const session of allSessions) {
+      const workdir = await getSessionWorkdir(session.name);
+      const inRepo = isWorkdirInRepo(workdir, sessionPrefixConfig.canonicalRepoRoot);
+      if (inRepo || session.name.startsWith(repoPrefix)) {
+        repoSessions.push({ ...session, workdir });
+      }
+    }
     
     const tmuxOnly: (TmuxSession & { workdir?: string })[] = [];
     for (const session of repoSessions) {
-      const workdir = await getSessionWorkdir(session.name);
+      const workdir = session.workdir || await getSessionWorkdir(session.name);
       if (!workdir || !fs.existsSync(workdir)) {
         tmuxOnly.push({ ...session, workdir });
       }
@@ -25,7 +33,7 @@ export async function cleanupOrphans(): Promise<void> {
     const worktrees = await listWorktrees(repoRoot);
     const sessionWorkdirs = new Set<string>();
     for (const session of repoSessions) {
-      const workdir = await getSessionWorkdir(session.name);
+      const workdir = session.workdir || await getSessionWorkdir(session.name);
       if (workdir) sessionWorkdirs.add(workdir);
     }
     

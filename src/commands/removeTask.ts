@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import { exec } from "../utils/exec";
-import { killSession, sanitizeSessionName } from "../utils/tmux";
+import { killSession } from "../utils/tmux";
 import { getRepoRoot } from "../utils/git";
 import {
   TmuxItem,
@@ -13,6 +13,8 @@ import {
   GitStatusItem,
 } from "../providers/tmuxSessionProvider";
 import * as path from "path";
+import { toCanonicalPath } from "../utils/path";
+import { createRepoSessionPrefixConfig, extractRepoSessionSlug } from "../utils/sessionCompatibility";
 
 async function isWorktreePathManagedByRepo(
   repoRoot: string,
@@ -26,31 +28,17 @@ async function isWorktreePathManagedByRepo(
       .map((line) => line.substring("worktree ".length).trim())
       .filter((p) => p.length > 0);
 
-    const candidate = path.resolve(fs.realpathSync(worktreePath));
+    const candidate = toCanonicalPath(worktreePath);
+    if (!candidate) return false;
     for (const wtPath of worktreePaths) {
-      try {
-        const resolved = path.resolve(fs.realpathSync(wtPath));
-        if (resolved === candidate) return true;
-      } catch {
-        if (path.resolve(wtPath) === candidate) return true;
-      }
+      const resolved = toCanonicalPath(wtPath) || path.resolve(wtPath);
+      if (resolved === candidate) return true;
     }
 
     return false;
   } catch {
     return false;
   }
-}
-
-function getSlugFromSessionName(
-  sessionName: string,
-  repoName?: string,
-): string | undefined {
-  if (!repoName) return undefined;
-  const prefix = `${sanitizeSessionName(repoName)}_`;
-  if (!sessionName.startsWith(prefix)) return undefined;
-  const slug = sessionName.substring(prefix.length);
-  return slug || undefined;
 }
 
 function isMainWorktreeItem(item: TmuxItem): boolean {
@@ -96,7 +84,13 @@ export async function removeTask(item: TmuxItem): Promise<void> {
     worktreePath = item.worktreePath;
   }
 
-  slug = slug || getSlugFromSessionName(sessionName, item.repoName);
+  try {
+    const repoRoot = getRepoRoot();
+    const sessionPrefixConfig = createRepoSessionPrefixConfig(repoRoot);
+    slug = slug || extractRepoSessionSlug(sessionName, sessionPrefixConfig, { allowLegacy: true });
+  } catch {
+    void 0;
+  }
   slug = slug || String(item.label);
 
   // ── Main worktree: tmux 세션만 종료, 워크트리/브랜치 삭제 불가 ──

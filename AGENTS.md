@@ -38,6 +38,9 @@ This document serves as the primary rule file for AI Agents working on this proj
 
 - **Polymorphism**: Commands must handle `TmuxItem` base class and variants (`TmuxSessionItem`, `InactiveWorktreeItem`, etc.).
 - **Path Handling**: Use `getWorktreePath(item)` helper.
+- **Canonical Path Matching**: For path equality/deduplication/current-workspace checks, normalize to absolute paths with `~` expansion before comparison (do not collapse symlink aliases via `realpath`).
+- **Session Namespace**: Build tmux session prefixes from repo-root identity (basename + short path hash), not display repo name alone, to avoid collisions across same-name repositories in different directories.
+- **Legacy Session Compatibility Isolation**: Keep legacy session-prefix compatibility logic centralized in `src/utils/sessionCompatibility.ts`; call helpers from commands/providers instead of duplicating fallback checks.
 - **Root Detection**: Determine the primary worktree by comparing worktree path to the primary worktree path derived from `git rev-parse --git-common-dir`, not by branch naming, folder basename, or the current workspace folder.
 - **Current Workspace Indicator**: Highlight the active VS Code workspace by comparing worktree/session paths against the current workspace folder (not the primary worktree path). Current items should sort to the top and display a `👆` marker in the label.
 - **External Worktrees**: If the worktree folder name matches the repo name, derive a unique slug/label from the parent directory.

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { exec } from './exec';
+import { toCanonicalPath } from './path';
 
 export interface TmuxSession {
   name: string;
@@ -39,7 +40,8 @@ export async function getSessionWorkdir(sessionName: string): Promise<string | u
     const output = await exec(`tmux show-options -t "${sessionName}" @workdir`);
     const parts = output.split(' ');
     if (parts.length >= 2) {
-      return parts.slice(1).join(' ').trim();
+      const rawPath = parts.slice(1).join(' ').trim();
+      return toCanonicalPath(rawPath) || rawPath;
     }
     return undefined;
   } catch {

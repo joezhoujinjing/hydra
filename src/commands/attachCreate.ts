@@ -1,20 +1,26 @@
 import * as vscode from 'vscode';
-import { getRepoRoot, getRepoName } from '../utils/git';
-import { isTmuxInstalled, listSessions, getSessionWorkdir, attachSession, createSession, setSessionWorkdir, sanitizeSessionName } from '../utils/tmux';
+import { getRepoRoot } from '../utils/git';
+import { isTmuxInstalled, listSessions, getSessionWorkdir, attachSession, createSession, setSessionWorkdir } from '../utils/tmux';
 import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem } from '../providers/tmuxSessionProvider';
+import { createRepoSessionPrefixConfig, isWorkdirInRepo } from '../utils/sessionCompatibility';
 
 async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
   const sessions = await listSessions();
   const matchingSessions: string[] = [];
-  const repoName = getRepoName(repoRoot);
-  const repoPrefix = `${sanitizeSessionName(repoName)}_`;
+  const sessionPrefixConfig = createRepoSessionPrefixConfig(repoRoot);
+  const repoPrefix = sessionPrefixConfig.primaryPrefix;
 
   for (const session of sessions) {
-    if (!session.name.startsWith(repoPrefix)) continue;
-
     const workdir = await getSessionWorkdir(session.name);
-    if (workdir && workdir.startsWith(repoRoot)) {
+    const inRepo = isWorkdirInRepo(workdir, sessionPrefixConfig.canonicalRepoRoot);
+    if (inRepo) {
       matchingSessions.push(session.name);
+      continue;
+    }
+
+    if (session.name.startsWith(repoPrefix)) {
+      matchingSessions.push(session.name);
+      continue;
     }
   }
 

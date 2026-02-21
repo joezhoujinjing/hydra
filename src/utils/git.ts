@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { createHash } from 'crypto';
 import { exec } from './exec';
-import { buildSessionName } from './tmux';
+import { buildSessionName, sanitizeSessionName } from './tmux';
+import { toCanonicalPath } from './path';
 
 export interface Worktree {
   path: string;
@@ -21,9 +23,11 @@ export function getRepoRoot(): string {
   const activeEditor = vscode.window.activeTextEditor;
   if (activeEditor && workspaceFolders.length > 1) {
     const activeUri = activeEditor.document.uri;
-    const matchingFolder = workspaceFolders.find(f => 
-      activeUri.fsPath.startsWith(f.uri.fsPath)
-    );
+    const activePath = toCanonicalPath(activeUri.fsPath) || path.resolve(activeUri.fsPath);
+    const matchingFolder = workspaceFolders.find(f => {
+      const folderPath = toCanonicalPath(f.uri.fsPath) || path.resolve(f.uri.fsPath);
+      return activePath === folderPath || activePath.startsWith(`${folderPath}${path.sep}`);
+    });
     if (matchingFolder) {
       return matchingFolder.uri.fsPath;
     }
@@ -35,6 +39,13 @@ export function getRepoRoot(): string {
 
 export function getRepoName(repoRoot: string): string {
   return path.basename(repoRoot);
+}
+
+export function getRepoSessionNamespace(repoRoot: string): string {
+  const canonicalRoot = toCanonicalPath(repoRoot) || path.resolve(repoRoot);
+  const repoName = sanitizeSessionName(path.basename(canonicalRoot) || 'repo');
+  const rootHash = createHash('sha1').update(canonicalRoot).digest('hex').slice(0, 8);
+  return `${repoName}-${rootHash}`;
 }
 
 // origin/main 존재 여부 확인 후 기준 브랜치 결정
@@ -85,7 +96,7 @@ export async function listWorktrees(repoRoot: string): Promise<Worktree[]> {
     const worktrees: Worktree[] = [];
     const blocks = output.split('\n\n').filter(b => b.trim());
     const mainWorktreePath = await getMainWorktreePath(repoRoot);
-    const normalizedMainWorktreePath = path.resolve(mainWorktreePath);
+    const normalizedMainWorktreePath = toCanonicalPath(mainWorktreePath) || path.resolve(mainWorktreePath);
     
     for (const block of blocks) {
       const lines = block.split('\n');
@@ -111,7 +122,7 @@ export async function listWorktrees(repoRoot: string): Promise<Worktree[]> {
       }
       
       if (wtPath && !isPrunable) {
-        const normalizedPath = path.resolve(wtPath);
+        const normalizedPath = toCanonicalPath(wtPath) || path.resolve(wtPath);
         worktrees.push({
           path: wtPath,
           branch,
@@ -129,7 +140,7 @@ export async function listWorktrees(repoRoot: string): Promise<Worktree[]> {
 }
 
 // slug 충돌 확인 (worktree + tmux 세션 모두 확인)
-export async function isSlugTaken(slug: string, repoName: string, repoRoot: string): Promise<boolean> {
+export async function isSlugTaken(slug: string, repoSessionNamespace: string, repoRoot: string): Promise<boolean> {
   // 1. git worktree에서 branch 확인
   const worktrees = await listWorktrees(repoRoot);
   const branchExists = worktrees.some(w => w.branch === `task/${slug}`);
@@ -138,7 +149,7 @@ export async function isSlugTaken(slug: string, repoName: string, repoRoot: stri
   // 2. tmux 세션에서 확인
   try {
     const sessions = await exec("tmux list-sessions -F '#{session_name}'");
-    const sessionName = buildSessionName(repoName, slug);
+    const sessionName = buildSessionName(repoSessionNamespace, slug);
     return sessions.split('\n').some(s => s.trim() === sessionName);
   } catch {
     // tmux 서버 없으면 세션 충돌 없음

@@ -1,15 +1,15 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { exec } from '../utils/exec';
-import { attachSession, sanitizeSessionName } from '../utils/tmux';
+import { attachSession } from '../utils/tmux';
+import { createRepoSessionPrefixConfig, isWorkdirInRepo } from '../utils/sessionCompatibility';
 
 export async function autoAttachOnStartup(): Promise<void> {
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) return;
 
   const repoRoot = workspaceFolders[0].uri.fsPath;
-  const repoName = path.basename(repoRoot);
-  const repoPrefix = `${sanitizeSessionName(repoName)}_`;
+  const sessionPrefixConfig = createRepoSessionPrefixConfig(repoRoot);
+  const repoPrefix = sessionPrefixConfig.primaryPrefix;
 
   interface SessionInfo {
     name: string;
@@ -34,19 +34,23 @@ export async function autoAttachOnStartup(): Promise<void> {
 
   const matching: string[] = [];
   for (const session of sessions) {
-    if (!session.name.startsWith(repoPrefix)) {
-        continue;
-    }
-
     if (session.attached) {
         continue;
     }
 
     try {
       const output = await exec(`tmux show-options -t "${session.name}" @workdir`);
-      const workdir = output.split(' ').slice(1).join(' ').trim();
-      if (workdir && workdir.startsWith(repoRoot)) {
+      const rawWorkdir = output.split(' ').slice(1).join(' ').trim();
+      const workdir = rawWorkdir || undefined;
+      const inRepo = isWorkdirInRepo(workdir, sessionPrefixConfig.canonicalRepoRoot);
+      if (inRepo) {
         matching.push(session.name);
+        continue;
+      }
+
+      if (session.name.startsWith(repoPrefix)) {
+        matching.push(session.name);
+        continue;
       }
     } catch { }
   }
