@@ -7,6 +7,7 @@ import { listSessions, getSessionWorkdir, TmuxSession, buildSessionName, sanitiz
 
 export type Classification = 'attached' | 'alive' | 'idle' | 'stopped' | 'orphan';
 export type FilterType = 'all' | 'attached' | 'alive' | 'idle' | 'stopped' | 'orphans';
+const NO_GIT_BRANCH_LABEL = 'current project (no git)';
 
 export interface SessionStatus {
   attached: boolean;
@@ -587,10 +588,14 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
 
   private async getWorktreeItems(repoName: string, repoRoot: string): Promise<TmuxItem[]> {
     try {
-      const [allSessions, worktrees] = await Promise.all([
+      const [allSessions, listedWorktrees, repoHasGit] = await Promise.all([
         listSessions(),
-        listWorktrees(repoRoot)
+        listWorktrees(repoRoot),
+        isGitInitialized(repoRoot)
       ]);
+      const worktrees: Worktree[] = listedWorktrees.length > 0
+        ? listedWorktrees
+        : (!repoHasGit ? [{ path: repoRoot, branch: '', isMain: true }] : []);
       this._error = undefined;
       const activeWorkspacePath = path.resolve(repoRoot);
       const repoPrefix = `${sanitizeSessionName(repoName)}_`;
@@ -599,8 +604,17 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
       for (const s of repoSessions) s.workdir = await getSessionWorkdir(s.name);
 
       const pathMap = new Map<string, { worktree?: Worktree, sessions: SessionWithStatus[], hasGit: boolean }>();
-      const gitChecks = await Promise.all(worktrees.map(wt => isGitInitialized(wt.path)));
+      const normalizedRepoRoot = path.normalize(repoRoot);
+      const gitChecks = await Promise.all(worktrees.map(wt => {
+        const normalizedWtPath = path.normalize(wt.path);
+        if (!repoHasGit && normalizedWtPath === normalizedRepoRoot) return Promise.resolve(false);
+        return isGitInitialized(wt.path);
+      }));
       const branchLabels = await Promise.all(worktrees.map((wt, i) => {
+        const normalizedWtPath = path.normalize(wt.path);
+        if (!repoHasGit && normalizedWtPath === normalizedRepoRoot) {
+          return Promise.resolve(NO_GIT_BRANCH_LABEL);
+        }
         const fallback = wt.branch || (wt.isMain ? 'main' : path.basename(wt.path));
         return gitChecks[i] ? getWorktreeBranchLabel(wt.path, fallback) : Promise.resolve(fallback);
       }));

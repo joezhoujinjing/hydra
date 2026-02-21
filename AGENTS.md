@@ -45,6 +45,7 @@ This document serves as the primary rule file for AI Agents working on this proj
 - **Error Handling**: Use `try-catch` in TS and check `err != nil` in Go. Fail gracefully and notify the user.
 - **Async/Await**: Use `async/await` for all I/O operations in TypeScript.
 - **Terminal Creation**: Use `/bin/sh -c 'exec tmux attach ...'` instead of `shellPath: 'tmux'`. Direct `shellPath: 'tmux'` causes VS Code to treat it as a non-standard shell, breaking mouse drag events (pane resize). The `exec` replaces sh with tmux (no extra process), and `-c` avoids sendText race conditions with other extensions.
+- **No-Git Workspace Labeling**: If the workspace is not a git worktree, the tree must still show one primary item labeled `current project (no git)` mapped to the current workspace path.
 
 ## 3. Documentation & Development
 
