@@ -106,4 +106,5 @@ This document serves as the primary rule file for AI Agents working on this proj
   - `-c` executes immediately, avoiding sendText race conditions
   - Setting `VSCODE_SHELL_INTEGRATION: null` and `VSCODE_INJECTION: null` prevents shell integration from interfering with tmux internal shells
 - **Remote Clipboard Reliability**: Before attach, set tmux clipboard options (`set-clipboard on`, `terminal-features ...:clipboard`, and `terminal-overrides ...:clipboard`) quietly so copy-mode selections can propagate to the local clipboard via OSC52 in Remote-SSH/VS Code terminals.
+- **OpenCode Clipboard in tmux**: OpenCode TUI emits OSC52 via tmux passthrough wrapper (`ESC Ptmux; ... ESC \\`). Ensure `allow-passthrough on` (window option) is enabled, or OpenCode may show "Copied to clipboard" while local clipboard remains unchanged.
 <!-- opencode:reflection:end -->
