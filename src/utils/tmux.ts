@@ -98,11 +98,19 @@ export function attachSession(sessionName: string, cwd?: string, location: vscod
   // 마우스 드래그 이벤트(tmux pane 리사이즈 등)가 정상 전달되지 않는 문제가 있었음.
   // exec으로 셸을 tmux로 교체하므로 추가 프로세스 없음.
   // -c 옵션으로 즉시 실행하므로 다른 확장(Python 등)과의 sendText 경합 문제 없음.
+  // 원격/VS Code 터미널에서 tmux copy-mode 복사가 로컬 클립보드(OSC52)까지 전달되도록
+  // attach 직전에 clipboard capability를 조용히 보강한다.
   const escapedName = sessionName.replace(/'/g, "'\\''");
+  const attachCommand = [
+    "tmux set-option -gq set-clipboard on >/dev/null 2>&1 || true",
+    "tmux set-option -agq terminal-features ',xterm-256color:clipboard' >/dev/null 2>&1 || true",
+    "tmux set-option -agq terminal-overrides ',*:clipboard' >/dev/null 2>&1 || true",
+    `exec tmux attach -t '${escapedName}'`
+  ].join('; ');
   const terminal = vscode.window.createTerminal({
     name: terminalName,
     shellPath: '/bin/sh',
-    shellArgs: ['-c', `exec tmux attach -t '${escapedName}'`],
+    shellArgs: ['-c', attachCommand],
     cwd: cwd,
     env: {
       'TERM': 'xterm-256color',

@@ -105,4 +105,5 @@ This document serves as the primary rule file for AI Agents working on this proj
   - `exec` replaces sh with tmux (no extra process)
   - `-c` executes immediately, avoiding sendText race conditions
   - Setting `VSCODE_SHELL_INTEGRATION: null` and `VSCODE_INJECTION: null` prevents shell integration from interfering with tmux internal shells
+- **Remote Clipboard Reliability**: Before attach, set tmux clipboard options (`set-clipboard on`, `terminal-features ...:clipboard`, and `terminal-overrides ...:clipboard`) quietly so copy-mode selections can propagate to the local clipboard via OSC52 in Remote-SSH/VS Code terminals.
 <!-- opencode:reflection:end -->
