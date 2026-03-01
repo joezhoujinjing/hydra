@@ -13,6 +13,7 @@ import {
   newPane,
   newWindow
 } from './commands/contextMenu';
+import { terminalSmartPaste, pasteImageForce, cleanupTempImages } from './commands/pasteImage';
 
 export function activate(context: vscode.ExtensionContext) {
   const sessionProvider = new TmuxSessionProvider();
@@ -40,7 +41,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('tmux.openWorktree', openWorktree),
     vscode.commands.registerCommand('tmux.copyPath', copyPath),
     vscode.commands.registerCommand('tmux.newPane', newPane),
-    vscode.commands.registerCommand('tmux.newWindow', newWindow)
+    vscode.commands.registerCommand('tmux.newWindow', newWindow),
+    vscode.commands.registerCommand('tmux.terminalPaste', terminalSmartPaste),
+    vscode.commands.registerCommand('tmux.pasteImage', pasteImageForce)
   );
 
   autoAttachOnStartup();
@@ -64,4 +67,6 @@ export function activate(context: vscode.ExtensionContext) {
   });
 }
 
-export function deactivate() {}
+export function deactivate() {
+  cleanupTempImages();
+}

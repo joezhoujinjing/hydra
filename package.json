@@ -121,6 +121,23 @@
         "command": "tmux.cleanupOrphans",
         "title": "TMUX: Cleanup Orphans",
         "icon": "$(trash)"
+      },
+      {
+        "command": "tmux.terminalPaste",
+        "title": "TMUX: Smart Paste (Image Support)"
+      },
+      {
+        "command": "tmux.pasteImage",
+        "title": "TMUX: Paste Image from Clipboard"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "tmux.terminalPaste",
+        "key": "cmd+v",
+        "when": "terminalFocus",
+        "mac": "cmd+v",
+        "linux": "ctrl+shift+v"
       }
     ],
     "menus": {
