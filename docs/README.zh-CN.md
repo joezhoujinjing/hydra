@@ -7,6 +7,14 @@
 
 ![TMUX Worktree 截图](https://raw.githubusercontent.com/kargnas/vscode-ext-tmux-worktree/main/docs/screenshot.png)
 
+## 为什么它更“讲究”
+
+- **图片感知终端粘贴**: `Cmd+V` / `Ctrl+Shift+V` 会自动判断剪贴板，文本走普通粘贴，图片走文件路径插入。
+- **Remote-SSH 剪贴板桥接**: 本地剪贴板图片可直接粘贴到远程终端，无需手动上传。
+- **防冲突会话标识**: 使用 `repo-name + path hash` 命名空间和 slug 去重，避免同名仓库互相冲突。
+- **兼容旧会话迁移**: 当 `@workdir` 属于当前仓库时，旧前缀会话仍可识别。
+- **No-git 兜底可见性**: 非 git 文件夹也会显示为 `current project (no git)`，树视图不会“空白”。
+
 ## 为什么开发这个扩展?
 
 如果你用 `git worktree` 做多分支并行开发,又用 `tmux` 保持终端会话,那你肯定知道手动管理这两个有多麻烦。这个扩展帮你把它们无缝连接起来:
@@ -41,6 +49,19 @@
 - 复制 worktree 路径到剪贴板
 - 在新 VS Code 窗口中打开 worktree
 - 按名称筛选会话
+
+### 📋 智能粘贴（图片感知终端粘贴）
+- 在终端按 `Cmd+V`（macOS）/ `Ctrl+Shift+V`（Linux）时会先判断剪贴板内容
+- 若剪贴板有文本，保持默认粘贴行为
+- 若剪贴板有图片，先保存为临时 `.png`，再把文件路径输入到终端
+- 支持本地与 Remote-SSH（通过 webview 桥接把本地图片上传到远程主机）
+- 命令面板可强制图片粘贴: `TMUX: Paste Image from Clipboard`
+
+### 🧭 会话映射更稳健
+- 使用 `repo-name + path hash` 命名空间，避免不同路径下同名仓库冲突
+- 当 `@workdir` 指向当前仓库内路径时，旧会话命名仍可兼容识别
+- worktree slug 冲突时会自动消歧（父目录名，其后再用路径哈希）
+- 非 git 文件夹仍会在树中显示为 `current project (no git)`
 
 ## 实际应用场景
 
@@ -77,6 +98,15 @@ tmux attach -t myapp/feature-oauth
 | `TMUX: New Task` | 一键创建新分支 + worktree + tmux 会话 |
 | `TMUX: Remove Task` | 删除 worktree 及其 tmux 会话 |
 | `TMUX: Cleanup Orphans` | 清理孤立的 tmux 会话 |
+| `TMUX: Smart Paste (Image Support)` | 智能终端粘贴: 文本走普通粘贴，图片插入临时文件路径 |
+| `TMUX: Paste Image from Clipboard` | 强制读取剪贴板图片并把保存路径输入到当前终端 |
+
+## 最近更新（v1.1.2 - v1.1.6）
+
+- **v1.1.6**: 新增面向 AI CLI 的图片感知终端粘贴（`Cmd+V` / `Ctrl+Shift+V`）和强制图片粘贴命令；同时改进启动时 auto-attach 的终端尺寸稳定性。
+- **v1.1.4 - v1.1.5**: attach 时自动启用 clipboard 与 passthrough 相关选项，提升 tmux 剪贴板可靠性。
+- **v1.1.3**: 重构旧会话前缀兼容逻辑，迁移更安全。
+- **v1.1.2**: 增加 slug 冲突处理与 no-git 工作区标签（`current project (no git)`）。
 
 ## 环境要求
 
@@ -97,12 +127,12 @@ tmux attach -t myapp/feature-oauth
 
 ```
 仓库 (根目录)
-├── main              → tmux 会话: "project/main"
-├── feature/login     → tmux 会话: "project/feature-login"
-└── fix/bug-123       → tmux 会话: "project/fix-bug-123"
+├── main              → tmux 会话: "project-a1b2c3d4_main"
+├── feature/login     → tmux 会话: "project-a1b2c3d4_feature-login"
+└── fix/bug-123       → tmux 会话: "project-a1b2c3d4_fix-bug-123"
 ```
 
-每个 worktree 对应一个专属 tmux 会话。会话名称基于仓库和分支自动生成,在 VS Code 外也能轻松找到。
+每个 worktree 都有专属 tmux 会话。会话名由 `repo-name + path hash` 命名空间和 slug 组成，可避免不同目录下同名仓库互相冲突。
 
 ## 了解更多
 

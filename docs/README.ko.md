@@ -7,6 +7,14 @@
 
 ![TMUX Worktree 스크린샷](https://raw.githubusercontent.com/kargnas/vscode-ext-tmux-worktree/main/docs/screenshot.png)
 
+## 왜 더 완성도 있게 느껴지나
+
+- **이미지 인식 터미널 붙여넣기**: `Cmd+V` / `Ctrl+Shift+V`에서 텍스트는 일반 붙여넣기, 이미지는 파일 경로 입력으로 자동 분기됩니다.
+- **Remote-SSH 클립보드 브리지**: 로컬 클립보드 이미지를 원격 터미널로 별도 업로드 없이 바로 전달합니다.
+- **충돌 방지 세션 식별자**: `repo-name + path hash` 네임스페이스와 슬러그 충돌 해소 로직으로 같은 이름 저장소도 안전하게 구분합니다.
+- **레거시 호환 마이그레이션**: `@workdir` 기준으로 기존 세션 prefix도 계속 인식합니다.
+- **No-git 폴백 가시성**: git이 없는 폴더도 `current project (no git)`로 트리에 표시됩니다.
+
 ## 왜 만들었나요?
 
 여러 브랜치를 동시에 작업하면서 `git worktree`와 `tmux`를 쓰시나요? 그럼 매번 둘을 따로 관리하는 게 얼마나 귀찮은지 아실 겁니다. 이 확장 프로그램이 그 간극을 메워줍니다:
@@ -41,6 +49,19 @@ worktree가 삭제된 후 남아있는 tmux 세션을 찾아서 정리합니다.
 - worktree 경로를 클립보드에 복사
 - worktree를 새 VS Code 창으로 열기
 - 이름으로 세션 필터링
+
+### 📋 스마트 붙여넣기 (이미지 인식)
+- 터미널에서 `Cmd+V`(macOS) / `Ctrl+Shift+V`(Linux) 입력 시 클립보드 내용을 먼저 확인합니다
+- 텍스트가 있으면 기존 붙여넣기 동작을 그대로 사용합니다
+- 이미지가 있으면 임시 `.png` 파일로 저장한 뒤, 해당 경로를 터미널에 입력합니다
+- 로컬 환경뿐 아니라 Remote-SSH에서도 동작합니다 (webview 브리지로 로컬 클립보드 이미지를 원격으로 전달)
+- 명령 팔레트에서 강제 이미지 붙여넣기: `TMUX: Paste Image from Clipboard`
+
+### 🧭 세션 매핑 안정성 강화
+- 같은 저장소 이름이 여러 경로에 있어도 충돌하지 않도록 `repo-name + path hash` 네임스페이스를 사용합니다
+- `@workdir`가 현재 저장소 안을 가리키면 레거시 세션 이름도 호환 인식합니다
+- worktree 슬러그가 충돌하면 부모 폴더명, 이후 경로 해시로 자동 구분합니다
+- git 저장소가 아닌 폴더도 트리에 `current project (no git)`로 표시합니다
 
 ## 실제 활용 사례
 
@@ -77,6 +98,15 @@ tmux attach -t myapp/feature-oauth
 | `TMUX: New Task` | 새 브랜치 + worktree + tmux 세션 한 번에 생성 |
 | `TMUX: Remove Task` | worktree와 tmux 세션 삭제 |
 | `TMUX: Cleanup Orphans` | 고아 tmux 세션 정리 |
+| `TMUX: Smart Paste (Image Support)` | 스마트 터미널 붙여넣기: 텍스트는 일반 paste, 이미지는 임시 파일 경로 입력 |
+| `TMUX: Paste Image from Clipboard` | 클립보드 이미지를 강제로 저장하고 현재 터미널에 경로 입력 |
+
+## 최근 업데이트 (v1.1.2 - v1.1.6)
+
+- **v1.1.6**: AI CLI 워크플로우를 위한 이미지 인식 터미널 붙여넣기(`Cmd+V` / `Ctrl+Shift+V`)와 강제 이미지 붙여넣기 명령 추가. 또한 시작 시 auto-attach 타이밍을 보정해, 가끔 터미널이 작게 렌더링되었다가 창 크기 조절 후 정상화되던 문제를 완화했습니다.
+- **v1.1.4 - v1.1.5**: tmux attach 시 클립보드/패스스루 옵션을 자동 설정해 원격 환경 클립보드 신뢰성 개선.
+- **v1.1.3**: 레거시 세션 prefix 호환 로직 정리로 마이그레이션 안정성 개선.
+- **v1.1.2**: 슬러그 충돌 처리와 no-git 워크스페이스 라벨(`current project (no git)`) 추가.
 
 ## 설치 요구사항
 
@@ -97,12 +127,12 @@ tmux attach -t myapp/feature-oauth
 
 ```
 저장소 (루트)
-├── main              → tmux 세션: "project/main"
-├── feature/login     → tmux 세션: "project/feature-login"
-└── fix/bug-123       → tmux 세션: "project/fix-bug-123"
+├── main              → tmux 세션: "project-a1b2c3d4_main"
+├── feature/login     → tmux 세션: "project-a1b2c3d4_feature-login"
+└── fix/bug-123       → tmux 세션: "project-a1b2c3d4_fix-bug-123"
 ```
 
-각 worktree마다 전용 tmux 세션이 생깁니다. 세션 이름은 저장소와 브랜치 기반으로 자동 생성되어, VS Code 밖에서도 쉽게 찾을 수 있어요.
+각 worktree마다 전용 tmux 세션이 생깁니다. 세션 이름은 `repo-name + path hash` 네임스페이스와 슬러그를 함께 써서, 같은 저장소 이름이 다른 경로에 있어도 충돌을 피합니다.
 
 ## 더 알아보기
 

@@ -10,6 +10,14 @@
 
 ![TMUX Worktree Screenshot](https://raw.githubusercontent.com/kargnas/vscode-ext-tmux-worktree/main/docs/screenshot.png)
 
+## Why It Feels Polished
+
+- **Image-aware terminal paste**: `Cmd+V` / `Ctrl+Shift+V` keeps normal text paste, but auto-inserts an image file path when clipboard has an image.
+- **Remote-SSH clipboard bridge**: local clipboard images can be pasted into remote terminals without manual upload steps.
+- **Collision-safe session identity**: sessions use `repo-name + path hash` namespace and slug disambiguation for same-name repos and similar paths.
+- **Legacy-compatible migration**: previous session prefixes are still detected when `@workdir` belongs to the repo.
+- **No-git fallback visibility**: even non-git folders still appear as `current project (no git)` instead of disappearing from the tree.
+
 ## Why?
 
 If you use `git worktree` for parallel development and `tmux` for persistent terminal sessions, you know the pain of manually juggling both. This extension bridges the gap:
@@ -71,6 +79,19 @@ Detect and clean up tmux sessions that no longer have matching worktrees. Keep y
 - Open worktrees in new VS Code windows
 - Filter sessions by name
 
+### 📋 Smart Paste (Image-Aware Terminal Paste)
+- `Cmd+V` (macOS) / `Ctrl+Shift+V` (Linux) in terminal first checks clipboard content
+- If clipboard has text, it keeps the default paste behavior
+- If clipboard has an image, it saves a temporary `.png` and inserts the file path into terminal
+- Works with local sessions and Remote-SSH (webview bridge uploads local clipboard image to remote host)
+- Force image-only mode from Command Palette: `TMUX: Paste Image from Clipboard`
+
+### 🧭 Robust Session Mapping
+- Session namespace uses `repo-name + path hash` to avoid collisions between same-name repositories in different directories
+- Legacy session names are still detected for compatibility when `@workdir` points inside the current repo
+- Worktrees with colliding slugs are auto-disambiguated (parent folder, then path hash)
+- Non-git folders are still shown in the tree as `current project (no git)`
+
 ## Commands
 
 | Command | Description |
@@ -79,6 +100,15 @@ Detect and clean up tmux sessions that no longer have matching worktrees. Keep y
 | `TMUX: New Task` | Create a new branch + worktree + tmux session |
 | `TMUX: Remove Task` | Remove a worktree and its tmux session |
 | `TMUX: Cleanup Orphans` | Remove orphaned tmux sessions |
+| `TMUX: Smart Paste (Image Support)` | Smart terminal paste: text uses normal paste, image inserts temporary file path |
+| `TMUX: Paste Image from Clipboard` | Force image paste and insert the saved image path into the active terminal |
+
+## Recent Updates (v1.1.2 - v1.1.6)
+
+- **v1.1.6**: Added image-aware terminal paste for AI CLI workflows (`Cmd+V` / `Ctrl+Shift+V`) and a force image paste command. Also improved startup auto-attach sizing stability to reduce occasional small terminal rendering until a manual window resize.
+- **v1.1.4 - v1.1.5**: Improved tmux clipboard reliability by enabling clipboard capabilities and passthrough options during attach.
+- **v1.1.3**: Refactored legacy session-prefix compatibility logic for safer migration.
+- **v1.1.2**: Added slug collision handling and explicit no-git workspace labeling (`current project (no git)`).
 
 ## Requirements
 
@@ -99,12 +129,12 @@ To create a new task: click the **+** button in the TMUX panel header, enter a b
 
 ```
 Repository (root)
-├── main              → tmux session: "project/main"
-├── feature/login     → tmux session: "project/feature-login"
-└── fix/bug-123       → tmux session: "project/fix-bug-123"
+├── main              → tmux session: "project-a1b2c3d4_main"
+├── feature/login     → tmux session: "project-a1b2c3d4_feature-login"
+└── fix/bug-123       → tmux session: "project-a1b2c3d4_fix-bug-123"
 ```
 
-Each worktree gets a dedicated tmux session. Sessions are named based on the repository and branch, so they're easy to find even outside VS Code.
+Each worktree gets a dedicated tmux session. Session names use a repo namespace (`repo-name + path hash`) plus a slug, which avoids collisions across same-name repositories in different directories.
 
 ## Learn More
 

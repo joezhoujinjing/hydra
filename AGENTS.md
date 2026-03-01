@@ -71,6 +71,9 @@ This document serves as the primary rule file for AI Agents working on this proj
 - **Extension**: `npm run lint` (ESLint), `npm run compile`.
 - **CLI**: `cd cli && go vet ./...`, `staticcheck ./...`.
 
+### Documentation Sync
+- Whenever adding or changing user-visible features (commands, keybindings, tree labels, attach behavior), update `README.md` and `docs/README.ko.md` in the same task.
+
 ## 4. Code Quality
 
 ### Code Quality: Always look back your git status and make sure build success before commit
@@ -107,4 +110,5 @@ This document serves as the primary rule file for AI Agents working on this proj
   - Setting `VSCODE_SHELL_INTEGRATION: null` and `VSCODE_INJECTION: null` prevents shell integration from interfering with tmux internal shells
 - **Remote Clipboard Reliability**: Before attach, set tmux clipboard options (`set-clipboard on`, `terminal-features ...:clipboard`, and `terminal-overrides ...:clipboard`) quietly so copy-mode selections can propagate to the local clipboard via OSC52 in Remote-SSH/VS Code terminals.
 - **OpenCode Clipboard in tmux**: OpenCode TUI emits OSC52 via tmux passthrough wrapper (`ESC Ptmux; ... ESC \\`). Ensure `allow-passthrough on` (window option) is enabled, or OpenCode may show "Copied to clipboard" while local clipboard remains unchanged.
+- **Startup Size Race Mitigation**: When auto-attaching on extension startup, delay initial attach briefly (for workbench layout stabilization) and stagger multiple attaches. Right before `exec tmux attach`, sync session `default-size` from current PTY (`stty size`) and add a short sleep to avoid initial 80x24-sized clients that only fix after a manual VS Code window resize.
 <!-- opencode:reflection:end -->
