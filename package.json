@@ -17,11 +17,20 @@
     "tmux",
     "worktree",
     "git",
+    "git-worktree",
     "terminal",
     "session",
     "branch",
     "workflow",
-    "ai-coding"
+    "ai-coding",
+    "vibe-coding",
+    "claude-code",
+    "codex",
+    "opencode",
+    "parallel-development",
+    "multi-branch",
+    "coding-agent",
+    "remote-ssh"
   ],
   "galleryBanner": {
     "color": "#1BB352",
