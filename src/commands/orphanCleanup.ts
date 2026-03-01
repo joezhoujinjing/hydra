@@ -63,7 +63,9 @@ export async function cleanupOrphans(): Promise<void> {
       try {
         const status = await exec(`git -C "${wtPath}" status --porcelain`);
         hasChanges = status.trim().length > 0;
-      } catch { }
+      } catch {
+        hasChanges = false;
+      }
 
       const slug = path.basename(wtPath);
       const msg = hasChanges

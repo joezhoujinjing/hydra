@@ -106,6 +106,10 @@ export function attachSession(sessionName: string, cwd?: string, location: vscod
     "tmux set-option -agq terminal-features ',xterm-256color:clipboard' >/dev/null 2>&1 || true",
     "tmux set-option -agq terminal-overrides ',*:clipboard' >/dev/null 2>&1 || true",
     "tmux set-option -gwq allow-passthrough on >/dev/null 2>&1 || true",
+    "rows=$(stty size 2>/dev/null | awk '{print $1}') || true",
+    "cols=$(stty size 2>/dev/null | awk '{print $2}') || true",
+    "if [ -n \"$rows\" ] && [ -n \"$cols\" ]; then tmux set-option -t '" + escapedName + "' default-size \"${cols}x${rows}\" >/dev/null 2>&1 || true; fi",
+    "sleep 0.05",
     `exec tmux attach -t '${escapedName}'`
   ].join('; ');
   const terminal = vscode.window.createTerminal({

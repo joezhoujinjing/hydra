@@ -3,6 +3,13 @@ import { exec } from '../utils/exec';
 import { attachSession } from '../utils/tmux';
 import { createRepoSessionPrefixConfig, isWorkdirInRepo } from '../utils/sessionCompatibility';
 
+const STARTUP_ATTACH_DELAY_MS = 500;
+const ATTACH_STAGGER_MS = 120;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export async function autoAttachOnStartup(): Promise<void> {
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) return;
@@ -52,10 +59,20 @@ export async function autoAttachOnStartup(): Promise<void> {
         matching.push(session.name);
         continue;
       }
-    } catch { }
+    } catch {
+      continue;
+    }
   }
 
-  for (const sessionName of matching) {
+  if (matching.length === 0) return;
+
+  // Give the workbench a moment to settle terminal/editor layout on startup.
+  await sleep(STARTUP_ATTACH_DELAY_MS);
+
+  for (const [index, sessionName] of matching.entries()) {
+    if (index > 0) {
+      await sleep(ATTACH_STAGGER_MS);
+    }
     attachSession(sessionName);
   }
 }
