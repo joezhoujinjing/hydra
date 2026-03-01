@@ -83,9 +83,6 @@ This document serves as the primary rule file for AI Agents working on this proj
 - For tests, you must run `npm run lint` (or relevant test command) to make sure there is no error when test. If you find an error, you must fix it and run test again.
 - For smoke tests, you must run the smoke test you edited/added and make sure it's successfully passed. (Fix it if you find an error) But if you don't have any environment variables to run, just STOP working.
 
-### Extreamly Detail Comments
-- When the user ask to fix some unintended behavior, you must add extremely detail comments to the code to explain why the code is written like this, and what is the reason behind it. (e.g. Clipboard doesn't work through SSH tunnel feature of VS Code.)
-
 ## 5. Language & UI/UX
 - **Language**: English (Comments, Docs, UI Strings).
 - **UI/UX Guidelines**:
@@ -104,14 +101,10 @@ This document serves as the primary rule file for AI Agents working on this proj
 - **PTY Configuration Issue**: Using `shellPath: 'tmux'` causes VS Code to treat tmux as a non-standard shell, resulting in different PTY settings and broken mouse drag events (pane resize fails)
 - **Race Condition with Other Extensions**: Using `terminal.sendText('exec tmux attach ...')` causes race conditions with other extensions (e.g., VS Code Python extension) that send commands first, swallowing the `exec` command
 - **Shell Integration Interference**: VS Code shell integration environment variables (`VSCODE_SHELL_INTEGRATION`, `VSCODE_INJECTION`) inherited by tmux internal shell cause OSC 633 sequences that add command decorations, blocking mouse drag text selection in interactive panes
-- **Solution**: Use `/bin/sh -c 'exec tmux attach -t ...'` and set shell integration env vars conditionally by environment
+- **Solution**: Use `/bin/sh -c 'exec tmux attach -t ...'` with environment variables set to `null` for shell integration
   - `exec` replaces sh with tmux (no extra process)
   - `-c` executes immediately, avoiding sendText race conditions
-  - In local VS Code sessions, set `VSCODE_SHELL_INTEGRATION: null` and `VSCODE_INJECTION: null` to avoid drag/selection regressions
-  - In Remote-SSH sessions, avoid overriding `shellPath/shellArgs`; create a default terminal and use `sendText` attach so VS Code's native shell integration/clipboard bridge remains intact
-  - Determine "remote" using both `vscode.env.remoteName` and workspace URI scheme fallback (`vscode-remote`) for tunnel/special environments
-- **Remote Clipboard Reliability**: Before attach, set tmux clipboard options (`set-clipboard on`) and passthrough (`allow-passthrough on`) in a short pre-attach command chain.
-- **Tmux Passthrough Scope**: `allow-passthrough` is a pane option. Configure it with pane scope (`set-option -gp ...`), not window scope (`-gw`).
-- **Remote Session Bootstrap**: In remote mode, ensure/create the tmux session from the terminal-side attach command path as well, so first-time session environment can inherit remote terminal integration context.
-- **Remote Attach Command Size**: Keep remote `sendText` attach command short. Very long one-liner shell scripts can conflict with interactive shell startup/completion hooks and cause stalled attach.
+  - Setting `VSCODE_SHELL_INTEGRATION: null` and `VSCODE_INJECTION: null` prevents shell integration from interfering with tmux internal shells
+- **Remote Clipboard Reliability**: Before attach, set tmux clipboard options (`set-clipboard on`, `terminal-features ...:clipboard`, and `terminal-overrides ...:clipboard`) quietly so copy-mode selections can propagate to the local clipboard via OSC52 in Remote-SSH/VS Code terminals.
+- **OpenCode Clipboard in tmux**: OpenCode TUI emits OSC52 via tmux passthrough wrapper (`ESC Ptmux; ... ESC \\`). Ensure `allow-passthrough on` (window option) is enabled, or OpenCode may show "Copied to clipboard" while local clipboard remains unchanged.
 <!-- opencode:reflection:end -->
