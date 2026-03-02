@@ -69,6 +69,7 @@ Create a new git branch + worktree + tmux session in one step. Start working on 
 - **Attach in Terminal** — open tmux session in VS Code's integrated terminal
 - **Attach in Editor** — embed tmux session as an editor tab
 - **Auto-attach** — automatically connect when opening a worktree folder
+- **Size-stable attach** — retries PTY size sampling and force-resizes the target tmux window before attach to reduce occasional small 80x24 first paint in full-screen TUIs
 
 ### 🧹 Orphan Cleanup
 Detect and clean up tmux sessions that no longer have matching worktrees. Keep your environment tidy.
@@ -105,7 +106,7 @@ Detect and clean up tmux sessions that no longer have matching worktrees. Keep y
 
 ## Recent Updates (v1.1.2 - v1.1.6)
 
-- **v1.1.6**: Added image-aware terminal paste for AI CLI workflows (`Cmd+V` / `Ctrl+Shift+V`) and a force image paste command. Also improved startup auto-attach sizing stability to reduce occasional small terminal rendering until a manual window resize.
+- **v1.1.6**: Added image-aware terminal paste for AI CLI workflows (`Cmd+V` / `Ctrl+Shift+V`) and a force image paste command. Also improved startup auto-attach sizing stability to reduce occasional small terminal rendering until a manual window resize, and fixed a shell-script parsing regression that could fail attach launch in some environments.
 - **v1.1.4 - v1.1.5**: Improved tmux clipboard reliability by enabling clipboard capabilities and passthrough options during attach.
 - **v1.1.3**: Refactored legacy session-prefix compatibility logic for safer migration.
 - **v1.1.2**: Added slug collision handling and explicit no-git workspace labeling (`current project (no git)`).

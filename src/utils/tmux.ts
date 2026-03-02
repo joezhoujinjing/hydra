@@ -106,12 +106,20 @@ export function attachSession(sessionName: string, cwd?: string, location: vscod
     "tmux set-option -agq terminal-features ',xterm-256color:clipboard' >/dev/null 2>&1 || true",
     "tmux set-option -agq terminal-overrides ',*:clipboard' >/dev/null 2>&1 || true",
     "tmux set-option -gwq allow-passthrough on >/dev/null 2>&1 || true",
-    "rows=$(stty size 2>/dev/null | awk '{print $1}') || true",
-    "cols=$(stty size 2>/dev/null | awk '{print $2}') || true",
+    "rows=''; cols=''",
+    "for _ in 1 2 3 4 5; do",
+    "size=$(stty size 2>/dev/null || true)",
+    "candidate_rows=${size%% *}",
+    "candidate_cols=${size##* }",
+    "if [ -n \"$candidate_rows\" ] && [ -n \"$candidate_cols\" ] && [ \"$candidate_rows\" -gt 0 ] && [ \"$candidate_cols\" -gt 0 ]; then rows=\"$candidate_rows\"; cols=\"$candidate_cols\"; fi",
+    "if [ -n \"$rows\" ] && [ \"$rows\" -ge 30 ] && [ \"$cols\" -ge 100 ]; then break; fi",
+    "sleep 0.04",
+    "done",
     "if [ -n \"$rows\" ] && [ -n \"$cols\" ]; then tmux set-option -t '" + escapedName + "' default-size \"${cols}x${rows}\" >/dev/null 2>&1 || true; fi",
-    "sleep 0.05",
+    "if [ -n \"$rows\" ] && [ -n \"$cols\" ]; then tmux resize-window -t '" + escapedName + "':. -x \"$cols\" -y \"$rows\" >/dev/null 2>&1 || true; fi",
+    "sleep 0.08",
     `exec tmux attach -t '${escapedName}'`
-  ].join('; ');
+  ].join('\n');
   const terminal = vscode.window.createTerminal({
     name: terminalName,
     shellPath: '/bin/sh',
