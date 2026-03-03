@@ -83,6 +83,10 @@ export function attachSession(sessionName: string, cwd?: string, location: vscod
   const existing = vscode.window.terminals.find(t => t.name === terminalName || t.name === oldName);
   
   if (existing) {
+    // resize-window can leave window-size as manual; force latest on reuse
+    // so the tmux window follows the current VS Code terminal dimensions.
+    void exec(`tmux set-window-option -t "${sessionName}":. window-size latest`).catch(() => {});
+
     const options = existing.creationOptions as vscode.TerminalOptions;
     // 원하는 위치에 이미 있으면 show(), 아니면 닫고 새로 생성
     if (options && options.location === location) {
@@ -117,6 +121,7 @@ export function attachSession(sessionName: string, cwd?: string, location: vscod
     "done",
     "if [ -n \"$rows\" ] && [ -n \"$cols\" ]; then tmux set-option -t '" + escapedName + "' default-size \"${cols}x${rows}\" >/dev/null 2>&1 || true; fi",
     "if [ -n \"$rows\" ] && [ -n \"$cols\" ]; then tmux resize-window -t '" + escapedName + "':. -x \"$cols\" -y \"$rows\" >/dev/null 2>&1 || true; fi",
+    "tmux set-window-option -t '" + escapedName + "':. window-size latest >/dev/null 2>&1 || true",
     "sleep 0.08",
     `exec tmux attach -t '${escapedName}'`
   ].join('\n');
