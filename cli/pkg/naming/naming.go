@@ -31,17 +31,24 @@ func GetSlugFromSessionName(sessionName, repoName string) string {
 // GetSlugFromWorktree determines the slug from a worktree path.
 func GetSlugFromWorktree(worktreePath, repoName string, isMain bool) string {
 	slug := filepath.Base(worktreePath)
+	parentName := filepath.Base(filepath.Dir(worktreePath))
+	grandParentName := filepath.Base(filepath.Dir(filepath.Dir(worktreePath)))
+	isManagedStoragePath := parentName == ".worktrees" || grandParentName == ".tmux-worktrees"
 
 	// 1. If worktree is main branch AND path does not contain ".worktrees"
 	//    (usually the root repo directory) -> force "main"
-	if isMain && !strings.Contains(worktreePath, ".worktrees") {
+	if isMain && !isManagedStoragePath {
 		return "main"
 	}
 
-	// 2. If the directory name (slug) equals the repo name -> force "main"
-	//    (e.g. /path/to/my-project)
+	// 2. External worktrees that reuse the repo directory name need a parent suffix.
 	if slug == repoName {
-		return "main"
+		if isManagedStoragePath {
+			return slug
+		}
+		if parentName != "" && parentName != slug {
+			return slug + "-" + parentName
+		}
 	}
 
 	return slug
@@ -52,30 +59,18 @@ func GetSessionName(repoName, slug string) string {
 	return repoName + "_" + slug
 }
 
-// IsMainBranch determines if a branch is considered "main".
-// Logic: If it starts with "task/", it is NOT main.
-func IsMainBranch(branch string) bool {
-	return !strings.HasPrefix(branch, "task/")
-}
-
 // IsRoot determines if this item should be labeled as "(root)" in the UI.
-func IsRoot(slug, repoName string, worktreePath string, isMain bool) bool {
-	// Logic from TmuxSessionItem constructor
-	// if (!label || label === repoName) -> (root)
-
-	if slug == "" || slug == repoName || slug == "main" {
+func IsRoot(_ string, repoName string, worktreePath string, isMain bool) bool {
+	if isMain {
 		return true
 	}
 
-	// Logic from worktree path check
 	if worktreePath != "" {
 		base := filepath.Base(worktreePath)
-		if base == repoName {
-			return true
-		}
-
-		// if (worktree.isMain && !worktree.path.includes('.worktrees'))
-		if isMain && !strings.Contains(worktreePath, ".worktrees") {
+		parentName := filepath.Base(filepath.Dir(worktreePath))
+		grandParentName := filepath.Base(filepath.Dir(filepath.Dir(worktreePath)))
+		isManagedStoragePath := parentName == ".worktrees" || grandParentName == ".tmux-worktrees"
+		if base == repoName && !isManagedStoragePath {
 			return true
 		}
 	}
