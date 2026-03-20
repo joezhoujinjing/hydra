@@ -1,12 +1,74 @@
 import * as vscode from 'vscode';
 import { exec } from './exec';
 import { toCanonicalPath } from './path';
+import { shellQuote } from './shell';
 
 export interface TmuxSession {
   name: string;
   windows: number;
   attached: boolean;
   workdir?: string;
+}
+
+const TMUX_ENV_KEYS_TO_STRIP = [
+  'ELECTRON_RUN_AS_NODE',
+  'TERM_PROGRAM',
+  'TERM_PROGRAM_VERSION',
+  'VSCODE_INJECTION',
+  'VSCODE_SHELL_INTEGRATION',
+];
+
+function isTmuxIntegrationEnvKey(key: string): boolean {
+  return key.startsWith('VSCODE_') || TMUX_ENV_KEYS_TO_STRIP.includes(key);
+}
+
+function getTmuxSanitizedEnvKeys(): string[] {
+  return Array.from(new Set([
+    ...TMUX_ENV_KEYS_TO_STRIP,
+    ...Object.keys(process.env).filter(isTmuxIntegrationEnvKey),
+  ]));
+}
+
+function buildSanitizedTmuxCommand(command: string): string {
+  const envKeys = getTmuxSanitizedEnvKeys();
+  if (envKeys.length === 0) {
+    return `tmux ${command}`;
+  }
+
+  const unsetArgs = envKeys
+    .map((key) => `-u ${shellQuote(key)}`)
+    .join(' ');
+
+  return `env ${unsetArgs} tmux ${command}`;
+}
+
+function buildStoredTmuxEnvScrubCommand(sessionName?: string): string {
+  const sessionTarget = sessionName ? ` -t ${shellQuote(sessionName)}` : '';
+  return [
+    // Extension-host / shell-integration env leaking into tmux makes nested shells
+    // emit VS Code prompt markers, which breaks drag selection inside tmux panes.
+    'for name in ELECTRON_RUN_AS_NODE TERM_PROGRAM TERM_PROGRAM_VERSION VSCODE_INJECTION VSCODE_SHELL_INTEGRATION; do',
+    'tmux set-environment -gu "$name" >/dev/null 2>&1 || true',
+    `tmux set-environment${sessionTarget} -u "$name" >/dev/null 2>&1 || true`,
+    'done',
+    'tmux show-environment -g 2>/dev/null | while IFS= read -r line; do',
+    'name=${line%%=*}',
+    'case "$name" in',
+    'VSCODE_*)',
+    'tmux set-environment -gu "$name" >/dev/null 2>&1 || true',
+    `tmux set-environment${sessionTarget} -u "$name" >/dev/null 2>&1 || true`,
+    ';;',
+    'esac',
+    'done'
+  ].join('\n');
+}
+
+async function scrubStoredTmuxEnvironment(sessionName?: string): Promise<void> {
+  try {
+    await exec(buildStoredTmuxEnvScrubCommand(sessionName));
+  } catch {
+    // No tmux server yet is fine; createSession will start one with a sanitized env.
+  }
 }
 
 export async function isTmuxInstalled(): Promise<boolean> {
@@ -50,7 +112,8 @@ export async function getSessionWorkdir(sessionName: string): Promise<string | u
 }
 
 export async function createSession(sessionName: string, cwd: string): Promise<void> {
-  await exec(`tmux new-session -d -s "${sessionName}" -c "${cwd}"`);
+  await scrubStoredTmuxEnvironment(sessionName);
+  await exec(buildSanitizedTmuxCommand(`new-session -d -s "${sessionName}" -c "${cwd}"`));
 }
 
 export async function setSessionWorkdir(sessionName: string, workdir: string): Promise<void> {
@@ -106,6 +169,7 @@ export function attachSession(sessionName: string, cwd?: string, location: vscod
   // attach 직전에 clipboard capability를 조용히 보강한다.
   const escapedName = sessionName.replace(/'/g, "'\\''");
   const attachCommand = [
+    buildStoredTmuxEnvScrubCommand(sessionName),
     "tmux set-option -gq set-clipboard on >/dev/null 2>&1 || true",
     "tmux set-option -agq terminal-features ',xterm-256color:clipboard' >/dev/null 2>&1 || true",
     "tmux set-option -agq terminal-overrides ',*:clipboard' >/dev/null 2>&1 || true",
@@ -135,6 +199,8 @@ export function attachSession(sessionName: string, cwd?: string, location: vscod
       // VS Code shell integration 환경변수가 tmux 내부 쉘(zsh/bash)에 상속되면,
       // 내부 쉘이 OSC 633 시퀀스를 보내 VS Code가 command decoration을 추가하고
       // interactive shell이 있는 pane에서 마우스 드래그(텍스트 선택)가 안 되는 문제 발생.
+      'TERM_PROGRAM': null,
+      'TERM_PROGRAM_VERSION': null,
       'VSCODE_SHELL_INTEGRATION': null,
       'VSCODE_INJECTION': null,
     },

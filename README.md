@@ -73,6 +73,7 @@ If a task slug would collide with the primary worktree slug like `main`, the ext
 - **Attach in Editor** — embed tmux session as an editor tab
 - **Auto-attach** — automatically connect when opening a worktree folder
 - **Size-stable attach** — retries PTY size sampling, force-resizes before attach, then restores `window-size latest` so full-screen TUIs avoid both 80x24 first paint and persistent clipping
+- **Selection-stable attach** — strips stored VS Code/Electron env from tmux before attach/session creation so drag selection inside tmux panes does not get poisoned by nested shell integration markers
 
 ### 🧹 Orphan Cleanup
 Detect and clean up tmux sessions that no longer have matching worktrees. Keep your environment tidy.

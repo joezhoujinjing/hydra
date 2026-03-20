@@ -107,10 +107,12 @@ This document serves as the primary rule file for AI Agents working on this proj
 - **PTY Configuration Issue**: Using `shellPath: 'tmux'` causes VS Code to treat tmux as a non-standard shell, resulting in different PTY settings and broken mouse drag events (pane resize fails)
 - **Race Condition with Other Extensions**: Using `terminal.sendText('exec tmux attach ...')` causes race conditions with other extensions (e.g., VS Code Python extension) that send commands first, swallowing the `exec` command
 - **Shell Integration Interference**: VS Code shell integration environment variables (`VSCODE_SHELL_INTEGRATION`, `VSCODE_INJECTION`) inherited by tmux internal shell cause OSC 633 sequences that add command decorations, blocking mouse drag text selection in interactive panes
+- **Tmux Server Environment Pollution**: `tmux show-environment -g` can retain `VSCODE_*` and `ELECTRON_RUN_AS_NODE` from the VS Code extension host. Even if the attach client env is clean, new panes/windows can still inherit those stored values and re-enable shell integration markers intermittently.
 - **Solution**: Use `/bin/sh -c 'exec tmux attach -t ...'` with environment variables set to `null` for shell integration
   - `exec` replaces sh with tmux (no extra process)
   - `-c` executes immediately, avoiding sendText race conditions
-  - Setting `VSCODE_SHELL_INTEGRATION: null` and `VSCODE_INJECTION: null` prevents shell integration from interfering with tmux internal shells
+  - Setting `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `VSCODE_SHELL_INTEGRATION`, and `VSCODE_INJECTION` to `null` prevents shell integration from interfering with tmux internal shells
+  - Scrub stored `VSCODE_*` / `ELECTRON_RUN_AS_NODE` from tmux before `new-session` and right before `attach`, otherwise long-lived tmux servers can keep poisoning later panes
 - **Remote Clipboard Reliability**: Before attach, set tmux clipboard options (`set-clipboard on`, `terminal-features ...:clipboard`, and `terminal-overrides ...:clipboard`) quietly so copy-mode selections can propagate to the local clipboard via OSC52 in Remote-SSH/VS Code terminals.
 - **OpenCode Clipboard in tmux**: OpenCode TUI emits OSC52 via tmux passthrough wrapper (`ESC Ptmux; ... ESC \\`). Ensure `allow-passthrough on` (window option) is enabled, or OpenCode may show "Copied to clipboard" while local clipboard remains unchanged.
 - **Startup Size Race Mitigation**: When auto-attaching on extension startup, delay initial attach briefly (for workbench layout stabilization) and stagger multiple attaches. Right before `exec tmux attach`, sync session `default-size` from current PTY (`stty size`) and add a short sleep to avoid initial 80x24-sized clients that only fix after a manual VS Code window resize.
