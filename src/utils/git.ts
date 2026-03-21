@@ -100,19 +100,28 @@ export function getRepoSessionNamespace(repoRoot: string): string {
   return `${repoName}-${rootHash}`;
 }
 
-// origin/main 존재 여부 확인 후 기준 브랜치 결정
+// Determine base branch by checking common default branch names in order
 export async function getBaseBranch(repoRoot: string): Promise<string> {
-  try {
-    await exec('git rev-parse --verify origin/main', { cwd: repoRoot });
-    return 'origin/main';
-  } catch {
+  const override = vscode.workspace.getConfiguration('tmuxWorktree').get<string>('baseBranch');
+  if (override) {
     try {
-      await exec('git rev-parse --verify main', { cwd: repoRoot });
-      return 'main';
+      await exec(`git rev-parse --verify ${override}`, { cwd: repoRoot });
+      return override;
     } catch {
-      throw new Error('No main branch found (origin/main or main)');
+      throw new Error(`Configured baseBranch "${override}" not found in repository`);
     }
   }
+
+  const candidates = ['origin/main', 'main', 'origin/master', 'master'];
+  for (const candidate of candidates) {
+    try {
+      await exec(`git rev-parse --verify ${candidate}`, { cwd: repoRoot });
+      return candidate;
+    } catch {
+      // try next candidate
+    }
+  }
+  throw new Error('No default branch found (tried: origin/main, main, origin/master, master)');
 }
 
 export async function localBranchExists(repoRoot: string, branchName: string): Promise<boolean> {
