@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { exec } from '../utils/exec';
-import { getRepoRoot, getRepoName, listWorktrees, Worktree } from '../utils/git';
+import { getRepoRoot, getRepoName, listWorktrees, Worktree, getBaseBranch } from '../utils/git';
 import { listSessions, getSessionWorkdir, TmuxSession, buildSessionName, sanitizeSessionName } from '../utils/tmux';
 import { toCanonicalPath } from '../utils/path';
 import { createRepoSessionPrefixConfig, matchRepoSessionName } from '../utils/sessionCompatibility';
@@ -364,11 +364,17 @@ export class TmuxItem extends vscode.TreeItem {
 export class RepoGroupItem extends TmuxItem {
   constructor(
     public readonly repoName: string,
-    public readonly repoRoot: string
+    public readonly repoRoot: string,
+    baseBranch?: string
   ) {
     super(repoName, vscode.TreeItemCollapsibleState.Expanded, repoName);
     this.contextValue = 'repoGroup';
     this.iconPath = new vscode.ThemeIcon('repo');
+    if (baseBranch) {
+      // Strip remote prefix (e.g. "origin/main" → "main") for cleaner display
+      const shortName = baseBranch.replace(/^origin\//, '');
+      this.description = `[base: ${shortName}]`;
+    }
   }
 }
 
@@ -674,7 +680,9 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
     try {
       const repoRoot = getRepoRoot();
       const repoName = getRepoName(repoRoot);
-      return [new RepoGroupItem(repoName, repoRoot)];
+      let baseBranch: string | undefined;
+      try { baseBranch = await getBaseBranch(repoRoot); } catch { /* non-git or no default branch */ }
+      return [new RepoGroupItem(repoName, repoRoot, baseBranch)];
     } catch { return []; }
   }
 
