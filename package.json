@@ -129,6 +129,10 @@
       {
         "command": "tmux.pasteImage",
         "title": "TMUX: Paste Image from Clipboard"
+      },
+      {
+        "command": "tmux.createWorktreeFromBranch",
+        "title": "Create Worktree from This Branch"
       }
     ],
     "keybindings": [
@@ -204,6 +208,11 @@
           "command": "tmux.newWindow",
           "when": "view == tmuxSessions && viewItem == tmuxItem",
           "group": "3_tmux"
+        },
+        {
+          "command": "tmux.createWorktreeFromBranch",
+          "when": "view == tmuxSessions && viewItem == tmuxItem",
+          "group": "4_create"
         },
         {
           "command": "tmux.removeTask",
