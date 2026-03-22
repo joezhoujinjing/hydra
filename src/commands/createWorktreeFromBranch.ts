@@ -34,7 +34,13 @@ function formatFileStatusCounts(nameStatusOutput: string): string {
   return parts.length > 0 ? `(${parts.join(', ')})` : '';
 }
 
-export async function createWorktreeFromBranch(item: WorktreeItem): Promise<void> {
+export async function createWorktreeFromBranch(item: WorktreeItem | undefined): Promise<void> {
+  if (!item) {
+    // Called from Command Palette without tree context — no source branch available
+    vscode.window.showWarningMessage('Right-click a branch in the TMUX panel to create a worktree from it.');
+    return;
+  }
+
   if (!await isTmuxInstalled()) {
     vscode.window.showErrorMessage('tmux not found. Install: `brew install tmux`');
     return;
