@@ -67,6 +67,7 @@ Create a new git branch + worktree + tmux session in one step. Start working on 
 Managed worktrees are created under `~/.tmux-worktrees/<repo-name-hash>/` by default, which keeps repository roots clean and avoids cross-repo path collisions.
 Enter any valid branch name such as `feat/auth` or `task/my-task`; tmux session/worktree slugs safely flatten `/` into `-`.
 If a task slug would collide with the primary worktree slug like `main`, the extension auto-suffixes it to keep sessions unique.
+New task branches stay local-only until the first publish, so VS Code keeps showing **Publish Branch** instead of attempting to sync against a not-yet-existing remote branch. The extension stores the chosen compare base in `branch.<name>.vscode-merge-base` so SCM diffs still use the expected base branch.
 
 ### 🔗 Smart Attach
 - **Attach in Terminal** — open tmux session in VS Code's integrated terminal
