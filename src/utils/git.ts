@@ -274,10 +274,10 @@ export async function addWorktree(
     { cwd: repoRoot }
   );
 
-  // 원격에 브랜치가 없어도 upstream 설정 (push 시 자동으로 같은 이름 브랜치로 push되도록)
-  await exec(`git config ${shellQuote(`branch.${branchName}.remote`)} origin`, { cwd: repoRoot });
+  // VS Code SCM should keep local-only task branches in "Publish Branch" state until the first push.
+  // Storing the chosen base branch here still gives SCM a stable compare target without faking an upstream.
   await exec(
-    `git config ${shellQuote(`branch.${branchName}.merge`)} ${shellQuote(`refs/heads/${branchName}`)}`,
+    `git config ${shellQuote(`branch.${branchName}.vscode-merge-base`)} ${shellQuote(baseBranch)}`,
     { cwd: repoRoot }
   );
 
