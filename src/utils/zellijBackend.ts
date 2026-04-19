@@ -4,14 +4,51 @@ import * as path from 'path';
 import * as os from 'os';
 import { exec, ExecOptions } from './exec';
 import { MultiplexerBackend, MultiplexerSession, SessionStatusInfo } from './multiplexer';
+import { shellQuote } from './shell';
 
 // Zellij derives its IPC socket path from $TMPDIR + session name.
 // macOS's $TMPDIR is deep (/var/folders/…/T/) so the full path easily
 // exceeds the Unix socket limit of 103-108 bytes. A short fixed dir avoids this.
 const ZELLIJ_SOCKET_DIR = '/tmp/zellij';
+const ZELLIJ_ENV_KEYS_TO_STRIP = [
+  'ELECTRON_RUN_AS_NODE',
+  'TERM_PROGRAM',
+  'TERM_PROGRAM_VERSION',
+  'VSCODE_INJECTION',
+  'VSCODE_SHELL_INTEGRATION',
+];
+
+function isZellijIntegrationEnvKey(key: string): boolean {
+  return key.startsWith('VSCODE_') || ZELLIJ_ENV_KEYS_TO_STRIP.includes(key);
+}
+
+function getSanitizedZellijEnvKeys(): string[] {
+  return Array.from(new Set([
+    ...ZELLIJ_ENV_KEYS_TO_STRIP,
+    ...Object.keys(process.env).filter(isZellijIntegrationEnvKey),
+  ]));
+}
+
+function buildSanitizedZellijCommand(command: string): string {
+  const envKeys = getSanitizedZellijEnvKeys();
+  const unsetArgs = envKeys.map((key) => `-u ${shellQuote(key)}`).join(' ');
+  const envPrefix = unsetArgs.length > 0 ? `env ${unsetArgs}` : 'env';
+  return `${envPrefix} ZELLIJ_SOCKET_DIR=${shellQuote(ZELLIJ_SOCKET_DIR)} ${command}`;
+}
+
+function getSanitizedZellijTerminalEnv(): Record<string, string | null> {
+  const env: Record<string, string | null> = {
+    TERM: 'xterm-256color',
+    ZELLIJ_SOCKET_DIR,
+  };
+  for (const key of getSanitizedZellijEnvKeys()) {
+    env[key] = null;
+  }
+  return env;
+}
 
 function zellijExec(command: string, options?: ExecOptions): Promise<string> {
-  return exec(`ZELLIJ_SOCKET_DIR=${ZELLIJ_SOCKET_DIR} ${command}`, options);
+  return exec(buildSanitizedZellijCommand(command), options);
 }
 
 // ─── Workdir Metadata Storage ─────────────────────────────
@@ -159,12 +196,12 @@ export class ZellijBackend implements MultiplexerBackend {
     }
   }
 
-  async getSessionPaneCount(_sessionName: string): Promise<number> {
+  async getSessionPaneCount(): Promise<number> {
     // Zellij doesn't expose pane count from outside a session.
     return 1;
   }
 
-  async getSessionPanePids(_sessionName: string): Promise<string[]> {
+  async getSessionPanePids(): Promise<string[]> {
     // Zellij doesn't expose pane PIDs from outside a session.
     return [];
   }
@@ -197,10 +234,10 @@ export class ZellijBackend implements MultiplexerBackend {
       shellPath: '/bin/sh',
       shellArgs: ['-c', attachCommand],
       cwd: cwd,
-      env: {
-        'TERM': 'xterm-256color',
-        'ZELLIJ_SOCKET_DIR': ZELLIJ_SOCKET_DIR,
-      },
+      // VS Code shell integration markers can leak through the bootstrap shell and
+      // confuse redraw/cursor bookkeeping inside Zellij-backed prompts. Remove the
+      // injected env here and when spawning detached sessions so line editing stays stable.
+      env: getSanitizedZellijTerminalEnv(),
       location,
       iconPath: new vscode.ThemeIcon('server')
     });
@@ -208,7 +245,7 @@ export class ZellijBackend implements MultiplexerBackend {
     return terminal;
   }
 
-  async splitPane(sessionName: string, _cwd?: string): Promise<void> {
+  async splitPane(sessionName: string): Promise<void> {
     // `zellij action` only works from inside a session (ZELLIJ env var).
     // Find the VS Code terminal attached to this session and send the action.
     const shortName = getShortName(sessionName);
@@ -223,7 +260,7 @@ export class ZellijBackend implements MultiplexerBackend {
     terminal.sendText('zellij action new-pane --direction down', true);
   }
 
-  async newWindow(sessionName: string, _cwd?: string): Promise<void> {
+  async newWindow(sessionName: string): Promise<void> {
     const shortName = getShortName(sessionName);
     const terminal = vscode.window.terminals.find(t => t.name === shortName);
     if (!terminal) {
