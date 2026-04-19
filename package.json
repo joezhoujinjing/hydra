@@ -2,7 +2,7 @@
   "name": "vscode-tmux-worktree",
   "displayName": "TMUX Worktree",
   "description": "Manage tmux sessions with git worktrees",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -154,7 +154,10 @@
       "properties": {
         "tmuxWorktree.multiplexer": {
           "type": "string",
-          "enum": ["tmux", "zellij"],
+          "enum": [
+            "tmux",
+            "zellij"
+          ],
           "default": "tmux",
           "markdownDescription": "Terminal multiplexer backend to use (`tmux` or `zellij`). Changes apply immediately."
         },
