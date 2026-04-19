@@ -74,7 +74,7 @@ New task branches stay local-only until the first publish, so VS Code keeps show
 - **Attach in Editor** — embed tmux session as an editor tab
 - **Auto-attach** — automatically connect when opening a worktree folder
 - **Size-stable attach** — retries PTY size sampling, force-resizes before attach, then restores `window-size latest` so full-screen TUIs avoid both 80x24 first paint and persistent clipping
-- **Selection-stable attach** — strips stored VS Code/Electron env from tmux before attach/session creation so drag selection inside tmux panes does not get poisoned by nested shell integration markers
+- **Prompt-stable attach** — strips VS Code/Electron shell-integration env before tmux/zellij session bootstrap so nested prompt markers do not corrupt redraw, selection, or backspace editing inside the multiplexer
 
 ### 🧹 Orphan Cleanup
 Detect and clean up tmux sessions that no longer have matching worktrees. Keep your environment tidy.

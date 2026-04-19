@@ -109,6 +109,7 @@ This document serves as the primary rule file for AI Agents working on this proj
 - **Race Condition with Other Extensions**: Using `terminal.sendText('exec tmux attach ...')` causes race conditions with other extensions (e.g., VS Code Python extension) that send commands first, swallowing the `exec` command
 - **Shell Integration Interference**: VS Code shell integration environment variables (`VSCODE_SHELL_INTEGRATION`, `VSCODE_INJECTION`) inherited by tmux internal shell cause OSC 633 sequences that add command decorations, blocking mouse drag text selection in interactive panes
 - **Tmux Server Environment Pollution**: `tmux show-environment -g` can retain `VSCODE_*` and `ELECTRON_RUN_AS_NODE` from the VS Code extension host. Even if the attach client env is clean, new panes/windows can still inherit those stored values and re-enable shell integration markers intermittently.
+- **Zellij Session Environment Pollution**: Detached `zellij attach -b` launched from the extension host can also inherit `VSCODE_*`, `TERM_PROGRAM*`, and `ELECTRON_RUN_AS_NODE`. Strip those vars both when spawning Zellij commands and when creating the bootstrap `/bin/sh` terminal, or prompt redraw/backspace editing can leave stale characters in the integrated terminal.
 - **Solution**: Use `/bin/sh -c 'exec tmux attach -t ...'` with environment variables set to `null` for shell integration
   - `exec` replaces sh with tmux (no extra process)
   - `-c` executes immediately, avoiding sendText race conditions
