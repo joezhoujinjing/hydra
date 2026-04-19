@@ -12,7 +12,7 @@ import {
   validateBranchName
 } from '../utils/git';
 import { exec } from '../utils/exec';
-import { isTmuxInstalled, createSession, setSessionWorkdir, attachSession, buildSessionName } from '../utils/tmux';
+import { getActiveBackend } from '../utils/multiplexer';
 import { WorktreeItem } from '../providers/tmuxSessionProvider';
 
 function formatFileStatusCounts(nameStatusOutput: string): string {
@@ -41,8 +41,9 @@ export async function createWorktreeFromBranch(item: WorktreeItem | undefined): 
     return;
   }
 
-  if (!await isTmuxInstalled()) {
-    vscode.window.showErrorMessage('tmux not found. Install: `brew install tmux`');
+  const backend = getActiveBackend();
+  if (!await backend.isInstalled()) {
+    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
     return;
   }
 
@@ -144,10 +145,10 @@ export async function createWorktreeFromBranch(item: WorktreeItem | undefined): 
       }
     }
 
-    const sessionName = buildSessionName(repoSessionNamespace, finalSlug);
-    await createSession(sessionName, worktreePath);
-    await setSessionWorkdir(sessionName, worktreePath);
-    attachSession(sessionName, worktreePath);
+    const sessionName = backend.buildSessionName(repoSessionNamespace, finalSlug);
+    await backend.createSession(sessionName, worktreePath);
+    await backend.setSessionWorkdir(sessionName, worktreePath);
+    backend.attachSession(sessionName, worktreePath);
 
     vscode.window.showInformationMessage(`Created worktree: ${branchName} (from ${sourceBranch})`);
     vscode.commands.executeCommand('tmux.refresh');

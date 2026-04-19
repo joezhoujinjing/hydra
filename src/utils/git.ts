@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { createHash } from 'crypto';
 import { exec } from './exec';
-import { buildSessionName, sanitizeSessionName } from './tmux';
+import { getActiveBackend } from './multiplexer';
 import { toCanonicalPath } from './path';
 import { shellQuote } from './shell';
 
@@ -61,7 +61,7 @@ export function validateBranchName(branchName: string): string | undefined {
 }
 
 export function branchNameToSlug(branchName: string): string {
-  return sanitizeSessionName(branchName.trim());
+  return getActiveBackend().sanitizeSessionName(branchName.trim());
 }
 
 // 모든 Task에서 사용하는 repoRoot 선정 규칙
@@ -95,7 +95,7 @@ export function getRepoName(repoRoot: string): string {
 
 export function getRepoSessionNamespace(repoRoot: string): string {
   const canonicalRoot = toCanonicalPath(repoRoot) || path.resolve(repoRoot);
-  const repoName = sanitizeSessionName(path.basename(canonicalRoot) || 'repo');
+  const repoName = getActiveBackend().sanitizeSessionName(path.basename(canonicalRoot) || 'repo');
   const rootHash = createHash('sha1').update(canonicalRoot).digest('hex').slice(0, 8);
   return `${repoName}-${rootHash}`;
 }
@@ -244,17 +244,17 @@ export async function isSlugTaken(slug: string, repoSessionNamespace: string, re
     const normalizedPath = toCanonicalPath(worktree.path) || path.resolve(worktree.path);
     return normalizedPath === normalizedCandidatePath;
   });
-  const reservedPrimarySlug = sanitizeSessionName(slug) === sanitizeSessionName('main') &&
+  const backend = getActiveBackend();
+  const reservedPrimarySlug = backend.sanitizeSessionName(slug) === backend.sanitizeSessionName('main') &&
     worktrees.some(worktree => worktree.isMain);
   if (worktreePathExists || reservedPrimarySlug || fs.existsSync(candidatePath)) return true;
 
-  // 2. tmux 세션에서 확인
+  // 2. 세션에서 확인
   try {
-    const sessions = await exec("tmux list-sessions -F '#{session_name}'");
-    const sessionName = buildSessionName(repoSessionNamespace, slug);
-    return sessions.split('\n').some(s => s.trim() === sessionName);
+    const existingSessions = await backend.listSessions();
+    const sessionName = backend.buildSessionName(repoSessionNamespace, slug);
+    return existingSessions.some(s => s.name === sessionName);
   } catch {
-    // tmux 서버 없으면 세션 충돌 없음
     return false;
   }
 }

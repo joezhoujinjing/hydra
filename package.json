@@ -133,6 +133,11 @@
       {
         "command": "tmux.createWorktreeFromBranch",
         "title": "Create Worktree from This Branch"
+      },
+      {
+        "command": "tmux.switchBackend",
+        "title": "Switch Backend",
+        "icon": "$(arrow-swap)"
       }
     ],
     "keybindings": [
@@ -147,6 +152,12 @@
     "configuration": {
       "title": "TMUX Worktree",
       "properties": {
+        "tmuxWorktree.multiplexer": {
+          "type": "string",
+          "enum": ["tmux", "zellij"],
+          "default": "tmux",
+          "markdownDescription": "Terminal multiplexer backend to use (`tmux` or `zellij`). Changes apply immediately."
+        },
         "tmuxWorktree.baseBranch": {
           "type": "string",
           "default": "",
@@ -156,6 +167,11 @@
     },
     "menus": {
       "view/title": [
+        {
+          "command": "tmux.switchBackend",
+          "when": "view == tmuxSessions",
+          "group": "navigation"
+        },
         {
           "command": "tmux.refresh",
           "when": "view == tmuxSessions",

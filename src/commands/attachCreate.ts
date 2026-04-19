@@ -1,17 +1,18 @@
 import * as vscode from 'vscode';
 import { getRepoRoot } from '../utils/git';
-import { isTmuxInstalled, listSessions, getSessionWorkdir, attachSession, createSession, setSessionWorkdir } from '../utils/tmux';
+import { getActiveBackend } from '../utils/multiplexer';
 import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem } from '../providers/tmuxSessionProvider';
 import { createRepoSessionPrefixConfig, isWorkdirInRepo } from '../utils/sessionCompatibility';
 
 async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
-  const sessions = await listSessions();
+  const backend = getActiveBackend();
+  const sessions = await backend.listSessions();
   const matchingSessions: string[] = [];
   const sessionPrefixConfig = createRepoSessionPrefixConfig(repoRoot);
   const repoPrefix = sessionPrefixConfig.primaryPrefix;
 
   for (const session of sessions) {
-    const workdir = await getSessionWorkdir(session.name);
+    const workdir = session.workdir || await backend.getSessionWorkdir(session.name);
     const inRepo = isWorkdirInRepo(workdir, sessionPrefixConfig.canonicalRepoRoot);
     if (inRepo) {
       matchingSessions.push(session.name);
@@ -28,24 +29,25 @@ async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
 }
 
 async function handleTreeViewItem(item: TmuxItem): Promise<void> {
+    const backend = getActiveBackend();
     const sessionName = item.sessionName || item.label;
     
-    const sessions = await listSessions();
+    const sessions = await backend.listSessions();
     const exists = sessions.some(s => s.name === sessionName);
 
     if (exists) {
-        const workdir = await getSessionWorkdir(sessionName);
-        attachSession(sessionName, workdir);
+        const workdir = await backend.getSessionWorkdir(sessionName);
+        backend.attachSession(sessionName, workdir);
         return;
     }
 
     if (item instanceof InactiveWorktreeItem) {
         const worktreePath = item.worktree.path;
         
-        await createSession(sessionName, worktreePath);
-        await setSessionWorkdir(sessionName, worktreePath);
+        await backend.createSession(sessionName, worktreePath);
+        await backend.setSessionWorkdir(sessionName, worktreePath);
         
-        attachSession(sessionName, worktreePath);
+        backend.attachSession(sessionName, worktreePath);
         
         vscode.window.showInformationMessage(`Launched session: ${sessionName}`);
         vscode.commands.executeCommand('tmux.refresh');
@@ -55,10 +57,10 @@ async function handleTreeViewItem(item: TmuxItem): Promise<void> {
     if (item instanceof InactiveDetailItem) {
         const worktreePath = item.worktree.path;
         
-        await createSession(sessionName, worktreePath);
-        await setSessionWorkdir(sessionName, worktreePath);
+        await backend.createSession(sessionName, worktreePath);
+        await backend.setSessionWorkdir(sessionName, worktreePath);
         
-        attachSession(sessionName, worktreePath);
+        backend.attachSession(sessionName, worktreePath);
         
         vscode.window.showInformationMessage(`Launched session: ${sessionName}`);
         vscode.commands.executeCommand('tmux.refresh');
@@ -69,18 +71,19 @@ async function handleTreeViewItem(item: TmuxItem): Promise<void> {
 }
 
 async function handleCommandExecution(): Promise<void> {
+    const backend = getActiveBackend();
     const repoRoot = getRepoRoot();
     const matchingSessions = await findSessionsForWorkspace(repoRoot);
 
     if (matchingSessions.length > 0) {
         for (const session of matchingSessions) {
-            const workdir = await getSessionWorkdir(session);
-            attachSession(session, workdir);
+            const workdir = await backend.getSessionWorkdir(session);
+            backend.attachSession(session, workdir);
         }
         vscode.window.showInformationMessage(`Attached to ${matchingSessions.length} session(s)`);
     } else {
         const choice = await vscode.window.showInformationMessage(
-            'No existing tmux session found for this workspace. Create a new task?',
+            `No existing ${backend.displayName} session found for this workspace. Create a new task?`,
             'Create New Task', 'Cancel'
         );
         if (choice === 'Create New Task') {
@@ -90,8 +93,9 @@ async function handleCommandExecution(): Promise<void> {
 }
 
 export async function attachCreate(item?: TmuxItem | string): Promise<void> {
-  if (!await isTmuxInstalled()) {
-    vscode.window.showErrorMessage('tmux not found. Install: `brew install tmux`');
+  const backend = getActiveBackend();
+  if (!await backend.isInstalled()) {
+    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
     return;
   }
 

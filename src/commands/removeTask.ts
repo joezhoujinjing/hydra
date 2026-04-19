@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import { exec } from "../utils/exec";
-import { killSession } from "../utils/tmux";
+import { getActiveBackend } from "../utils/multiplexer";
 import { getRepoRoot, getWorktreeBranch } from "../utils/git";
 import {
   TmuxItem,
@@ -106,7 +106,7 @@ export async function removeTask(item: TmuxItem): Promise<void> {
     if (confirm !== "Kill Session") return;
 
     try {
-      await killSession(sessionName);
+      await getActiveBackend().killSession(sessionName);
       vscode.window.showInformationMessage(`Killed session: ${sessionName}`);
     } catch (err) {
       vscode.window.showErrorMessage(`Failed to kill session: ${err}`);
@@ -115,17 +115,17 @@ export async function removeTask(item: TmuxItem): Promise<void> {
     return;
   }
 
-  // ── Orphan: worktree 이미 없음, tmux 세션만 종료 ──
+  // ── Orphan: worktree 이미 없음, 세션만 종료 ──
   if (isOrphanItem(item)) {
     const confirm = await vscode.window.showWarningMessage(
-      `Kill orphan tmux session "${sessionName}"? (Worktree no longer exists)`,
+      `Kill orphan session "${sessionName}"? (Worktree no longer exists)`,
       { modal: true },
       "Kill Session",
     );
     if (confirm !== "Kill Session") return;
 
     try {
-      await killSession(sessionName);
+      await getActiveBackend().killSession(sessionName);
       vscode.window.showInformationMessage(`Killed orphan session: ${sessionName}`);
     } catch (err) {
       vscode.window.showErrorMessage(`Failed to kill session: ${err}`);
@@ -159,7 +159,7 @@ export async function removeTask(item: TmuxItem): Promise<void> {
   if (confirm !== "Delete Session & Worktree") return;
 
   try {
-    await killSession(sessionName);
+    await getActiveBackend().killSession(sessionName);
   } catch {
     void 0;
   }

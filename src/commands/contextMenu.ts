@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { exec } from '../utils/exec';
 import {
   TmuxItem,
   TmuxSessionItem,
@@ -9,7 +8,7 @@ import {
   InactiveDetailItem,
   GitStatusItem
 } from '../providers/tmuxSessionProvider';
-import { attachSession, createSession, getSessionWorkdir, isTmuxInstalled, setSessionWorkdir } from '../utils/tmux';
+import { getActiveBackend } from '../utils/multiplexer';
 
 function getWorktreePath(item: TmuxItem): string | undefined {
   if (item instanceof TmuxSessionItem) return item.session.worktreePath;
@@ -22,20 +21,17 @@ function getWorktreePath(item: TmuxItem): string | undefined {
 }
 
 async function ensureSessionExists(sessionName: string, worktreePath?: string): Promise<void> {
-  try {
-    await exec(`tmux has-session -t "${sessionName}"`);
+  const backend = getActiveBackend();
+  if (await backend.hasSession(sessionName)) {
     return;
-  } catch {
-    // Session doesn't exist (or tmux server isn't running yet).
-    void 0;
   }
 
   if (!worktreePath) {
     throw new Error('Worktree path not found (cannot create session).');
   }
 
-  await createSession(sessionName, worktreePath);
-  await setSessionWorkdir(sessionName, worktreePath);
+  await backend.createSession(sessionName, worktreePath);
+  await backend.setSessionWorkdir(sessionName, worktreePath);
 }
 
 export async function attach(item: TmuxItem): Promise<void> {
@@ -43,8 +39,9 @@ export async function attach(item: TmuxItem): Promise<void> {
     vscode.window.showErrorMessage('No session selected');
     return;
   }
-  if (!await isTmuxInstalled()) {
-    vscode.window.showErrorMessage('tmux not found. Install: `brew install tmux`');
+  const backend = getActiveBackend();
+  if (!await backend.isInstalled()) {
+    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
     return;
   }
 
@@ -52,8 +49,8 @@ export async function attach(item: TmuxItem): Promise<void> {
     const worktreePath = getWorktreePath(item);
     await ensureSessionExists(item.sessionName, worktreePath);
 
-    const workdir = worktreePath || await getSessionWorkdir(item.sessionName);
-    attachSession(item.sessionName, workdir, vscode.TerminalLocation.Panel);
+    const workdir = worktreePath || await backend.getSessionWorkdir(item.sessionName);
+    backend.attachSession(item.sessionName, workdir, vscode.TerminalLocation.Panel);
   } catch (err) {
     vscode.window.showErrorMessage(`Failed to attach: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -64,8 +61,9 @@ export async function attachInEditor(item: TmuxItem): Promise<void> {
     vscode.window.showErrorMessage('No session selected');
     return;
   }
-  if (!await isTmuxInstalled()) {
-    vscode.window.showErrorMessage('tmux not found. Install: `brew install tmux`');
+  const backend = getActiveBackend();
+  if (!await backend.isInstalled()) {
+    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
     return;
   }
 
@@ -73,8 +71,8 @@ export async function attachInEditor(item: TmuxItem): Promise<void> {
     const worktreePath = getWorktreePath(item);
     await ensureSessionExists(item.sessionName, worktreePath);
 
-    const workdir = worktreePath || await getSessionWorkdir(item.sessionName);
-    attachSession(item.sessionName, workdir, vscode.TerminalLocation.Editor);
+    const workdir = worktreePath || await backend.getSessionWorkdir(item.sessionName);
+    backend.attachSession(item.sessionName, workdir, vscode.TerminalLocation.Editor);
   } catch (err) {
     vscode.window.showErrorMessage(`Failed to attach: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -105,16 +103,16 @@ export async function newPane(item: TmuxItem): Promise<void> {
     vscode.window.showErrorMessage('No session selected');
     return;
   }
+  const backend = getActiveBackend();
   try {
-    if (!await isTmuxInstalled()) {
-      vscode.window.showErrorMessage('tmux not found. Install: `brew install tmux`');
+    if (!await backend.isInstalled()) {
+      vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
       return;
     }
 
     const cwd = getWorktreePath(item);
     await ensureSessionExists(item.sessionName, cwd);
-    const cwdArg = cwd ? `-c "${cwd}"` : '';
-    await exec(`tmux split-window -t "${item.sessionName}" ${cwdArg}`);
+    await backend.splitPane(item.sessionName, cwd);
     vscode.window.showInformationMessage(`New pane created in ${item.sessionName}`);
   } catch (err) {
     vscode.window.showErrorMessage(`Failed to create pane: ${err}`);
@@ -126,16 +124,16 @@ export async function newWindow(item: TmuxItem): Promise<void> {
     vscode.window.showErrorMessage('No session selected');
     return;
   }
+  const backend = getActiveBackend();
   try {
-    if (!await isTmuxInstalled()) {
-      vscode.window.showErrorMessage('tmux not found. Install: `brew install tmux`');
+    if (!await backend.isInstalled()) {
+      vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
       return;
     }
 
     const cwd = getWorktreePath(item);
     await ensureSessionExists(item.sessionName, cwd);
-    const cwdArg = cwd ? `-c "${cwd}"` : '';
-    await exec(`tmux new-window -t "${item.sessionName}" ${cwdArg}`);
+    await backend.newWindow(item.sessionName, cwd);
     vscode.window.showInformationMessage(`New window created in ${item.sessionName}`);
   } catch (err) {
     vscode.window.showErrorMessage(`Failed to create window: ${err}`);

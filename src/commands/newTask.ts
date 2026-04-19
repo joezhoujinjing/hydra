@@ -9,12 +9,12 @@ import {
   localBranchExists,
   validateBranchName
 } from '../utils/git';
-import { isTmuxInstalled, createSession, setSessionWorkdir, attachSession, buildSessionName } from '../utils/tmux';
+import { getActiveBackend } from '../utils/multiplexer';
 
 export async function newTask(): Promise<void> {
-  // 0. tmux 설치 확인
-  if (!await isTmuxInstalled()) {
-    vscode.window.showErrorMessage('tmux not found. Install: `brew install tmux`');
+  const backend = getActiveBackend();
+  if (!await backend.isInstalled()) {
+    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
     return;
   }
 
@@ -68,13 +68,13 @@ export async function newTask(): Promise<void> {
     // 5. worktree 생성
     const worktreePath = await addWorktree(repoRoot, branchName, finalSlug, baseBranch);
 
-    // 6. tmux session 생성
-    const sessionName = buildSessionName(repoSessionNamespace, finalSlug);
-    await createSession(sessionName, worktreePath);
-    await setSessionWorkdir(sessionName, worktreePath);
+    // 6. session 생성
+    const sessionName = backend.buildSessionName(repoSessionNamespace, finalSlug);
+    await backend.createSession(sessionName, worktreePath);
+    await backend.setSessionWorkdir(sessionName, worktreePath);
 
     // 7. attach
-    attachSession(sessionName, worktreePath);
+    backend.attachSession(sessionName, worktreePath);
 
     // 8. 성공 메시지
     vscode.window.showInformationMessage(`Created task: ${branchName}`);

@@ -4,7 +4,7 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 import { exec } from '../utils/exec';
 import { getRepoRoot, getRepoName, listWorktrees, Worktree, getBaseBranch } from '../utils/git';
-import { listSessions, getSessionWorkdir, TmuxSession, buildSessionName, sanitizeSessionName } from '../utils/tmux';
+import { getActiveBackend, MultiplexerSession } from '../utils/multiplexer';
 import { toCanonicalPath } from '../utils/path';
 import { createRepoSessionPrefixConfig, matchRepoSessionName } from '../utils/sessionCompatibility';
 
@@ -26,7 +26,7 @@ export interface SessionStatus {
   cpuUsage: number;
 }
 
-interface SessionWithStatus extends TmuxSession {
+interface SessionWithStatus extends MultiplexerSession {
   status: SessionStatus;
   worktreePath?: string;
   slug: string;
@@ -69,7 +69,7 @@ function buildWorktreeSlugMap(worktrees: Worktree[], repoName: string): Map<stri
   const pending: Candidate[] = [];
 
   const rememberSlug = (slug: string): void => {
-    usedSanitizedSlugs.add(sanitizeSessionName(slug));
+    usedSanitizedSlugs.add(getActiveBackend().sanitizeSessionName(slug));
   };
 
   for (const worktree of worktrees) {
@@ -89,7 +89,7 @@ function buildWorktreeSlugMap(worktrees: Worktree[], repoName: string): Map<stri
   ): Candidate[] => {
     const groups = new Map<string, Candidate[]>();
     for (const candidate of candidates) {
-      const key = sanitizeSessionName(candidate.slug);
+      const key = getActiveBackend().sanitizeSessionName(candidate.slug);
       const grouped = groups.get(key);
       if (grouped) {
         grouped.push(candidate);
@@ -264,6 +264,7 @@ async function getWorktreeGitStatus(worktreePath: string): Promise<Pick<
 }
 
 async function getSessionStatus(sessionName: string, worktreePath?: string): Promise<SessionStatus> {
+  const backend = getActiveBackend();
   let attached = false;
   let lastActive = 0;
   let panes = 1;
@@ -276,24 +277,21 @@ async function getSessionStatus(sessionName: string, worktreePath?: string): Pro
   let cpuUsage = 0;
 
   try {
-    const output = await exec(`tmux display-message -p -t "${sessionName}" '#{session_attached}|||#{session_activity}'`);
-    const [attachedStr, activityStr] = output.split('|||');
-    attached = attachedStr === '1';
-    lastActive = parseInt(activityStr, 10) || 0;
+    const info = await backend.getSessionInfo(sessionName);
+    attached = info.attached;
+    lastActive = info.lastActive;
   } catch {
     void 0;
   }
 
   try {
-    const panesOutput = await exec(`tmux list-panes -t "${sessionName}"`);
-    panes = panesOutput.split('\n').filter(l => l.trim()).length || 1;
+    panes = await backend.getSessionPaneCount(sessionName);
   } catch {
     void 0;
   }
 
   try {
-    const pidsOutput = await exec(`tmux list-panes -t "${sessionName}" -F '#{pane_pid}'`);
-    const pids = pidsOutput.split('\n').filter(l => l.trim());
+    const pids = await backend.getSessionPanePids(sessionName);
     if (pids.length > 0) {
       const pidList = pids.join(',');
       const cpuOutput = await exec(`ps -o %cpu= -p ${pidList}`);
@@ -688,8 +686,9 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
 
   private async getWorktreeItems(repoName: string, repoRoot: string): Promise<TmuxItem[]> {
     try {
+      const backend = getActiveBackend();
       const [allSessions, listedWorktrees, repoHasGit] = await Promise.all([
-        listSessions(),
+        backend.listSessions(),
         listWorktrees(repoRoot),
         isGitInitialized(repoRoot)
       ]);
@@ -727,7 +726,7 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
       }
 
       for (const session of allSessions) {
-        session.workdir = await getSessionWorkdir(session.name);
+        session.workdir = await backend.getSessionWorkdir(session.name);
         const workdir = toCanonicalPath(session.workdir);
         const matchedSession = matchRepoSessionName(
           session.name,
@@ -767,7 +766,7 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
           const normalizedPath = toCanonicalPath(worktree.path);
           if (!normalizedPath) continue;
           const slug = worktreeSlugByPath.get(normalizedPath) || getDefaultWorktreeSlug(worktree, repoName);
-          const sessionName = buildSessionName(sessionPrefixConfig.repoSessionNamespace, slug);
+          const sessionName = backend.buildSessionName(sessionPrefixConfig.repoSessionNamespace, slug);
           const isCurrentWorkspace = isCurrentWorkspacePath(worktree.path, activeWorkspacePath);
           const branchLabel = branchLabelByPath.get(normalizedPath) ||
             worktree.branch || (worktree.isMain ? 'main' : path.basename(worktree.path));

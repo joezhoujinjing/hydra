@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { getRepoName, getRepoSessionNamespace } from './git';
 import { toCanonicalPath } from './path';
-import { sanitizeSessionName } from './tmux';
+import { getActiveBackend } from './multiplexer';
 
 export type SessionPrefixType = 'primary' | 'legacy';
 
@@ -22,8 +22,8 @@ export function createRepoSessionPrefixConfig(repoRoot: string): RepoSessionPref
     repoName,
     repoSessionNamespace,
     canonicalRepoRoot,
-    primaryPrefix: `${sanitizeSessionName(repoSessionNamespace)}_`,
-    legacyPrefix: `${sanitizeSessionName(repoName)}_`
+    primaryPrefix: `${getActiveBackend().sanitizeSessionName(repoSessionNamespace)}_`,
+    legacyPrefix: `${getActiveBackend().sanitizeSessionName(repoName)}_`
   };
 }
 
