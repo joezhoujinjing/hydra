@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { createBackendFromConfig } from './backendFactory';
 
 // ─── Shared Types ─────────────────────────────────────────
 
@@ -83,14 +84,12 @@ let activeBackend: MultiplexerBackend | undefined;
 
 export function getActiveBackend(): MultiplexerBackend {
   if (!activeBackend) {
-    const { createBackendFromConfig } = require('./backendFactory') as typeof import('./backendFactory');
     activeBackend = createBackendFromConfig();
   }
   return activeBackend;
 }
 
 export function refreshBackendFromConfig(): void {
-  const { createBackendFromConfig } = require('./backendFactory') as typeof import('./backendFactory');
   activeBackend = createBackendFromConfig();
 }
 
