@@ -1,6 +1,10 @@
-# Hydra
+<p align="center">
+  <img src="resources/logo.png" alt="Hydra" width="200" />
+</p>
 
-**Command an army of AI coding agents — each on its own branch, in its own terminal, all from VS Code.**
+<h1 align="center">Hydra</h1>
+
+<p align="center"><strong>Command an army of AI coding agents — each on its own branch, in its own terminal, all from VS Code.</strong></p>
 
 🌏 **Read this in other languages:** **English** | [中文](docs/README.zh.md)
 
