@@ -18,6 +18,7 @@ import { terminalSmartPaste, pasteImageForce, cleanupTempImages } from './comman
 import { createWorktreeFromBranch } from './commands/createWorktreeFromBranch';
 import { createCopilot } from './commands/createCopilot';
 import { createWorker } from './commands/createWorker';
+import { ensureHydraGlobalConfig } from './utils/hydraGlobalConfig';
 
 function updateViewDescription(treeView: vscode.TreeView<unknown>): void {
   const backend = getActiveBackend();
@@ -80,6 +81,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('hydra.createWorker', createWorker),
   );
 
+  ensureHydraGlobalConfig();
   autoAttachOnStartup();
 
   context.subscriptions.push(
