@@ -152,6 +152,34 @@ else
   echo '.hydra' > "$GITIGNORE"
 fi
 
+# --- Resolve @imports in CLAUDE.md to avoid external import prompts ---
+# Worktrees live outside the repo root, so @AGENTS.md resolves to an "external"
+# path. Inline imported content so agents never hit trust prompts.
+resolve_imports() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  local tmpfile="${file}.tmp"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^@(.+)$ ]]; then
+      local import_ref="${BASH_REMATCH[1]}"
+      local import_path="$REPO/$import_ref"
+      if [[ -f "$import_path" ]]; then
+        cat "$import_path"
+        echo "  Inlined @${import_ref} into $(basename "$file")" >&2
+      else
+        echo "$line"
+      fi
+    else
+      echo "$line"
+    fi
+  done < "$file" > "$tmpfile"
+  mv "$tmpfile" "$file"
+}
+
+for md_file in "$WORKTREE_PATH/CLAUDE.md" "$WORKTREE_PATH/AGENTS.md" "$WORKTREE_PATH/GEMINI.md"; do
+  resolve_imports "$md_file"
+done
+
 # --- Inject worker instructions into worktree ---
 WORKER_INSTRUCTIONS="$HOME/.hydra/WORKER_AGENTS.md"
 if [[ -f "$WORKER_INSTRUCTIONS" ]]; then
@@ -195,20 +223,27 @@ get_agent_command() {
   local task="$2"
   case "$agent" in
     claude)
+      local claude_flags="--dangerously-skip-permissions --add-dir $REPO"
       if [[ -n "$task" ]]; then
-        printf 'claude %q' "$task"
+        printf "claude %s -- %q" "$claude_flags" "$task"
       else
-        echo "claude"
+        echo "claude $claude_flags"
       fi
       ;;
     codex)
       if [[ -n "$task" ]]; then
-        printf 'codex %q' "$task"
+        printf 'codex --full-auto %q' "$task"
       else
-        echo "codex"
+        echo "codex --full-auto"
       fi
       ;;
-    gemini) echo "gemini" ;;
+    gemini)
+      if [[ -n "$task" ]]; then
+        printf 'gemini -y --include-directories /tmp %q' "$task"
+      else
+        echo "gemini -y --include-directories /tmp"
+      fi
+      ;;
     aider)  echo "aider" ;;
     *)      echo "$agent" ;;
   esac
@@ -216,6 +251,13 @@ get_agent_command() {
 
 AGENT_CMD="$(get_agent_command "$AGENT" "$TASK")"
 tmux send-keys -t "$SESSION_NAME" "$AGENT_CMD" Enter
+
+# --- Auto-accept Claude trust dialogs (external imports, workspace trust) ---
+# In yolo mode these prompts are just friction. Send Enter after a delay to dismiss them.
+if [[ "$AGENT" == "claude" ]]; then
+  (sleep 8 && tmux send-keys -t "$SESSION_NAME" Enter 2>/dev/null) &
+  disown
+fi
 
 # --- Output ---
 echo "Worker created successfully."
