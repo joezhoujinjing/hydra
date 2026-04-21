@@ -1,3 +1,1 @@
-export function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
+export { shellQuote } from '../core/shell';

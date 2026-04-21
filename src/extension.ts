@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { TmuxSessionProvider } from './providers/tmuxSessionProvider';
+import { CopilotProvider, WorkerProvider } from './providers/tmuxSessionProvider';
 import { getActiveBackend, refreshBackendFromConfig, getConfiguredMultiplexerType, MultiplexerType } from './utils/multiplexer';
 import { attachCreate } from './commands/attachCreate';
 // newTask is now an alias for createWorker
@@ -20,34 +20,37 @@ import { createCopilot } from './commands/createCopilot';
 import { createWorker } from './commands/createWorker';
 import { ensureHydraGlobalConfig } from './utils/hydraGlobalConfig';
 
-function updateViewDescription(treeView: vscode.TreeView<unknown>): void {
+function updateViewDescriptions(...views: vscode.TreeView<unknown>[]): void {
   const backend = getActiveBackend();
-  treeView.description = `[${backend.displayName}]`;
+  for (const v of views) v.description = `[${backend.displayName}]`;
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  const sessionProvider = new TmuxSessionProvider();
-  sessionProvider.setExtensionUri(context.extensionUri);
-  const treeView = vscode.window.createTreeView('tmuxSessions', {
-    treeDataProvider: sessionProvider,
-  });
-  updateViewDescription(treeView);
+  const copilotProvider = new CopilotProvider();
+  copilotProvider.setExtensionUri(context.extensionUri);
+  const workerProvider = new WorkerProvider();
+  workerProvider.setExtensionUri(context.extensionUri);
+
+  const copilotView = vscode.window.createTreeView('hydraCopilots', { treeDataProvider: copilotProvider });
+  const workerView = vscode.window.createTreeView('hydraWorkers', { treeDataProvider: workerProvider });
+  updateViewDescriptions(copilotView, workerView);
 
   context.subscriptions.push(
-    treeView,
+    copilotView,
+    workerView,
     vscode.commands.registerCommand('tmux.attachCreate', attachCreate),
     vscode.commands.registerCommand('tmux.newTask', createWorker),
     vscode.commands.registerCommand('tmux.removeTask', (item) => removeTask(item)),
     vscode.commands.registerCommand('tmux.cleanupOrphans', cleanupOrphans),
-    vscode.commands.registerCommand('tmux.refresh', () => sessionProvider.refresh()),
+    vscode.commands.registerCommand('tmux.refresh', () => { copilotProvider.refresh(); workerProvider.refresh(); }),
     vscode.commands.registerCommand('tmux.filter', async () => {
       const choice = await vscode.window.showQuickPick(
         ['All', 'Attached', 'Alive', 'Idle', 'Orphans'],
         { placeHolder: 'Filter sessions by status' }
       );
       if (choice) {
-        sessionProvider.setFilter(choice.toLowerCase());
-        sessionProvider.refresh();
+        workerProvider.setFilter(choice.toLowerCase());
+        workerProvider.refresh();
       }
     }),
     vscode.commands.registerCommand('tmux.switchBackend', async () => {
@@ -84,26 +87,28 @@ export function activate(context: vscode.ExtensionContext) {
   ensureHydraGlobalConfig();
   autoAttachOnStartup();
 
+  const refreshAll = () => { copilotProvider.refresh(); workerProvider.refresh(); };
+
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('tmuxWorktree.multiplexer')) {
         refreshBackendFromConfig();
-        updateViewDescription(treeView);
-        sessionProvider.refresh();
+        updateViewDescriptions(copilotView, workerView);
+        refreshAll();
       }
     })
   );
 
   context.subscriptions.push(
-    vscode.window.onDidOpenTerminal(() => sessionProvider.refresh()),
-    vscode.window.onDidCloseTerminal(() => sessionProvider.refresh()),
+    vscode.window.onDidOpenTerminal(() => refreshAll()),
+    vscode.window.onDidCloseTerminal(() => refreshAll()),
     vscode.window.onDidChangeWindowState((e) => {
-        if (e.focused) sessionProvider.refresh();
+        if (e.focused) refreshAll();
     })
   );
 
   const intervalId = setInterval(() => {
-      sessionProvider.refresh();
+      refreshAll();
   }, 30000);
 
   context.subscriptions.push({

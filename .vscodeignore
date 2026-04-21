@@ -16,3 +16,4 @@ CLAUDE.md
 .env*
 README.ai-ready.md
 eslint.config.js
+.hydra-task*

@@ -43,15 +43,18 @@
       "description": "VS Marketplace Version"
     }
   ],
-  "homepage": "https://github.com/kargnas/vscode-ext-tmux-worktree",
+  "homepage": "https://github.com/joezhoujinjing/hydra",
   "bugs": {
-    "url": "https://github.com/kargnas/vscode-ext-tmux-worktree/issues"
+    "url": "https://github.com/joezhoujinjing/hydra/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/kargnas/vscode-ext-tmux-worktree.git"
+    "url": "https://github.com/joezhoujinjing/hydra.git"
   },
   "main": "./out/extension.js",
+  "bin": {
+    "hydra": "./out/cli/index.js"
+  },
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -65,8 +68,12 @@
     "views": {
       "tmux-explorer": [
         {
-          "id": "tmuxSessions",
-          "name": "Hydra"
+          "id": "hydraCopilots",
+          "name": "Copilots"
+        },
+        {
+          "id": "hydraWorkers",
+          "name": "Workers"
         }
       ]
     },
@@ -209,84 +216,84 @@
       "view/title": [
         {
           "command": "tmux.switchBackend",
-          "when": "view == tmuxSessions",
+          "when": "view == hydraCopilots || view == hydraWorkers",
           "group": "navigation"
         },
         {
           "command": "tmux.refresh",
-          "when": "view == tmuxSessions",
+          "when": "view == hydraCopilots || view == hydraWorkers",
           "group": "navigation"
         },
         {
           "command": "tmux.filter",
-          "when": "view == tmuxSessions",
+          "when": "view == hydraCopilots || view == hydraWorkers",
           "group": "navigation"
         },
         {
           "command": "tmux.cleanupOrphans",
-          "when": "view == tmuxSessions",
+          "when": "view == hydraCopilots || view == hydraWorkers",
           "group": "navigation"
         },
         {
           "command": "hydra.createCopilot",
-          "when": "view == tmuxSessions",
+          "when": "view == hydraCopilots",
           "group": "navigation"
         },
         {
           "command": "hydra.createWorker",
-          "when": "view == tmuxSessions",
+          "when": "view == hydraWorkers",
           "group": "navigation"
         }
       ],
       "view/item/context": [
         {
           "command": "tmux.attach",
-          "when": "view == tmuxSessions && viewItem == tmuxItem",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
           "group": "1_attach"
         },
         {
           "command": "tmux.attachInEditor",
-          "when": "view == tmuxSessions && viewItem == tmuxItem",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
           "group": "1_attach"
         },
         {
           "command": "tmux.openWorktree",
-          "when": "view == tmuxSessions && viewItem == tmuxItem",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
           "group": "2_open"
         },
         {
           "command": "tmux.copyPath",
-          "when": "view == tmuxSessions && viewItem == tmuxItem",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
           "group": "2_open"
         },
         {
           "command": "tmux.newPane",
-          "when": "view == tmuxSessions && viewItem == tmuxItem",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
           "group": "3_tmux"
         },
         {
           "command": "tmux.newWindow",
-          "when": "view == tmuxSessions && viewItem == tmuxItem",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
           "group": "3_tmux"
         },
         {
           "command": "tmux.createWorktreeFromBranch",
-          "when": "view == tmuxSessions && viewItem == tmuxItem",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
           "group": "4_create"
         },
         {
           "command": "tmux.removeTask",
-          "when": "view == tmuxSessions && viewItem == tmuxItem",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
           "group": "5_danger"
         }
       ]
     }
   },
   "activationEvents": [
-    "onView:tmuxSessions"
+    "onView:hydraCopilots"
   ],
   "scripts": {
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && node scripts/postcompile.js",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts"
   },
@@ -298,5 +305,8 @@
     "eslint": "^9.39.2",
     "globals": "^17.0.0",
     "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "commander": "^14.0.3"
   }
 }
