@@ -51,6 +51,7 @@ export interface CreateWorkerOpts {
   agentType?: string;
   baseBranchOverride?: string;
   task?: string;
+  taskFile?: string;
   agentCommand?: string;
 }
 
@@ -191,7 +192,8 @@ export class SessionManager {
   async createWorker(opts: CreateWorkerOpts): Promise<CreateWorkerResult> {
     ensureHydraGlobalConfig();
 
-    const { repoRoot, branchName, task } = opts;
+    const { repoRoot, branchName } = opts;
+    let { task, taskFile } = opts;
     const agentType = opts.agentType || 'claude';
     const agentCommand = opts.agentCommand || DEFAULT_AGENT_COMMANDS[agentType] || agentType;
 
@@ -223,13 +225,28 @@ export class SessionManager {
     // Create worktree
     const worktreePath = await coreGit.addWorktree(repoRoot, branchName, finalSlug, baseBranch);
 
+    let taskFilename: string | undefined;
+    if (taskFile) {
+      const absTaskFile = path.isAbsolute(taskFile) ? taskFile : path.resolve(taskFile);
+      if (fs.existsSync(absTaskFile)) {
+        taskFilename = path.basename(absTaskFile);
+        const targetTaskFile = path.join(worktreePath, taskFilename);
+        fs.copyFileSync(absTaskFile, targetTaskFile);
+
+        // If no task prompt given, instruct agent to read the file
+        if (!task) {
+          task = `Read the task in \`${taskFilename}\` and implement it.`;
+        }
+      }
+    }
+
     // Resolve @imports in instruction files
     this.resolveImports(path.join(worktreePath, 'CLAUDE.md'), repoRoot);
     this.resolveImports(path.join(worktreePath, 'AGENTS.md'), repoRoot);
     this.resolveImports(path.join(worktreePath, 'GEMINI.md'), repoRoot);
 
     // Inject worker instructions
-    injectWorkerInstructions(worktreePath, agentType);
+    injectWorkerInstructions(worktreePath, agentType, taskFilename);
 
     // Create tmux session + set metadata
     const sessionName = this.backend.buildSessionName(repoSessionNamespace, finalSlug);
