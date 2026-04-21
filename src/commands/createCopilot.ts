@@ -2,8 +2,6 @@ import * as vscode from 'vscode';
 import { getActiveBackend } from '../utils/multiplexer';
 import { pickAgentType, getAgentCommand } from '../utils/agentConfig';
 
-const COPILOT_SESSION_NAME = 'hydra-copilot';
-
 export async function createCopilot(): Promise<void> {
   const backend = getActiveBackend();
   if (!await backend.isInstalled()) {
@@ -11,13 +9,27 @@ export async function createCopilot(): Promise<void> {
     return;
   }
 
-  // Check if copilot session already exists
+  // Pick agent type
+  const agentType = await pickAgentType();
+  if (!agentType) return;
+
+  // Ask for session name (default: hydra-copilot-<agent>)
+  const defaultName = `hydra-copilot-${agentType}`;
+  const nameInput = await vscode.window.showInputBox({
+    prompt: 'Copilot session name',
+    value: defaultName,
+    placeHolder: defaultName,
+  });
+  if (!nameInput) return;
+
+  const sessionName = backend.sanitizeSessionName(nameInput.trim());
+
+  // Check if session already exists
   const sessions = await backend.listSessions();
   for (const session of sessions) {
-    const role = await backend.getSessionRole(session.name);
-    if (role === 'copilot') {
+    if (session.name === sessionName) {
       const action = await vscode.window.showInformationMessage(
-        `Copilot session "${session.name}" already exists.`,
+        `Session "${sessionName}" already exists.`,
         'Attach',
         'Cancel'
       );
@@ -29,10 +41,6 @@ export async function createCopilot(): Promise<void> {
     }
   }
 
-  // Pick agent type
-  const agentType = await pickAgentType();
-  if (!agentType) return;
-
   // Use workspace folder as cwd (no git required)
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -43,19 +51,19 @@ export async function createCopilot(): Promise<void> {
 
   try {
     // Create tmux session
-    await backend.createSession(COPILOT_SESSION_NAME, cwd);
-    await backend.setSessionWorkdir(COPILOT_SESSION_NAME, cwd);
-    await backend.setSessionRole(COPILOT_SESSION_NAME, 'copilot');
-    await backend.setSessionAgent(COPILOT_SESSION_NAME, agentType);
+    await backend.createSession(sessionName, cwd);
+    await backend.setSessionWorkdir(sessionName, cwd);
+    await backend.setSessionRole(sessionName, 'copilot');
+    await backend.setSessionAgent(sessionName, agentType);
 
     // Launch agent
     const agentCommand = getAgentCommand(agentType);
-    await backend.sendKeys(COPILOT_SESSION_NAME, agentCommand);
+    await backend.sendKeys(sessionName, agentCommand);
 
     // Attach
-    backend.attachSession(COPILOT_SESSION_NAME, cwd);
+    backend.attachSession(sessionName, cwd);
 
-    vscode.window.showInformationMessage(`Copilot created with ${agentType}`);
+    vscode.window.showInformationMessage(`Copilot created: ${sessionName} (${agentType})`);
     vscode.commands.executeCommand('tmux.refresh');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
