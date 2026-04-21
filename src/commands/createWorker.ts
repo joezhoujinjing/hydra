@@ -1,19 +1,13 @@
 import * as vscode from 'vscode';
 import {
-  addWorktree,
-  branchNameToSlug,
-  getBaseBranch,
   getRepoRoot,
-  getRepoSessionNamespace,
   isGitRepo,
   findGitReposInDir,
-  isSlugTaken,
-  localBranchExists,
   validateBranchName
 } from '../utils/git';
 import { getActiveBackend } from '../utils/multiplexer';
 import { pickAgentType, getAgentCommand } from '../utils/agentConfig';
-import { injectWorkerInstructions } from '../utils/hydraGlobalConfig';
+import { SessionManager } from '../core/sessionManager';
 
 async function resolveRepoRoot(): Promise<string | undefined> {
   const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -22,7 +16,6 @@ async function resolveRepoRoot(): Promise<string | undefined> {
     return undefined;
   }
 
-  // Try normal getRepoRoot first
   let repoRoot: string;
   try {
     repoRoot = getRepoRoot();
@@ -30,12 +23,10 @@ async function resolveRepoRoot(): Promise<string | undefined> {
     repoRoot = workspaceFolders[0].uri.fsPath;
   }
 
-  // If repoRoot is a git repo, use it directly
   if (await isGitRepo(repoRoot)) {
     return repoRoot;
   }
 
-  // Not a git repo — scan subdirectories for git repos
   const repos = await findGitReposInDir(repoRoot);
   if (repos.length === 0) {
     vscode.window.showErrorMessage('No git repositories found in workspace.');
@@ -60,8 +51,6 @@ export async function createWorker(): Promise<void> {
   const repoRoot = await resolveRepoRoot();
   if (!repoRoot) return;
 
-  const repoSessionNamespace = getRepoSessionNamespace(repoRoot);
-
   // 1. Branch name input
   const branchInput = await vscode.window.showInputBox({
     prompt: 'Enter branch name (e.g., "feat/auth", "task/my-task")',
@@ -83,41 +72,18 @@ export async function createWorker(): Promise<void> {
   if (!agentType) return;
 
   try {
-    if (await localBranchExists(repoRoot, branchName)) {
-      throw new Error(`Branch "${branchName}" already exists.`);
-    }
+    const sm = new SessionManager(backend);
+    const { workerInfo } = await sm.createWorker({
+      repoRoot,
+      branchName,
+      agentType,
+      baseBranchOverride: vscode.workspace.getConfiguration('hydra').get<string>('baseBranch')
+        || vscode.workspace.getConfiguration('tmuxWorktree').get<string>('baseBranch') || undefined,
+      agentCommand: getAgentCommand(agentType),
+    });
 
-    // 3. Base branch
-    const baseBranch = await getBaseBranch(repoRoot);
-
-    // 4. Slug collision resolution
-    const slug = branchNameToSlug(branchName);
-    let finalSlug = slug;
-    let suffix = 1;
-    while (await isSlugTaken(finalSlug, repoSessionNamespace, repoRoot)) {
-      suffix++;
-      finalSlug = `${slug}-${suffix}`;
-    }
-
-    // 5. Create worktree
-    const worktreePath = await addWorktree(repoRoot, branchName, finalSlug, baseBranch);
-
-    // 5b. Inject worker instructions into worktree
-    injectWorkerInstructions(worktreePath, agentType);
-
-    // 6. Create session
-    const sessionName = backend.buildSessionName(repoSessionNamespace, finalSlug);
-    await backend.createSession(sessionName, worktreePath);
-    await backend.setSessionWorkdir(sessionName, worktreePath);
-    await backend.setSessionRole(sessionName, 'worker');
-    await backend.setSessionAgent(sessionName, agentType);
-
-    // 7. Launch agent
-    const agentCommand = getAgentCommand(agentType);
-    await backend.sendKeys(sessionName, agentCommand);
-
-    // 8. Attach
-    backend.attachSession(sessionName, worktreePath);
+    // Attach (vscode-specific) — no need to await postCreatePromise, extension is long-running
+    backend.attachSession(workerInfo.sessionName, workerInfo.workdir);
 
     vscode.window.showInformationMessage(`Worker created: ${branchName} (${agentType})`);
     vscode.commands.executeCommand('tmux.refresh');

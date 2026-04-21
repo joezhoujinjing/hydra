@@ -1,14 +1,9 @@
 import * as vscode from 'vscode';
+import { AgentType } from '../core/types';
+import { AGENT_LABELS } from '../core/agentConfig';
 
-export type AgentType = 'claude' | 'codex' | 'gemini' | 'aider' | 'custom';
-
-const AGENT_LABELS: Record<AgentType, string> = {
-  claude: 'Claude',
-  codex: 'Codex',
-  gemini: 'Gemini',
-  aider: 'Aider',
-  custom: 'Custom',
-};
+export type { AgentType } from '../core/types';
+export { AGENT_LABELS, DEFAULT_AGENT_COMMANDS, buildAgentLaunchCommand } from '../core/agentConfig';
 
 export function getDefaultAgent(): AgentType {
   return vscode.workspace
@@ -36,7 +31,6 @@ export async function pickAgentType(): Promise<AgentType | undefined> {
     value: key,
   }));
 
-  // Move default to top
   items.sort((a, b) => {
     if (a.value === defaultAgent) return -1;
     if (b.value === defaultAgent) return 1;
