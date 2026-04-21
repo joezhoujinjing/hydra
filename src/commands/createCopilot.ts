@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { getActiveBackend } from '../utils/multiplexer';
 import { pickAgentType, getAgentCommand } from '../utils/agentConfig';
+import { addCopilot } from '../utils/sessionManager';
 
 export async function createCopilot(): Promise<void> {
   const backend = getActiveBackend();
@@ -59,6 +60,14 @@ export async function createCopilot(): Promise<void> {
     // Launch agent
     const agentCommand = getAgentCommand(agentType);
     await backend.sendKeys(sessionName, agentCommand);
+
+    // Register in sessions.json
+    addCopilot(sessionName, {
+      status: 'running',
+      agent: agentType,
+      workdir: cwd,
+      tmuxSession: sessionName,
+    });
 
     // Attach
     backend.attachSession(sessionName, cwd);

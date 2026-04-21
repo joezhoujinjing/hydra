@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import {
   addWorktree,
@@ -14,6 +15,7 @@ import {
 import { getActiveBackend } from '../utils/multiplexer';
 import { pickAgentType, getAgentCommand } from '../utils/agentConfig';
 import { injectWorkerInstructions } from '../utils/hydraGlobalConfig';
+import { addWorker } from '../utils/sessionManager';
 
 async function resolveRepoRoot(): Promise<string | undefined> {
   const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -116,7 +118,19 @@ export async function createWorker(): Promise<void> {
     const agentCommand = getAgentCommand(agentType);
     await backend.sendKeys(sessionName, agentCommand);
 
-    // 8. Attach
+    // 8. Register in sessions.json
+    const repoName = path.basename(repoRoot);
+    addWorker(sessionName, {
+      repo: repoName,
+      branch: branchName,
+      slug: finalSlug,
+      status: 'running',
+      agent: agentType,
+      workdir: worktreePath,
+      tmuxSession: sessionName,
+    });
+
+    // 9. Attach
     backend.attachSession(sessionName, worktreePath);
 
     vscode.window.showInformationMessage(`Worker created: ${branchName} (${agentType})`);
