@@ -10,7 +10,7 @@ Usage: hydra-worker --repo <path> --branch <name> [--agent <type>] [--base <bran
 Options:
   --repo    Path to the git repository (required)
   --branch  Git branch name to create (required)
-  --agent   Agent type to launch: claude, codex, gemini, aider (default: claude)
+  --agent   Agent type to launch: claude, codex, gemini (default: claude)
   --base    Base branch override (default: auto-detect)
   --task    Initial task/prompt to give the agent (optional)
   -h|--help Show this help
@@ -185,7 +185,7 @@ WORKER_INSTRUCTIONS="$HOME/.hydra/WORKER_AGENTS.md"
 if [[ -f "$WORKER_INSTRUCTIONS" ]]; then
   # Determine target file based on agent type
   case "$AGENT" in
-    claude|aider) TARGET_FILE="$WORKTREE_PATH/CLAUDE.md" ;;
+    claude) TARGET_FILE="$WORKTREE_PATH/CLAUDE.md" ;;
     codex)        TARGET_FILE="$WORKTREE_PATH/AGENTS.md" ;;
     gemini)       TARGET_FILE="$WORKTREE_PATH/GEMINI.md" ;;
     *)            TARGET_FILE="$WORKTREE_PATH/CLAUDE.md" ;;
@@ -244,7 +244,6 @@ get_agent_command() {
         echo "gemini -y --include-directories /tmp"
       fi
       ;;
-    aider)  echo "aider" ;;
     *)      echo "$agent" ;;
   esac
 }

@@ -48,7 +48,6 @@ A disposable AI agent that gets its own git branch, its own worktree, and its ow
 | Claude | `claude` | Anthropic's Claude Code CLI |
 | Codex | `codex` | OpenAI's Codex CLI |
 | Gemini | `gemini` | Google's Gemini CLI |
-| Aider | `aider` | Open-source AI pair programming |
 | Custom | configurable | Any CLI agent you want |
 
 Configure default agent and commands in settings:
@@ -60,7 +59,6 @@ Configure default agent and commands in settings:
     "claude": "claude",
     "codex": "codex",
     "gemini": "gemini",
-    "aider": "aider"
   }
 }
 ```
@@ -131,7 +129,7 @@ hydra-worker --repo ~/myapp --branch feat/auth --agent claude --task "implement 
 |------|----------|-------------|
 | `--repo` | yes | Path to the git repository |
 | `--branch` | yes | Branch name to create |
-| `--agent` | no | Agent type: `claude`, `codex`, `gemini`, `aider` (default: `claude`) |
+| `--agent` | no | Agent type: `claude`, `codex`, `gemini` (default: `claude`) |
 | `--base` | no | Base branch override (default: auto-detect) |
 | `--task` | no | Initial prompt to give the agent |
 

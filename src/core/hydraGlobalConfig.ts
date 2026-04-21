@@ -25,7 +25,7 @@ hydra-worker --repo <repo_path> --branch <branch_name> --agent <agent> --task "<
 
 - \`--repo\`: Absolute path to the repository
 - \`--branch\`: Branch name (e.g., \`feat/auth\`, \`fix/bug-123\`)
-- \`--agent\`: \`claude\` (default), \`codex\`, \`gemini\`, \`aider\`
+- \`--agent\`: \`claude\` (default), \`codex\`, \`gemini\`
 - \`--task\`: Detailed prompt — be specific (file paths, acceptance criteria)
 
 Save the printed session name for monitoring.
