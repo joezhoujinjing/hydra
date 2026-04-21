@@ -19,7 +19,7 @@ export function registerWorkerCommands(program: Command): void {
     .description('Create a new worker')
     .requiredOption('--repo <path>', 'Path to the repository')
     .requiredOption('--branch <name>', 'Branch name')
-    .option('--agent <type>', 'Agent type (claude, codex, gemini, aider)', 'claude')
+    .option('--agent <type>', 'Agent type (claude, codex, gemini)', 'claude')
     .option('--base <branch>', 'Base branch override')
     .option('--task <prompt>', 'Task prompt for the agent')
     .action(async (opts: {

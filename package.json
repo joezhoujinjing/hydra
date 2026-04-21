@@ -194,7 +194,6 @@
             "claude",
             "codex",
             "gemini",
-            "aider",
             "custom"
           ],
           "default": "claude",
@@ -205,8 +204,7 @@
           "default": {
             "claude": "claude",
             "codex": "codex",
-            "gemini": "gemini",
-            "aider": "aider"
+            "gemini": "gemini"
           },
           "markdownDescription": "Map of agent type to shell command used to launch the agent."
         }
