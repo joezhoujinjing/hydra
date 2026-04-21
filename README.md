@@ -184,6 +184,15 @@ Review AI-written code during your commute via Termux.
 | `tmuxWorktree.multiplexer` | `tmux` | Backend: `tmux` or `zellij` |
 | `tmuxWorktree.baseBranch` | auto-detect | Override base branch (legacy) |
 
+## Claude Code Skills
+
+Hydra ships with built-in [Claude Code skills](https://docs.anthropic.com/en/docs/claude-code/skills) for copilot and worker workflows:
+
+- **`hydra-copilot`** — Turns Claude into a tech lead that plans, delegates to workers, monitors their progress, reviews diffs, and creates PRs. It never writes code directly — it orchestrates.
+- **`hydra-worker`** — Parses natural language to spawn workers via `hydra-worker` CLI. Say "create a worker for feat/auth on myapp" and it resolves the repo, branch, and agent automatically.
+
+Install by copying `skills/` into your project or symlinking into `~/.claude/skills/`.
+
 ## Requirements
 
 - **tmux** (or **Zellij**) — installed and in PATH
