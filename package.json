@@ -6,7 +6,7 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "publisher": "kargnas",
+  "publisher": "sudoprivacy",
   "license": "MIT",
   "icon": "resources/icon.png",
   "categories": [
@@ -36,13 +36,7 @@
     "color": "#1BB352",
     "theme": "dark"
   },
-  "badges": [
-    {
-      "url": "https://img.shields.io/visual-studio-marketplace/v/kargnas.vscode-tmux-worktree",
-      "href": "https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree",
-      "description": "VS Marketplace Version"
-    }
-  ],
+  "badges": [],
   "homepage": "https://github.com/joezhoujinjing/hydra",
   "bugs": {
     "url": "https://github.com/joezhoujinjing/hydra/issues"

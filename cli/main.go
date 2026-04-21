@@ -7,8 +7,8 @@ import (
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/kargnas/tmux-worktree-tui/internal/ui"
-	"github.com/kargnas/tmux-worktree-tui/pkg/tmux"
+	"github.com/joezhoujinjing/hydra/cli/internal/ui"
+	"github.com/joezhoujinjing/hydra/cli/pkg/tmux"
 )
 
 func main() {

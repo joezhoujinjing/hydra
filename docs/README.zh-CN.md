@@ -1,11 +1,8 @@
 # TMUX Worktree
 
-[![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/kargnas.vscode-tmux-worktree?label=VS%20Marketplace&color=blue)](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree) [![Blog](https://img.shields.io/badge/Blog-kargn.as-green)](https://kargn.as)
 **在 VS Code 里同时管理 tmux 会话和 git worktree。**
 
-🌏 **其他语言:** [English](../README.md) | [한국어](README.ko.md) | **简体中文** | [繁體中文 (台灣)](README.zh-TW.md) | [繁體中文 (香港)](README.zh-HK.md) | [日本語](README.ja.md)
-
-![TMUX Worktree 截图](https://raw.githubusercontent.com/kargnas/vscode-ext-tmux-worktree/main/docs/screenshot.png)
+🌏 **其他语言:** [English](../README.md) | **简体中文** | [繁體中文 (台灣)](README.zh-TW.md) | [繁體中文 (香港)](README.zh-HK.md) | [日本語](README.ja.md)
 
 ## 为什么它更“讲究”
 
@@ -136,9 +133,8 @@ tmux attach -t myapp/feature-oauth
 
 ## 了解更多
 
-- [市场主页](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree)
-- [GitHub 仓库](https://github.com/kargnas/vscode-ext-tmux-worktree)
-- [问题反馈](https://github.com/kargnas/vscode-ext-tmux-worktree/issues)
+- [GitHub 仓库](https://github.com/joezhoujinjing/hydra)
+- [问题反馈](https://github.com/joezhoujinjing/hydra/issues)
 
 ## 开源协议
 

@@ -2,11 +2,7 @@
 
 **指挥一支 AI 编程代理军团 — 每个代理在自己的分支、自己的终端中运行，全部通过 VS Code 管控。**
 
-[![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/kargnas.vscode-tmux-worktree?label=VS%20Marketplace&color=blue)](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree)
-
 🌏 **其他语言:** [English](../README.md) | **中文**
-
-**[从 VS Marketplace 安装](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree)**
 
 ## 什么是 Hydra？
 

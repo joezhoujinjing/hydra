@@ -11,12 +11,12 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/kargnas/tmux-worktree-tui/pkg/config"
-	"github.com/kargnas/tmux-worktree-tui/pkg/discovery"
-	"github.com/kargnas/tmux-worktree-tui/pkg/git"
-	"github.com/kargnas/tmux-worktree-tui/pkg/naming"
-	"github.com/kargnas/tmux-worktree-tui/pkg/recent"
-	"github.com/kargnas/tmux-worktree-tui/pkg/tmux"
+	"github.com/joezhoujinjing/hydra/cli/pkg/config"
+	"github.com/joezhoujinjing/hydra/cli/pkg/discovery"
+	"github.com/joezhoujinjing/hydra/cli/pkg/git"
+	"github.com/joezhoujinjing/hydra/cli/pkg/naming"
+	"github.com/joezhoujinjing/hydra/cli/pkg/recent"
+	"github.com/joezhoujinjing/hydra/cli/pkg/tmux"
 )
 
 // ItemType distinguishes between git repos and tmux sessions

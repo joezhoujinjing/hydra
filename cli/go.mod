@@ -1,4 +1,4 @@
-module github.com/kargnas/tmux-worktree-tui
+module github.com/joezhoujinjing/hydra/cli
 
 go 1.24.0
 

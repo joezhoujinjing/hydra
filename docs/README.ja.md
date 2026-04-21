@@ -1,11 +1,8 @@
 # TMUX Worktree
 
-[![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/kargnas.vscode-tmux-worktree?label=VS%20Marketplace&color=blue)](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree) [![Blog](https://img.shields.io/badge/Blog-kargn.as-green)](https://kargn.as)
 **VS Code で tmux セッションと git worktree を一緒に管理。**
 
-🌏 **他の言語で読む:** [English](../README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [繁體中文 (台灣)](README.zh-TW.md) | [繁體中文 (香港)](README.zh-HK.md) | **日本語**
-
-![TMUX Worktree スクリーンショット](https://raw.githubusercontent.com/kargnas/vscode-ext-tmux-worktree/main/docs/screenshot.png)
+🌏 **他の言語で読む:** [English](../README.md) | [简体中文](README.zh-CN.md) | [繁體中文 (台灣)](README.zh-TW.md) | [繁體中文 (香港)](README.zh-HK.md) | **日本語**
 
 ## 仕上がりの良さを感じるポイント
 
@@ -136,9 +133,8 @@ tmux attach -t myapp/feature-oauth
 
 ## 詳細情報
 
-- [マーケットプレイス](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree)
-- [GitHub リポジトリ](https://github.com/kargnas/vscode-ext-tmux-worktree)
-- [問題報告](https://github.com/kargnas/vscode-ext-tmux-worktree/issues)
+- [GitHub リポジトリ](https://github.com/joezhoujinjing/hydra)
+- [問題報告](https://github.com/joezhoujinjing/hydra/issues)
 
 ## ライセンス
 
