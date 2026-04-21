@@ -29,3 +29,4 @@ cli/twt
 cli/tmux-worktree-tui
 
 .sisyphus/
+.hydra
