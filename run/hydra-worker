@@ -152,6 +152,31 @@ else
   echo '.hydra' > "$GITIGNORE"
 fi
 
+# --- Inject worker instructions into worktree ---
+WORKER_INSTRUCTIONS="$REPO/WORKER_AGENTS.md"
+if [[ -f "$WORKER_INSTRUCTIONS" ]]; then
+  # Determine target file based on agent type
+  case "$AGENT" in
+    claude|aider) TARGET_FILE="$WORKTREE_PATH/CLAUDE.md" ;;
+    codex)        TARGET_FILE="$WORKTREE_PATH/AGENTS.md" ;;
+    gemini)       TARGET_FILE="$WORKTREE_PATH/GEMINI.md" ;;
+    *)            TARGET_FILE="$WORKTREE_PATH/CLAUDE.md" ;;
+  esac
+
+  # Check for duplicates: skip if <hydra> tag already exists in target
+  if [[ -f "$TARGET_FILE" ]] && grep -q '<hydra>' "$TARGET_FILE"; then
+    echo "  Worker instructions already present in $(basename "$TARGET_FILE"), skipping injection."
+  else
+    {
+      echo ""
+      echo "<hydra>"
+      cat "$WORKER_INSTRUCTIONS"
+      echo "</hydra>"
+    } >> "$TARGET_FILE"
+    echo "  Injected worker instructions into $(basename "$TARGET_FILE")"
+  fi
+fi
+
 # --- Create tmux session ---
 SESSION_NAME="${NAMESPACE}_${FINAL_SLUG}"
 
