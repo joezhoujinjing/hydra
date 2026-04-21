@@ -1,11 +1,11 @@
 import { AgentType } from './types';
 
 export const AGENT_LABELS: Record<AgentType, string> = {
-  claude: 'Claude', codex: 'Codex', gemini: 'Gemini', aider: 'Aider', custom: 'Custom',
+  claude: 'Claude', codex: 'Codex', gemini: 'Gemini', custom: 'Custom',
 };
 
 export const DEFAULT_AGENT_COMMANDS: Record<string, string> = {
-  claude: 'claude', codex: 'codex', gemini: 'gemini', aider: 'aider',
+  claude: 'claude', codex: 'codex --full-auto', gemini: 'gemini',
 };
 
 /** Build the shell command to launch an agent (matches bash CLI get_agent_command) */
@@ -25,8 +25,6 @@ export function buildAgentLaunchCommand(
       return task ? `${agentBinary} --full-auto ${shellQuoteForDisplay(task)}` : `${agentBinary} --full-auto`;
     case 'gemini':
       return task ? `${agentBinary} -y --include-directories /tmp ${shellQuoteForDisplay(task)}` : `${agentBinary} -y --include-directories /tmp`;
-    case 'aider':
-      return agentBinary;
     default:
       return agentBinary;
   }

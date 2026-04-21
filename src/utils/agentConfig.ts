@@ -16,9 +16,8 @@ export function getAgentCommand(agentType: string): string {
     .getConfiguration('hydra')
     .get<Record<string, string>>('agentCommands', {
       claude: 'claude',
-      codex: 'codex',
+      codex: 'codex --full-auto',
       gemini: 'gemini',
-      aider: 'aider',
     });
   return commands[agentType] || agentType;
 }
