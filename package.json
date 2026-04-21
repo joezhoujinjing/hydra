@@ -197,7 +197,7 @@
           "type": "object",
           "default": {
             "claude": "claude",
-            "codex": "codex --full-auto",
+            "codex": "codex",
             "gemini": "gemini",
             "aider": "aider"
           },

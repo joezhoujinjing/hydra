@@ -21,11 +21,29 @@ export function getAgentCommand(agentType: string): string {
     .getConfiguration('hydra')
     .get<Record<string, string>>('agentCommands', {
       claude: 'claude',
-      codex: 'codex --full-auto',
+      codex: 'codex',
       gemini: 'gemini',
       aider: 'aider',
     });
   return commands[agentType] || agentType;
+}
+
+/**
+ * Build a full agent command with worker-specific yolo flags.
+ * Mirrors the get_agent_command() logic in run/hydra-worker.
+ */
+export function getWorkerAgentCommand(agentType: string, repoRoot: string): string {
+  const baseCmd = getAgentCommand(agentType);
+  switch (agentType) {
+    case 'claude':
+      return `${baseCmd} --dangerously-skip-permissions --add-dir ${repoRoot}`;
+    case 'codex':
+      return `${baseCmd} --full-auto`;
+    case 'gemini':
+      return `${baseCmd} -y --include-directories /tmp`;
+    default:
+      return baseCmd;
+  }
 }
 
 export async function pickAgentType(): Promise<AgentType | undefined> {

@@ -12,7 +12,7 @@ import {
   validateBranchName
 } from '../utils/git';
 import { getActiveBackend } from '../utils/multiplexer';
-import { pickAgentType, getAgentCommand } from '../utils/agentConfig';
+import { pickAgentType, getWorkerAgentCommand } from '../utils/agentConfig';
 import { injectWorkerInstructions } from '../utils/hydraGlobalConfig';
 
 async function resolveRepoRoot(): Promise<string | undefined> {
@@ -112,8 +112,8 @@ export async function createWorker(): Promise<void> {
     await backend.setSessionRole(sessionName, 'worker');
     await backend.setSessionAgent(sessionName, agentType);
 
-    // 7. Launch agent
-    const agentCommand = getAgentCommand(agentType);
+    // 7. Launch agent with worker yolo flags
+    const agentCommand = getWorkerAgentCommand(agentType, repoRoot);
     await backend.sendKeys(sessionName, agentCommand);
 
     // 8. Attach
