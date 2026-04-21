@@ -1,36 +1,32 @@
-# Skill: hydra-worker
+---
+name: hydra-worker
+description: "Create a new Hydra worker (git worktree + tmux session + AI agent) from natural language. Use when the user asks to spawn, create, or spin up a worker on a repo/branch. Parses repo name, branch, agent type, and optional task prompt, then runs hydra-worker CLI."
+---
 
-Create a new Hydra worker (git worktree + tmux session + AI agent) from natural language.
+# Hydra Worker
 
-## Invocation
+Parse natural language to spawn a Hydra worker via `hydra-worker` CLI.
 
-The user says something like:
-- "create a worker for feat/auth on sudowork"
-- "spin up a worker on hydra for fix/bug-123 with codex"
-- "new hydra worker branch feat/new-ui repo ~/code/myproject"
-- "worker on myapp: implement OAuth2 login on branch feat/oauth"
+## Workflow
 
-## Instructions
+1. **Parse the request** to extract:
+   - **repo**: Path or short name (e.g., `myapp`, `~/code/foo`)
+   - **branch**: Git branch to create (e.g., `feat/auth`, `fix/bug-123`)
+   - **agent** (optional): `claude` (default), `codex`, `gemini`, `aider`
+   - **task** (optional): Initial prompt for the agent
 
-1. **Parse the user's request** to extract:
-   - **repo**: A path or short name (e.g., "sudowork", "hydra", "~/code/foo")
-   - **branch**: The git branch to create (e.g., "feat/auth", "fix/bug-123")
-   - **agent** (optional): Agent type — `claude` (default), `codex`, `gemini`, `aider`
-   - **task** (optional): Initial prompt/instructions for the agent
-
-2. **Resolve repo name to path** if not an absolute path:
-   - Search in `~/code/<name>` first
-   - Then try the current working directory if it matches
-   - If ambiguous, ask the user
+2. **Resolve repo name** if not an absolute path:
+   - Try `~/code/<name>` first
+   - Fall back to current working directory if it matches
+   - Ask the user if ambiguous
 
 3. **Run the command**:
    ```bash
    hydra-worker --repo <resolved_path> --branch <branch> --agent <agent> --task "<task>"
    ```
+   Omit `--task` if not provided. Omit `--agent` to use the default.
 
-   Omit `--task` if the user didn't provide one. Omit `--agent` to use the default (`claude`).
-
-4. **Report the result** — show session name and worktree path on success, or the error on failure.
+4. **Report** session name and worktree path on success, or the error on failure.
 
 ## Examples
 
@@ -45,7 +41,6 @@ hydra-worker --repo ~/code/hydra --branch fix/scroll-bug --agent codex
 ```
 
 User: "new worker branch task/refactor-api"
-→ (use current working directory as repo)
 ```bash
 hydra-worker --repo $(pwd) --branch task/refactor-api --agent claude
 ```
