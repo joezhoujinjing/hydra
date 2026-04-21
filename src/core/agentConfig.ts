@@ -5,7 +5,7 @@ export const AGENT_LABELS: Record<AgentType, string> = {
 };
 
 export const DEFAULT_AGENT_COMMANDS: Record<string, string> = {
-  claude: 'claude', codex: 'codex', gemini: 'gemini', aider: 'aider',
+  claude: 'claude', codex: 'codex --full-auto', gemini: 'gemini', aider: 'aider',
 };
 
 /** Build the shell command to launch an agent (matches bash CLI get_agent_command) */
