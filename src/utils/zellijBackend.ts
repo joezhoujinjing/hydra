@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { exec, ExecOptions } from './exec';
-import { MultiplexerBackend, MultiplexerSession, SessionStatusInfo } from './multiplexer';
+import { MultiplexerBackend, MultiplexerSession, SessionStatusInfo, HydraRole } from './multiplexer';
 import { shellQuote } from './shell';
 
 // Zellij derives its IPC socket path from $TMPDIR + session name.
@@ -55,8 +55,10 @@ function zellijExec(command: string, options?: ExecOptions): Promise<string> {
 // Zellij has no built-in session metadata like tmux's @workdir.
 // We persist session→workdir mappings in a JSON file.
 
-const WORKDIR_STORE_DIR = path.join(os.homedir(), '.config', 'vscode-tmux-worktree');
+const METADATA_STORE_DIR = path.join(os.homedir(), '.config', 'vscode-tmux-worktree');
+const WORKDIR_STORE_DIR = METADATA_STORE_DIR;
 const WORKDIR_STORE_FILE = path.join(WORKDIR_STORE_DIR, 'zellij-workdirs.json');
+const HYDRA_STORE_FILE = path.join(METADATA_STORE_DIR, 'zellij-hydra.json');
 
 function readWorkdirStore(): Record<string, string> {
   try {
@@ -72,6 +74,27 @@ function readWorkdirStore(): Record<string, string> {
 function writeWorkdirStore(store: Record<string, string>): void {
   fs.mkdirSync(WORKDIR_STORE_DIR, { recursive: true });
   fs.writeFileSync(WORKDIR_STORE_FILE, JSON.stringify(store, null, 2), 'utf-8');
+}
+
+interface HydraSessionMeta {
+  role?: HydraRole;
+  agent?: string;
+}
+
+function readHydraStore(): Record<string, HydraSessionMeta> {
+  try {
+    if (fs.existsSync(HYDRA_STORE_FILE)) {
+      return JSON.parse(fs.readFileSync(HYDRA_STORE_FILE, 'utf-8'));
+    }
+  } catch {
+    // corrupted file – start fresh
+  }
+  return {};
+}
+
+function writeHydraStore(store: Record<string, HydraSessionMeta>): void {
+  fs.mkdirSync(METADATA_STORE_DIR, { recursive: true });
+  fs.writeFileSync(HYDRA_STORE_FILE, JSON.stringify(store, null, 2), 'utf-8');
 }
 
 // ─── Output Parsing ───────────────────────────────────────
@@ -153,9 +176,12 @@ export class ZellijBackend implements MultiplexerBackend {
 
   async killSession(sessionName: string): Promise<void> {
     await zellijExec(`zellij kill-session "${sessionName}"`);
-    const store = readWorkdirStore();
-    delete store[sessionName];
-    writeWorkdirStore(store);
+    const wdStore = readWorkdirStore();
+    delete wdStore[sessionName];
+    writeWorkdirStore(wdStore);
+    const hydraStore = readHydraStore();
+    delete hydraStore[sessionName];
+    writeHydraStore(hydraStore);
   }
 
   async hasSession(sessionName: string): Promise<boolean> {
@@ -176,6 +202,39 @@ export class ZellijBackend implements MultiplexerBackend {
     const store = readWorkdirStore();
     store[sessionName] = workdir;
     writeWorkdirStore(store);
+  }
+
+  async getSessionRole(sessionName: string): Promise<HydraRole | undefined> {
+    const store = readHydraStore();
+    return store[sessionName]?.role;
+  }
+
+  async setSessionRole(sessionName: string, role: HydraRole): Promise<void> {
+    const store = readHydraStore();
+    if (!store[sessionName]) store[sessionName] = {};
+    store[sessionName].role = role;
+    writeHydraStore(store);
+  }
+
+  async getSessionAgent(sessionName: string): Promise<string | undefined> {
+    const store = readHydraStore();
+    return store[sessionName]?.agent;
+  }
+
+  async setSessionAgent(sessionName: string, agent: string): Promise<void> {
+    const store = readHydraStore();
+    if (!store[sessionName]) store[sessionName] = {};
+    store[sessionName].agent = agent;
+    writeHydraStore(store);
+  }
+
+  async sendKeys(sessionName: string, keys: string): Promise<void> {
+    // Zellij action write only works from inside a session. Find the attached terminal.
+    const shortName = getShortName(sessionName);
+    const terminal = vscode.window.terminals.find(t => t.name === shortName);
+    if (terminal) {
+      terminal.sendText(keys, true);
+    }
   }
 
   async getSessionInfo(sessionName: string): Promise<SessionStatusInfo> {

@@ -5,6 +5,8 @@ import { createBackendFromConfig } from './backendFactory';
 
 export type MultiplexerType = 'tmux' | 'zellij';
 
+export type HydraRole = 'copilot' | 'worker';
+
 export interface MultiplexerSession {
   name: string;
   windows: number; // tmux: windows, zellij: tabs
@@ -50,6 +52,17 @@ export interface MultiplexerBackend {
 
   getSessionWorkdir(sessionName: string): Promise<string | undefined>;
   setSessionWorkdir(sessionName: string, workdir: string): Promise<void>;
+
+  // ── Hydra Metadata ──
+
+  getSessionRole(sessionName: string): Promise<HydraRole | undefined>;
+  setSessionRole(sessionName: string, role: HydraRole): Promise<void>;
+  getSessionAgent(sessionName: string): Promise<string | undefined>;
+  setSessionAgent(sessionName: string, agent: string): Promise<void>;
+
+  // ── Keys ──
+
+  sendKeys(sessionName: string, keys: string): Promise<void>;
 
   // ── Session Status ──
 

@@ -6,11 +6,13 @@ import {
   WorktreeItem,
   TmuxDetailItem,
   InactiveDetailItem,
-  GitStatusItem
+  GitStatusItem,
+  CopilotItem,
 } from '../providers/tmuxSessionProvider';
 import { getActiveBackend } from '../utils/multiplexer';
 
 function getWorktreePath(item: TmuxItem): string | undefined {
+  if (item instanceof CopilotItem) return item.worktreePath;
   if (item instanceof TmuxSessionItem) return item.session.worktreePath;
   if (item instanceof InactiveWorktreeItem) return item.worktree.path;
   if (item instanceof TmuxDetailItem) return item.session?.worktreePath;

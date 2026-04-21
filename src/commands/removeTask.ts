@@ -2,6 +2,10 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import { exec } from "../utils/exec";
 import { getActiveBackend } from "../utils/multiplexer";
+
+function isSessionNotFoundError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes("can't find session");
+}
 import { getRepoRoot, getWorktreeBranch } from "../utils/git";
 import {
   TmuxItem,
@@ -11,6 +15,7 @@ import {
   TmuxDetailItem,
   InactiveDetailItem,
   GitStatusItem,
+  CopilotItem,
 } from "../providers/tmuxSessionProvider";
 import * as path from "path";
 import { toCanonicalPath } from "../utils/path";
@@ -63,6 +68,28 @@ export async function removeTask(item: TmuxItem): Promise<void> {
     return;
   }
 
+  // Handle CopilotItem: kill session only (no worktree)
+  if (item instanceof CopilotItem) {
+    const confirm = await vscode.window.showWarningMessage(
+      `Kill copilot session "${item.sessionName}"?`,
+      { modal: true },
+      "Kill Session",
+    );
+    if (confirm !== "Kill Session") return;
+
+    try {
+      await getActiveBackend().killSession(item.sessionName);
+    } catch (err) {
+      if (!isSessionNotFoundError(err)) {
+        vscode.window.showErrorMessage(`Failed to kill session: ${err}`);
+        return;
+      }
+    }
+    vscode.window.showInformationMessage(`Killed copilot session: ${item.sessionName}`);
+    vscode.commands.executeCommand("tmux.refresh");
+    return;
+  }
+
   const sessionName = item.sessionName;
   const isMain = isMainWorktreeItem(item);
 
@@ -86,11 +113,20 @@ export async function removeTask(item: TmuxItem): Promise<void> {
     worktreePath = item.worktreePath;
   }
 
+  // Resolve repo root from the item if available (workspace root may be a non-git parent).
+  let repoRoot: string | undefined;
+  if (item instanceof WorktreeItem && item.repoRoot) {
+    repoRoot = item.repoRoot;
+  } else {
+    try { repoRoot = getRepoRoot(); } catch { /* non-git workspace */ }
+  }
+
   try {
-    const repoRoot = getRepoRoot();
-    branchName = worktreePath ? await getWorktreeBranch(repoRoot, worktreePath) : undefined;
-    const sessionPrefixConfig = createRepoSessionPrefixConfig(repoRoot);
-    slug = slug || extractRepoSessionSlug(sessionName, sessionPrefixConfig, { allowLegacy: true });
+    if (repoRoot) {
+      branchName = worktreePath ? await getWorktreeBranch(repoRoot, worktreePath) : undefined;
+      const sessionPrefixConfig = createRepoSessionPrefixConfig(repoRoot);
+      slug = slug || extractRepoSessionSlug(sessionName, sessionPrefixConfig, { allowLegacy: true });
+    }
   } catch {
     void 0;
   }
@@ -98,6 +134,17 @@ export async function removeTask(item: TmuxItem): Promise<void> {
 
   // ── Main worktree: tmux 세션만 종료, 워크트리/브랜치 삭제 불가 ──
   if (isMain) {
+    const backend = getActiveBackend();
+    const sessions = await backend.listSessions();
+    const sessionExists = sessions.some(s => s.name === sessionName);
+
+    if (!sessionExists) {
+      vscode.window.showInformationMessage(
+        `No active session for primary worktree "${sessionName}". Nothing to remove.`
+      );
+      return;
+    }
+
     const confirm = await vscode.window.showWarningMessage(
       `Kill tmux session "${sessionName}"?\n(Primary worktree cannot be removed)`,
       { modal: true },
@@ -106,10 +153,12 @@ export async function removeTask(item: TmuxItem): Promise<void> {
     if (confirm !== "Kill Session") return;
 
     try {
-      await getActiveBackend().killSession(sessionName);
+      await backend.killSession(sessionName);
       vscode.window.showInformationMessage(`Killed session: ${sessionName}`);
     } catch (err) {
-      vscode.window.showErrorMessage(`Failed to kill session: ${err}`);
+      if (!isSessionNotFoundError(err)) {
+        vscode.window.showErrorMessage(`Failed to kill session: ${err}`);
+      }
     }
     vscode.commands.executeCommand("tmux.refresh");
     return;
@@ -126,9 +175,10 @@ export async function removeTask(item: TmuxItem): Promise<void> {
 
     try {
       await getActiveBackend().killSession(sessionName);
-      vscode.window.showInformationMessage(`Killed orphan session: ${sessionName}`);
     } catch (err) {
-      vscode.window.showErrorMessage(`Failed to kill session: ${err}`);
+      if (!isSessionNotFoundError(err)) {
+        vscode.window.showErrorMessage(`Failed to kill session: ${err}`);
+      }
     }
     vscode.commands.executeCommand("tmux.refresh");
     return;
@@ -136,9 +186,8 @@ export async function removeTask(item: TmuxItem): Promise<void> {
 
   // ── 일반 워크트리: 세션 + 워크트리 + 브랜치 모두 삭제 가능 ──
 
-  if (worktreePath) {
+  if (worktreePath && repoRoot) {
     try {
-      const repoRoot = getRepoRoot();
       const managed = await isWorktreePathManagedByRepo(repoRoot, worktreePath);
       if (!managed) {
         vscode.window.showErrorMessage(
@@ -164,9 +213,8 @@ export async function removeTask(item: TmuxItem): Promise<void> {
     void 0;
   }
 
-  if (worktreePath && fs.existsSync(worktreePath)) {
+  if (worktreePath && repoRoot && fs.existsSync(worktreePath)) {
     try {
-      const repoRoot = getRepoRoot();
       await exec(`git worktree remove "${worktreePath}"`, { cwd: repoRoot });
     } catch {
       const forceConfirm = await vscode.window.showWarningMessage(
@@ -176,7 +224,6 @@ export async function removeTask(item: TmuxItem): Promise<void> {
       );
       if (forceConfirm === "Force Remove") {
         try {
-          const repoRoot = getRepoRoot();
           await exec(`git worktree remove "${worktreePath}" --force`, {
             cwd: repoRoot,
           });
@@ -191,7 +238,7 @@ export async function removeTask(item: TmuxItem): Promise<void> {
   }
 
   try {
-    const repoRoot = getRepoRoot();
+    if (!repoRoot) throw new Error("No repo root");
     if (!branchName) throw new Error("No branch");
 
     const localBranchesOutput = await exec("git for-each-ref --format='%(refname:short)' refs/heads", {

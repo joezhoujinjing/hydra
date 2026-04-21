@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { exec } from './exec';
 import { toCanonicalPath } from './path';
 import { shellQuote } from './shell';
-import { MultiplexerBackend, MultiplexerSession, SessionStatusInfo } from './multiplexer';
+import { MultiplexerBackend, MultiplexerSession, SessionStatusInfo, HydraRole } from './multiplexer';
 
 const TMUX_ENV_KEYS_TO_STRIP = [
   'ELECTRON_RUN_AS_NODE',
@@ -133,6 +133,46 @@ export class TmuxBackend implements MultiplexerBackend {
 
   async setSessionWorkdir(sessionName: string, workdir: string): Promise<void> {
     await exec(`tmux set-option -t "${sessionName}" @workdir "${workdir}"`);
+  }
+
+  async getSessionRole(sessionName: string): Promise<HydraRole | undefined> {
+    try {
+      const output = await exec(`tmux show-options -t "${sessionName}" @hydra-role`);
+      const parts = output.split(' ');
+      if (parts.length >= 2) {
+        const value = parts.slice(1).join(' ').trim() as HydraRole;
+        if (value === 'copilot' || value === 'worker') return value;
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async setSessionRole(sessionName: string, role: HydraRole): Promise<void> {
+    await exec(`tmux set-option -t "${sessionName}" @hydra-role "${role}"`);
+  }
+
+  async getSessionAgent(sessionName: string): Promise<string | undefined> {
+    try {
+      const output = await exec(`tmux show-options -t "${sessionName}" @hydra-agent`);
+      const parts = output.split(' ');
+      if (parts.length >= 2) {
+        const value = parts.slice(1).join(' ').trim();
+        return value || undefined;
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async setSessionAgent(sessionName: string, agent: string): Promise<void> {
+    await exec(`tmux set-option -t "${sessionName}" @hydra-agent "${agent}"`);
+  }
+
+  async sendKeys(sessionName: string, keys: string): Promise<void> {
+    await exec(`tmux send-keys -t ${shellQuote(sessionName)} ${shellQuote(keys)} Enter`);
   }
 
   async getSessionInfo(sessionName: string): Promise<SessionStatusInfo> {
