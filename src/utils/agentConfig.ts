@@ -18,7 +18,6 @@ export function getAgentCommand(agentType: string): string {
       claude: 'claude',
       codex: 'codex --full-auto',
       gemini: 'gemini',
-      aider: 'aider',
     });
   return commands[agentType] || agentType;
 }
