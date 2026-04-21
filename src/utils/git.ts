@@ -14,6 +14,32 @@ export interface Worktree {
   isMain: boolean;
 }
 
+export async function isGitRepo(dirPath: string): Promise<boolean> {
+  try {
+    await exec(`git -C ${shellQuote(dirPath)} rev-parse --git-dir`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function findGitReposInDir(parentDir: string): Promise<{ name: string; path: string }[]> {
+  const repos: { name: string; path: string }[] = [];
+  try {
+    const entries = fs.readdirSync(parentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+      const childPath = path.join(parentDir, entry.name);
+      if (await isGitRepo(childPath)) {
+        repos.push({ name: entry.name, path: childPath });
+      }
+    }
+  } catch {
+    // parent dir not readable
+  }
+  return repos.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export function validateBranchName(branchName: string): string | undefined {
   const trimmedBranch = branchName.trim();
 
@@ -102,7 +128,8 @@ export function getRepoSessionNamespace(repoRoot: string): string {
 
 // Determine base branch by checking common default branch names in order
 export async function getBaseBranch(repoRoot: string): Promise<string> {
-  const override = vscode.workspace.getConfiguration('tmuxWorktree').get<string>('baseBranch');
+  const override = vscode.workspace.getConfiguration('hydra').get<string>('baseBranch')
+    || vscode.workspace.getConfiguration('tmuxWorktree').get<string>('baseBranch');
   if (override) {
     try {
       await exec(`git rev-parse --verify ${override}`, { cwd: repoRoot });
@@ -137,14 +164,30 @@ export function getManagedWorktreesRoot(): string {
 }
 
 export function getManagedRepoWorktreesDir(repoRoot: string): string {
+  return path.join(repoRoot, '.hydra', 'worktrees');
+}
+
+export function getLegacyManagedRepoWorktreesDir(repoRoot: string): string {
   return path.join(getManagedWorktreesRoot(), getRepoSessionNamespace(repoRoot));
 }
 
 export function isManagedWorktreePath(repoRoot: string, worktreePath: string): boolean {
-  const managedDir = toCanonicalPath(getManagedRepoWorktreesDir(repoRoot));
   const candidatePath = toCanonicalPath(worktreePath);
-  if (!managedDir || !candidatePath) return false;
-  return candidatePath === managedDir || candidatePath.startsWith(`${managedDir}${path.sep}`);
+  if (!candidatePath) return false;
+
+  // Check new location: <repo>/.hydra/worktrees/
+  const hydraDir = toCanonicalPath(getManagedRepoWorktreesDir(repoRoot));
+  if (hydraDir && (candidatePath === hydraDir || candidatePath.startsWith(`${hydraDir}${path.sep}`))) {
+    return true;
+  }
+
+  // Check legacy location: ~/.tmux-worktrees/<namespace>/
+  const legacyDir = toCanonicalPath(getLegacyManagedRepoWorktreesDir(repoRoot));
+  if (legacyDir && (candidatePath === legacyDir || candidatePath.startsWith(`${legacyDir}${path.sep}`))) {
+    return true;
+  }
+
+  return false;
 }
 
 // Ensure the managed worktree directory exists.
@@ -153,6 +196,21 @@ export async function ensureWorktreesDir(repoRoot: string): Promise<string> {
   if (!fs.existsSync(worktreesDir)) {
     await fs.promises.mkdir(worktreesDir, { recursive: true });
   }
+
+  // Add .hydra to .gitignore if not already there
+  const gitignorePath = path.join(repoRoot, '.gitignore');
+  try {
+    const content = fs.existsSync(gitignorePath)
+      ? fs.readFileSync(gitignorePath, 'utf-8')
+      : '';
+    if (!content.split('\n').some(line => line.trim() === '.hydra' || line.trim() === '.hydra/')) {
+      const newline = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
+      fs.writeFileSync(gitignorePath, `${content}${newline}.hydra\n`, 'utf-8');
+    }
+  } catch {
+    // ignore gitignore errors
+  }
+
   return worktreesDir;
 }
 

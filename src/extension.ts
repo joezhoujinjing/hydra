@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { TmuxSessionProvider } from './providers/tmuxSessionProvider';
 import { getActiveBackend, refreshBackendFromConfig, getConfiguredMultiplexerType, MultiplexerType } from './utils/multiplexer';
 import { attachCreate } from './commands/attachCreate';
-import { newTask } from './commands/newTask';
+// newTask is now an alias for createWorker
 import { removeTask } from './commands/removeTask';
 import { cleanupOrphans } from './commands/orphanCleanup';
 import { autoAttachOnStartup } from './commands/autoAttach';
@@ -16,6 +16,8 @@ import {
 } from './commands/contextMenu';
 import { terminalSmartPaste, pasteImageForce, cleanupTempImages } from './commands/pasteImage';
 import { createWorktreeFromBranch } from './commands/createWorktreeFromBranch';
+import { createCopilot } from './commands/createCopilot';
+import { createWorker } from './commands/createWorker';
 
 function updateViewDescription(treeView: vscode.TreeView<unknown>): void {
   const backend = getActiveBackend();
@@ -33,7 +35,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     treeView,
     vscode.commands.registerCommand('tmux.attachCreate', attachCreate),
-    vscode.commands.registerCommand('tmux.newTask', newTask),
+    vscode.commands.registerCommand('tmux.newTask', createWorker),
     vscode.commands.registerCommand('tmux.removeTask', (item) => removeTask(item)),
     vscode.commands.registerCommand('tmux.cleanupOrphans', cleanupOrphans),
     vscode.commands.registerCommand('tmux.refresh', () => sessionProvider.refresh()),
@@ -73,7 +75,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('tmux.newWindow', newWindow),
     vscode.commands.registerCommand('tmux.terminalPaste', terminalSmartPaste),
     vscode.commands.registerCommand('tmux.pasteImage', pasteImageForce),
-    vscode.commands.registerCommand('tmux.createWorktreeFromBranch', (item) => createWorktreeFromBranch(item))
+    vscode.commands.registerCommand('tmux.createWorktreeFromBranch', (item) => createWorktreeFromBranch(item)),
+    vscode.commands.registerCommand('hydra.createCopilot', createCopilot),
+    vscode.commands.registerCommand('hydra.createWorker', createWorker),
   );
 
   autoAttachOnStartup();

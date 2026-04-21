@@ -3,8 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { exec } from '../utils/exec';
-import { getRepoRoot, getRepoName, listWorktrees, Worktree, getBaseBranch } from '../utils/git';
-import { getActiveBackend, MultiplexerSession } from '../utils/multiplexer';
+import { getRepoRoot, getRepoName, listWorktrees, Worktree, getBaseBranch, findGitReposInDir } from '../utils/git';
+import { getActiveBackend, MultiplexerSession, HydraRole } from '../utils/multiplexer';
 import { toCanonicalPath } from '../utils/path';
 import { createRepoSessionPrefixConfig, matchRepoSessionName } from '../utils/sessionCompatibility';
 
@@ -30,6 +30,8 @@ interface SessionWithStatus extends MultiplexerSession {
   status: SessionStatus;
   worktreePath?: string;
   slug: string;
+  hydraRole?: HydraRole;
+  hydraAgent?: string;
 }
 
 function isCurrentWorkspacePath(targetPath: string | undefined, activeWorkspacePath: string): boolean {
@@ -49,7 +51,6 @@ function getDefaultWorktreeSlug(worktree: Worktree, repoName: string): string {
     return baseName;
   }
 
-  // Keep session names unique when external worktrees reuse the repo directory name.
   if (parentName && parentName !== baseName) {
     return `${baseName}-${parentName}`;
   }
@@ -131,7 +132,6 @@ function buildWorktreeSlugMap(worktrees: Worktree[], repoName: string): Map<stri
     return `${candidate.slug}-${shortPathHash(candidate.worktree.path)}`;
   });
 
-  // Extra safety for extremely unlikely hash collisions.
   for (let i = 0; i < unresolved.length; i++) {
     const candidate = unresolved[i];
     const normalizedPath = toCanonicalPath(candidate.worktree.path);
@@ -193,12 +193,10 @@ function parseGitPorcelainStatus(lines: string[]): Pick<
       continue;
     }
 
-    // Porcelain v1: XY <path>
     const x = line[0] ?? ' ';
     const y = line[1] ?? ' ';
     const code = `${x}${y}`;
 
-    // Count each path once with a simple precedence.
     if (code.includes('D')) {
       gitDeleted++;
       continue;
@@ -325,7 +323,7 @@ async function getSessionStatus(sessionName: string, worktreePath?: string): Pro
 
   const now = Math.floor(Date.now() / 1000);
   let classification: Classification;
-  
+
   if (attached) {
     classification = 'attached';
   } else if (now - lastActive < 600) {
@@ -359,6 +357,68 @@ export class TmuxItem extends vscode.TreeItem {
   }
 }
 
+// ─── Group Items (Level 1) ────────────────────────────────
+
+export class CopilotGroupItem extends TmuxItem {
+  constructor() {
+    super('Copilot', vscode.TreeItemCollapsibleState.Expanded);
+    this.contextValue = 'copilotGroup';
+    this.iconPath = new vscode.ThemeIcon('hubot');
+  }
+}
+
+export class WorkerGroupItem extends TmuxItem {
+  public readonly repoRoot: string;
+  constructor(repoName: string, repoRoot: string, baseBranch?: string) {
+    super('Workers', vscode.TreeItemCollapsibleState.Expanded, repoName);
+    this.repoRoot = repoRoot;
+    this.contextValue = 'workerGroup';
+    this.iconPath = new vscode.ThemeIcon('server-process');
+    if (baseBranch) {
+      const shortName = baseBranch.replace(/^origin\//, '');
+      this.description = `${repoName} [base: ${shortName}]`;
+    } else {
+      this.description = repoName;
+    }
+  }
+}
+
+// ─── Copilot Item (Level 2) ──────────────────────────────
+
+export class CopilotItem extends TmuxItem {
+  public readonly worktreePath?: string;
+  public readonly agentType: string;
+  public readonly classification: Classification;
+
+  constructor(opts: {
+    sessionName: string;
+    agentType: string;
+    worktreePath?: string;
+    classification: Classification;
+  }) {
+    const label = `${opts.agentType}`;
+    const description = opts.worktreePath ? path.basename(opts.worktreePath) : undefined;
+    super(label, vscode.TreeItemCollapsibleState.Expanded, undefined, opts.sessionName);
+
+    this.worktreePath = opts.worktreePath;
+    this.agentType = opts.agentType;
+    this.classification = opts.classification;
+    this.description = description;
+    this.contextValue = 'tmuxItem';
+
+    // Blue circle: filled=attached, outline=idle
+    if (opts.classification === 'attached') {
+      this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.blue'));
+    } else if (opts.classification === 'stopped') {
+      this.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('foreground'));
+    } else {
+      this.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('charts.blue'));
+    }
+  }
+}
+
+// ─── Worker Item / Worktree Items (Level 2) ───────────────
+
 export class RepoGroupItem extends TmuxItem {
   constructor(
     public readonly repoName: string,
@@ -369,7 +429,6 @@ export class RepoGroupItem extends TmuxItem {
     this.contextValue = 'repoGroup';
     this.iconPath = new vscode.ThemeIcon('repo');
     if (baseBranch) {
-      // Strip remote prefix (e.g. "origin/main" → "main") for cleaner display
       const shortName = baseBranch.replace(/^origin\//, '');
       this.description = `[base: ${shortName}]`;
     }
@@ -377,7 +436,7 @@ export class RepoGroupItem extends TmuxItem {
 }
 
 /**
- * Level 2 – Icon rules from requirements:
+ * Level 2 – Icon rules:
  *   ● filled green  = git ✓ + tmux active
  *   ○ outline green = git ✓ + tmux stopped
  *   ⚠️ warning      = git not initialized
@@ -385,6 +444,7 @@ export class RepoGroupItem extends TmuxItem {
 export class WorktreeItem extends TmuxItem {
   public readonly isCurrentWorkspace: boolean;
   public readonly worktreePath?: string;
+  public readonly repoRoot?: string;
   public readonly hasGit: boolean;
   public readonly hasTmux: boolean;
   public readonly isMainWorktree: boolean;
@@ -394,6 +454,7 @@ export class WorktreeItem extends TmuxItem {
     repoName: string;
     sessionName: string;
     worktreePath?: string;
+    repoRoot?: string;
     isCurrentWorkspace: boolean;
     hasGit: boolean;
     hasTmux: boolean;
@@ -405,6 +466,7 @@ export class WorktreeItem extends TmuxItem {
 
     this.isCurrentWorkspace = opts.isCurrentWorkspace;
     this.worktreePath = opts.worktreePath;
+    this.repoRoot = opts.repoRoot;
     this.hasGit = opts.hasGit;
     this.hasTmux = opts.hasTmux;
     this.isMainWorktree = Boolean(opts.isMainWorktree);
@@ -421,6 +483,32 @@ export class WorktreeItem extends TmuxItem {
     }
   }
 }
+
+export class WorkerItem extends WorktreeItem {
+  public readonly agentType?: string;
+
+  constructor(opts: {
+    branchLabel: string;
+    repoName: string;
+    sessionName: string;
+    worktreePath?: string;
+    isCurrentWorkspace: boolean;
+    hasGit: boolean;
+    hasTmux: boolean;
+    isMainWorktree?: boolean;
+    agentType?: string;
+  }) {
+    super(opts);
+    this.agentType = opts.agentType;
+    if (opts.agentType) {
+      this.description = this.description
+        ? `${this.description} [${opts.agentType}]`
+        : `[${opts.agentType}]`;
+    }
+  }
+}
+
+// ─── Detail Items (Level 3+) ──────────────────────────────
 
 export class TmuxDetailItem extends TmuxItem {
   constructor(
@@ -522,9 +610,8 @@ export class GitStatusItem extends TmuxItem {
   }
 }
 
-// ─── Legacy compatibility ─────────────────────────────────
+// ─── Composite Items (backward compat) ───────────────────
 
-/** @deprecated use WorktreeItem */
 export class TmuxSessionItem extends WorktreeItem {
   public readonly session: SessionWithStatus;
   public readonly detailItem: TmuxDetailItem;
@@ -537,7 +624,9 @@ export class TmuxSessionItem extends WorktreeItem {
     isCurrentWorkspace: boolean,
     hasGit: boolean,
     extensionUri?: vscode.Uri,
-    branchLabelOverride?: string
+    branchLabelOverride?: string,
+    agentType?: string,
+    repoRoot?: string
   ) {
     const isRoot = Boolean(worktree?.isMain);
     const branchLabel = branchLabelOverride || worktree?.branch || (isRoot ? 'main' : session.slug);
@@ -547,6 +636,7 @@ export class TmuxSessionItem extends WorktreeItem {
       repoName,
       sessionName: session.name,
       worktreePath: session.worktreePath,
+      repoRoot,
       isCurrentWorkspace,
       hasGit,
       hasTmux: session.status.classification !== 'stopped',
@@ -556,6 +646,12 @@ export class TmuxSessionItem extends WorktreeItem {
     this.session = session;
     this.detailItem = new TmuxDetailItem(session, repoName, worktree, extensionUri);
 
+    if (agentType) {
+      this.description = this.description
+        ? `${this.description} [${agentType}]`
+        : `[${agentType}]`;
+    }
+
     const hasGitChanges = session.status.commitsAhead > 0 || session.status.gitModified > 0 ||
       session.status.gitDeleted > 0 || session.status.gitAdded > 0 || session.status.gitUntracked > 0;
     if (hasGitChanges) {
@@ -564,7 +660,6 @@ export class TmuxSessionItem extends WorktreeItem {
   }
 }
 
-/** @deprecated use WorktreeItem */
 export class InactiveWorktreeItem extends WorktreeItem {
   public readonly detailItem: InactiveDetailItem;
   public readonly gitStatusItem?: GitStatusItem;
@@ -579,7 +674,8 @@ export class InactiveWorktreeItem extends WorktreeItem {
     hasGit: boolean,
     extensionUri?: vscode.Uri,
     branchLabelOverride?: string,
-    gitStatusOverride?: SessionStatus
+    gitStatusOverride?: SessionStatus,
+    repoRoot?: string
   ) {
     const branchLabel = branchLabelOverride || worktree.branch || (worktree.isMain ? 'main' : path.basename(worktree.path));
 
@@ -588,6 +684,7 @@ export class InactiveWorktreeItem extends WorktreeItem {
       repoName,
       sessionName: targetSessionName,
       worktreePath: worktree.path,
+      repoRoot,
       isCurrentWorkspace,
       hasGit,
       hasTmux: false,
@@ -652,7 +749,20 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
         errorItem.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('charts.red'));
         return [errorItem];
       }
-      return this.getRepoGroups();
+      return this.getRootItems();
+    }
+
+    if (element instanceof CopilotGroupItem) {
+      return this.getCopilotItems();
+    }
+
+    if (element instanceof WorkerGroupItem) {
+      return this.getWorkerItems(element);
+    }
+
+    // Copilot children: detail item
+    if (element instanceof CopilotItem) {
+      return this.getCopilotDetailItems(element);
     }
 
     if (element instanceof RepoGroupItem) {
@@ -674,14 +784,124 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
     return [];
   }
 
-  private async getRepoGroups(): Promise<RepoGroupItem[]> {
+  // ── Root: [CopilotGroup, WorkerGroup] ──
+
+  private async getRootItems(): Promise<TmuxItem[]> {
     try {
-      const repoRoot = getRepoRoot();
-      const repoName = getRepoName(repoRoot);
+      this._error = undefined;
+      const items: TmuxItem[] = [new CopilotGroupItem()];
+
+      let repoRoot: string;
+      let repoName: string;
+      try {
+        repoRoot = getRepoRoot();
+        repoName = getRepoName(repoRoot);
+      } catch {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) return items;
+        repoRoot = workspaceFolders[0].uri.fsPath;
+        repoName = path.basename(repoRoot);
+      }
+
       let baseBranch: string | undefined;
-      try { baseBranch = await getBaseBranch(repoRoot); } catch { /* non-git or no default branch */ }
-      return [new RepoGroupItem(repoName, repoRoot, baseBranch)];
-    } catch { return []; }
+      try { baseBranch = await getBaseBranch(repoRoot); } catch { /* non-git */ }
+
+      items.push(new WorkerGroupItem(repoName, repoRoot, baseBranch));
+      return items;
+    } catch (err) {
+      this._error = err instanceof Error ? err.message : String(err);
+      return [];
+    }
+  }
+
+  // ── Copilot Group Children ──
+
+  private async getCopilotItems(): Promise<TmuxItem[]> {
+    try {
+      const backend = getActiveBackend();
+      const sessions = await backend.listSessions();
+      const items: TmuxItem[] = [];
+
+      for (const session of sessions) {
+        const role = await backend.getSessionRole(session.name);
+        if (role !== 'copilot') continue;
+
+        const agentType = await backend.getSessionAgent(session.name) || 'unknown';
+        const workdir = await backend.getSessionWorkdir(session.name);
+        const status = await getSessionStatus(session.name, workdir);
+
+        items.push(new CopilotItem({
+          sessionName: session.name,
+          agentType,
+          worktreePath: workdir,
+          classification: status.classification,
+        }));
+      }
+
+      if (items.length === 0) {
+        const hint = new TmuxItem('No copilot running', vscode.TreeItemCollapsibleState.None);
+        hint.iconPath = new vscode.ThemeIcon('info');
+        hint.command = {
+          command: 'hydra.createCopilot',
+          title: 'Create Copilot',
+        };
+        return [hint];
+      }
+
+      return items;
+    } catch {
+      return [];
+    }
+  }
+
+  private async getCopilotDetailItems(copilot: CopilotItem): Promise<TmuxItem[]> {
+    if (!copilot.sessionName) return [];
+    const backend = getActiveBackend();
+    const workdir = await backend.getSessionWorkdir(copilot.sessionName);
+    const status = await getSessionStatus(copilot.sessionName, workdir);
+    const session: SessionWithStatus = {
+      name: copilot.sessionName,
+      windows: 1,
+      attached: status.attached,
+      workdir,
+      status,
+      worktreePath: workdir,
+      slug: 'copilot',
+      hydraRole: 'copilot',
+      hydraAgent: copilot.agentType,
+    };
+    return [new TmuxDetailItem(session, '', undefined, this._extensionUri)];
+  }
+
+  // ── Worker Group Children ──
+
+  private async getWorkerItems(group: WorkerGroupItem): Promise<TmuxItem[]> {
+    const workspaceRoot = group.repoRoot;
+    const isGit = await isGitInitialized(workspaceRoot);
+
+    // If workspace itself is a git repo, show its worktrees directly (no sub-grouping)
+    if (isGit) {
+      const repoName = group.repoName || path.basename(workspaceRoot);
+      return this.getWorktreeItems(repoName, workspaceRoot);
+    }
+
+    // Non-git workspace: scan for git repos in immediate children → RepoGroupItem per repo
+    const subRepos = await findGitReposInDir(workspaceRoot);
+    const items: TmuxItem[] = [];
+
+    for (const repo of subRepos) {
+      let baseBranch: string | undefined;
+      try { baseBranch = await getBaseBranch(repo.path); } catch { /* no default branch */ }
+      items.push(new RepoGroupItem(repo.name, repo.path, baseBranch));
+    }
+
+    if (items.length === 0) {
+      const hint = new TmuxItem('No git repos found', vscode.TreeItemCollapsibleState.None);
+      hint.iconPath = new vscode.ThemeIcon('info');
+      return [hint];
+    }
+
+    return items;
   }
 
   private async getWorktreeItems(repoName: string, repoRoot: string): Promise<TmuxItem[]> {
@@ -726,34 +946,50 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
       }
 
       for (const session of allSessions) {
+        // Skip copilot sessions — they appear under the Copilot group
+        const role = await backend.getSessionRole(session.name);
+        if (role === 'copilot') continue;
+
         session.workdir = await backend.getSessionWorkdir(session.name);
         const workdir = toCanonicalPath(session.workdir);
+
+        // Match by prefix (existing repo sessions)
         const matchedSession = matchRepoSessionName(
           session.name,
           workdir,
           sessionPrefixConfig,
           { allowLegacy: true }
         );
-        if (!matchedSession) {
+
+        // Also match workers whose workdir is a managed worktree for this repo
+        const isWorkerForRepo = role === 'worker' && workdir && !matchedSession &&
+          await this.isWorkdirManagedByRepo(workdir, repoRoot);
+
+        if (!matchedSession && !isWorkerForRepo) {
           continue;
         }
 
         const status = await getSessionStatus(session.name, workdir);
+        const agentType = await backend.getSessionAgent(session.name);
         let entry = workdir ? pathMap.get(workdir) : undefined;
 
         if (!entry) {
-          status.classification = 'orphan';
-          entry = { sessions: [], hasGit: false };
+          if (!isWorkerForRepo) {
+            status.classification = 'orphan';
+          }
+          entry = { sessions: [], hasGit: workdir ? await isGitInitialized(workdir) : false };
           pathMap.set(workdir || `orphan:${session.name}`, entry);
         }
 
-        const slug = matchedSession.slug || 'main';
+        const slug = matchedSession?.slug || path.basename(workdir || session.name);
 
         entry.sessions.push({
           ...session,
           status,
           worktreePath: workdir,
-          slug
+          slug,
+          hydraRole: role || undefined,
+          hydraAgent: agentType || undefined,
         });
       }
 
@@ -789,7 +1025,8 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
             hasGit,
             this._extensionUri,
             branchLabel,
-            stoppedStatus
+            stoppedStatus,
+            repoRoot
           ));
           continue;
         }
@@ -814,7 +1051,9 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
             isCurrentWorkspace,
             hasGit,
             this._extensionUri,
-            branchLabel
+            branchLabel,
+            sessions[0].hydraAgent,
+            repoRoot
           ));
         }
       }
@@ -859,6 +1098,25 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxItem> {
       this._error = err instanceof Error ? err.message : String(err);
       return [];
     }
+  }
+
+  private async isWorkdirManagedByRepo(workdir: string, repoRoot: string): Promise<boolean> {
+    try {
+      const output = await exec(`git -C "${repoRoot}" worktree list --porcelain`);
+      const worktreePaths = output
+        .split('\n')
+        .filter(line => line.startsWith('worktree '))
+        .map(line => line.substring('worktree '.length).trim());
+      const candidate = toCanonicalPath(workdir);
+      if (!candidate) return false;
+      for (const wtPath of worktreePaths) {
+        const resolved = toCanonicalPath(wtPath) || path.resolve(wtPath);
+        if (resolved === candidate) return true;
+      }
+    } catch {
+      // not a git repo
+    }
+    return false;
   }
 
   private sortAndFilter(items: TmuxItem[]): TmuxItem[] {

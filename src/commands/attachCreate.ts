@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { getRepoRoot } from '../utils/git';
 import { getActiveBackend } from '../utils/multiplexer';
-import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem } from '../providers/tmuxSessionProvider';
+import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem, CopilotItem } from '../providers/tmuxSessionProvider';
 import { createRepoSessionPrefixConfig, isWorkdirInRepo } from '../utils/sessionCompatibility';
 
 async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
