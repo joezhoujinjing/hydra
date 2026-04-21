@@ -4,7 +4,7 @@
 
 [![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/kargnas.vscode-tmux-worktree?label=VS%20Marketplace&color=blue)](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree)
 
-🌏 **Read this in other languages:** **English** | [한국어](docs/README.ko.md)
+🌏 **Read this in other languages:** **English** | [中文](docs/README.zh.md)
 
 **[Install from VS Marketplace](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree)**
 
