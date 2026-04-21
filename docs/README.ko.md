@@ -1,151 +1,210 @@
-# TMUX Worktree
+# Hydra
 
-[![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/kargnas.vscode-tmux-worktree?label=VS%20Marketplace&color=blue)](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree) [![Blog](https://img.shields.io/badge/Blog-kargn.as-green)](https://kargn.as)
-**VS Code에서 tmux 세션과 git worktree를 함께 관리하세요.**
+**AI 코딩 에이전트 군단을 지휘하세요 — 각자 자기 브랜치, 자기 터미널에서, VS Code 하나로.**
 
-🌏 **다른 언어로 읽기:** [English](../README.md) | **한국어** | [简体中文](README.zh-CN.md) | [繁體中文 (台灣)](README.zh-TW.md) | [繁體中文 (香港)](README.zh-HK.md) | [日本語](README.ja.md)
+[![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/kargnas.vscode-tmux-worktree?label=VS%20Marketplace&color=blue)](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree)
 
-![TMUX Worktree 스크린샷](https://raw.githubusercontent.com/kargnas/vscode-ext-tmux-worktree/main/docs/screenshot.png)
+🌏 **다른 언어로 읽기:** [English](../README.md) | **한국어**
 
-## 왜 더 완성도 있게 느껴지나
+**[VS Marketplace에서 설치](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree)**
 
-- **이미지 인식 터미널 붙여넣기**: `Cmd+V` / `Ctrl+Shift+V`에서 텍스트는 일반 붙여넣기, 이미지는 파일 경로 입력으로 자동 분기됩니다.
-- **Remote-SSH 클립보드 브리지**: 로컬 클립보드 이미지를 원격 터미널로 별도 업로드 없이 바로 전달합니다.
-- **충돌 방지 세션 식별자**: `repo-name + path hash` 네임스페이스와 슬러그 충돌 해소 로직으로 같은 이름 저장소도 안전하게 구분합니다.
-- **레거시 호환 마이그레이션**: `@workdir` 기준으로 기존 세션 prefix도 계속 인식합니다.
-- **No-git 폴백 가시성**: git이 없는 폴더도 `current project (no git)`로 트리에 표시됩니다.
+## Hydra란?
 
-## 왜 만들었나요?
+Hydra는 VS Code를 병렬 AI 개발 컨트롤 패널로 바꿔줍니다. 에이전트를 하나만 돌리는 대신, 여러 에이전트를 동시에 — 각각 별도의 git 브랜치에서, 자기만의 터미널 세션으로 돌리세요.
 
-여러 브랜치를 동시에 작업하면서 `git worktree`와 `tmux`를 쓰시나요? 그럼 매번 둘을 따로 관리하는 게 얼마나 귀찮은지 아실 겁니다. 이 확장 프로그램이 그 간극을 메워줍니다:
+```
+프로젝트
+├── main            → Copilot (Claude) — 워크스페이스에서 페어 프로그래밍
+├── feat/auth       → Worker (Claude) — OAuth를 처음부터 구현 중
+├── feat/dashboard  → Worker (Codex) — 어드민 대시보드 생성 중
+└── fix/perf        → Worker (Gemini) — 프로파일링 및 병목 해결 중
+```
 
-- **원클릭으로** worktree와 tmux 세션을 한 번에 생성
-- **트리 뷰**에서 모든 worktree와 tmux 상태를 한눈에 확인
-- worktree 폴더를 열면 **자동으로** 해당 tmux 세션에 연결
-- VS Code를 껐다 켜도 **작업 컨텍스트를 잃지 않음** — 세션은 계속 살아있어요
+모든 세션은 tmux(또는 Zellij)에서 유지됩니다. VS Code를 닫아도, 폰에서 SSH로 접속해도, 내일 다시 와도 — 에이전트는 계속 돌아가고 있습니다.
 
-### AI 코딩 에이전트와 찰떡궁합
+## 핵심 개념
 
-Claude Code, Codex, OpenCode, Gemini CLI 같은 AI 코딩 에이전트를 tmux 세션 안에서 돌리세요. 에이전트는 백그라운드에서 계속 작업하고, 여러분은 언제든 재접속할 수 있습니다. 심지어 폰에서 Termux로도요.
+### Copilot
 
-## 주요 기능
+현재 워크스페이스에서 작동하는 하나의 상주 AI 에이전트 세션입니다. 페어 프로그래밍 파트너처럼 여러분이 보는 코드를 같이 보면서, 현재 브랜치에서 함께 작업합니다.
 
-### 🌳 탐색기 뷰
-사이드바에 git worktree와 연결된 tmux 세션들이 한눈에 보입니다. 세션 상태, 패널 개수, 마지막 활동 시간까지 다 표시됩니다.
+- 워크스페이스당 하나
+- 현재 디렉토리에서 실행 (worktree 불필요)
+- VS Code를 재시작해도 유지
 
-### ⚡ 원클릭 태스크 생성
-새 git 브랜치 + worktree + tmux 세션을 한 번에 만들 수 있어요. 새 기능 작업을 바로 시작하세요.
-기본 생성 위치는 `~/.tmux-worktrees/<repo-name-hash>/`라서 저장소 루트가 지저분해지지 않고, 여러 저장소 사이 경로 충돌도 피할 수 있습니다.
-`feat/auth`, `task/my-task` 같은 브랜치명도 그대로 입력할 수 있고, tmux 세션/worktree 슬러그는 `/`를 안전하게 `-`로 바꿔 충돌 없이 만듭니다.
-슬러그가 primary worktree의 `main`과 충돌하면 자동으로 suffix를 붙여 세션 이름을 유일하게 유지합니다.
-새 태스크 브랜치는 첫 publish 전까지 로컬 브랜치로만 유지해서, VS Code가 아직 없는 리모트 브랜치와 Sync를 시도하지 않고 **Publish Branch**를 계속 보여줍니다. 대신 `branch.<name>.vscode-merge-base`에 비교 기준 브랜치를 저장해 SCM diff 기준은 유지합니다.
+### Worker
 
-### 🔗 스마트 연결
-- **터미널에서 연결** — VS Code 통합 터미널에서 tmux 세션 열기
-- **에디터에서 연결** — tmux 세션을 에디터 탭으로 띄우기
-- **자동 연결** — worktree 폴더 열면 자동으로 세션 연결
-- **크기 안정화 연결** — attach 직전에 PTY 크기를 재시도 측정하고 대상 tmux 윈도우를 강제로 resize한 뒤 `window-size latest`를 복구해, 풀스크린 TUI의 80x24 초기 렌더링과 지속적인 화면 잘림을 함께 줄입니다
-- **프롬프트 안정화 연결** — tmux/zellij 세션을 붙이거나 만들기 전에 VS Code/Electron shell integration 환경 변수를 걷어내, multiplexer 안에서 redraw/드래그 선택/backspace 편집이 간헐적으로 깨지는 문제를 줄입니다
+자기만의 git 브랜치, worktree, 터미널 세션을 갖는 일회용 AI 에이전트입니다. 태스크를 던져놓고, 여러분은 다른 일에 집중하세요.
 
-### 🧹 고아 세션 정리
-worktree가 삭제된 후 남아있는 tmux 세션을 찾아서 정리합니다. 환경을 깔끔하게 유지하세요.
+- 태스크/브랜치당 하나
+- 격리된 git worktree (작업 충돌 없음)
+- 브랜치 + worktree + 세션 생성 + 에이전트 실행을 한 번에
+- Worker는 `<repo>/.hydra/worktrees/` 아래에 생성되어 저장소 루트를 깔끔하게 유지
 
-### 🖥️ 세션 관리
+## 지원 에이전트
+
+| 에이전트 | 명령어 | 설명 |
+|----------|--------|------|
+| Claude | `claude` | Anthropic의 Claude Code CLI |
+| Codex | `codex` | OpenAI의 Codex CLI |
+| Gemini | `gemini` | Google의 Gemini CLI |
+| Aider | `aider` | 오픈소스 AI 페어 프로그래밍 |
+| Custom | 설정 가능 | 원하는 CLI 에이전트 |
+
+기본 에이전트와 명령어를 설정에서 변경할 수 있습니다:
+
+```json
+{
+  "hydra.defaultAgent": "claude",
+  "hydra.agentCommands": {
+    "claude": "claude",
+    "codex": "codex",
+    "gemini": "gemini",
+    "aider": "aider"
+  }
+}
+```
+
+## 시작하기
+
+1. VS Marketplace에서 확장 프로그램 설치
+2. `tmux`와 `git`이 PATH에 있는지 확인
+3. 액티비티 바에서 **Hydra** 패널 열기
+
+**Copilot 실행:** Copilot 버튼(로봇 아이콘) 클릭 → 에이전트 선택 → 워크스페이스에서 시작됩니다.
+
+**Worker 생성:** Worker 버튼(서버 아이콘) 클릭 → `feat/auth` 같은 브랜치 이름 입력 → 에이전트 선택 → 브랜치, worktree, 세션 생성 후 에이전트가 자동으로 실행됩니다.
+
+## 기능
+
+### 사이드바 트리 뷰
+
+Hydra 패널에서 실행 중인 모든 것을 한눈에 볼 수 있습니다:
+
+- **Copilot 그룹** — 워크스페이스 AI 세션
+- **Worker 그룹** — 브랜치별 워커들
+- **상태 표시** — 녹색 원(활성), 테두리(중지), 경고(git 없음)
+- **세션 상세** — 패널 수, 최근 활동 시간, CPU 사용량
+- **Git 상태** — 미푸시 커밋 수, 수정/미추적/삭제된 파일 수
+
+### 스마트 연결
+
+- **터미널에서 연결** — VS Code 통합 터미널에서 세션 열기
+- **에디터에서 연결** — 세션을 에디터 탭으로 띄우기
+- **자동 연결** — worktree 폴더를 열면 자동으로 세션에 연결
+- **크기 안정화 연결** — attach 전에 PTY 크기를 동기화해 80x24 초기 렌더링 문제 방지
+- **프롬프트 안정화 연결** — VS Code shell integration 환경 변수를 제거해 tmux/Zellij 내부 렌더링 깨짐 방지
+
+### 스마트 붙여넣기 (이미지 인식)
+
+터미널에서 `Cmd+V`(macOS) / `Ctrl+Shift+V`(Linux)를 누르면 알아서 처리합니다:
+- 클립보드에 텍스트 → 일반 붙여넣기
+- 클립보드에 이미지 → 임시 `.png` 파일로 저장 후 경로 입력
+
+Remote-SSH에서도 동작합니다 — 로컬 클립보드 이미지가 원격으로 전달됩니다.
+
+### 듀얼 백엔드: tmux + Zellij
+
+패널 헤더에서 tmux와 Zellij 사이를 전환할 수 있습니다. 두 백엔드 모두 동일한 기능을 지원합니다: 세션 생성, 메타데이터 저장, 패널 관리, 에이전트 라이프사이클.
+
+### 세션 관리
+
 - 컨텍스트 메뉴에서 패널 분할과 새 윈도우 생성
 - worktree 경로를 클립보드에 복사
 - worktree를 새 VS Code 창으로 열기
 - 이름으로 세션 필터링
+- 기존 브랜치에서 worktree 생성
 
-### 📋 스마트 붙여넣기 (이미지 인식)
-- 터미널에서 `Cmd+V`(macOS) / `Ctrl+Shift+V`(Linux) 입력 시 클립보드 내용을 먼저 확인합니다
-- 텍스트가 있으면 기존 붙여넣기 동작을 그대로 사용합니다
-- 이미지가 있으면 임시 `.png` 파일로 저장한 뒤, 해당 경로를 터미널에 입력합니다
-- 로컬 환경뿐 아니라 Remote-SSH에서도 동작합니다 (webview 브리지로 로컬 클립보드 이미지를 원격으로 전달)
-- 명령 팔레트에서 강제 이미지 붙여넣기: `TMUX: Paste Image from Clipboard`
+### 고아 세션 정리
 
-### 🧭 세션 매핑 안정성 강화
-- 같은 저장소 이름이 여러 경로에 있어도 충돌하지 않도록 `repo-name + path hash` 네임스페이스를 사용합니다
-- `@workdir`가 현재 저장소 안을 가리키면 레거시 세션 이름도 호환 인식합니다
-- worktree 슬러그가 충돌하면 부모 폴더명, 이후 경로 해시로 자동 구분합니다
-- git 저장소가 아닌 폴더도 트리에 `current project (no git)`로 표시합니다
+worktree가 없는 세션을 감지하고 제거합니다. 클릭 한 번으로 환경을 깔끔하게 유지하세요.
 
-## 실제 활용 사례
+### CLI 도구 (`hydra-worker`)
 
-### 🤖 AI 에이전트로 여러 브랜치 동시 개발
-```
-프로젝트/
-├── main              → tmux: "myapp/main" (Claude Code가 리팩토링 중)
-├── feature/oauth     → tmux: "myapp/feature-oauth" (직접 코딩)
-└── fix/memory-leak   → tmux: "myapp/fix-memory-leak" (Codex가 분석 중)
-```
+VS Code 없이 터미널에서 직접 Worker를 만들 수 있습니다:
 
-각 브랜치에서 AI 에이전트를 독립적으로 돌리고, VS Code로 결과를 확인하세요. 세션은 백그라운드에서 계속 작업합니다.
-
-### 🌐 원격 서버에서 작업
-SSH로 개발 서버에 접속한 상태에서:
-- VS Code Remote-SSH로 서버 접속
-- TMUX Worktree로 각 브랜치별 세션 관리
-- SSH 연결이 끊겨도 tmux 세션은 살아있음
-- 집에서도, 카페에서도, 폰에서도 재접속
-
-### 📱 모바일에서 코드 확인
-Termux + SSH로 폰에서 접속해서:
 ```bash
-ssh dev-server
-tmux attach -t myapp/feature-oauth
+hydra-worker --repo ~/myapp --branch feat/auth --agent claude --task "OAuth2 로그인 구현"
 ```
-통근길에 AI 에이전트가 작성한 코드 리뷰도 가능합니다.
+
+| 플래그 | 필수 | 설명 |
+|--------|------|------|
+| `--repo` | 예 | git 저장소 경로 |
+| `--branch` | 예 | 생성할 브랜치 이름 |
+| `--agent` | 아니오 | 에이전트 타입: `claude`, `codex`, `gemini`, `aider` (기본값: `claude`) |
+| `--base` | 아니오 | 기준 브랜치 지정 (기본값: 자동 감지) |
+| `--task` | 아니오 | 에이전트에게 줄 초기 프롬프트 |
+
+이 스크립트는 `Hydra: Create Worker`의 전체 플로우를 그대로 재현합니다 — 브랜치 검증, 슬러그 충돌 해소, `.hydra/` 아래 worktree 생성, tmux 세션 설정, 에이전트 실행.
 
 ## 명령어
 
 | 명령어 | 설명 |
 |--------|------|
-| `TMUX: Attach/Create Session` | 현재 worktree의 tmux 세션에 연결하거나 새로 만들기 |
-| `TMUX: New Task` | 새 브랜치 + worktree + tmux 세션 한 번에 생성 |
-| `TMUX: Remove Task` | worktree와 tmux 세션 삭제 |
-| `TMUX: Cleanup Orphans` | 고아 tmux 세션 정리 |
-| `TMUX: Smart Paste (Image Support)` | 스마트 터미널 붙여넣기: 텍스트는 일반 paste, 이미지는 임시 파일 경로 입력 |
-| `TMUX: Paste Image from Clipboard` | 클립보드 이미지를 강제로 저장하고 현재 터미널에 경로 입력 |
+| `Hydra: Create Copilot` | 현재 워크스페이스에서 AI 코파일럿 실행 |
+| `Hydra: Create Worker` | 새 브랜치 + worktree + 에이전트 세션 생성 |
+| `Hydra: Attach/Create Session` | 현재 worktree의 세션에 연결하거나 새로 생성 |
+| `Hydra: Remove Task` | worktree와 세션 삭제 |
+| `Hydra: Cleanup Orphans` | 고아 세션 정리 |
+| `Hydra: Smart Paste (Image Support)` | 스마트 붙여넣기: 텍스트 또는 이미지 |
+| `Hydra: Paste Image from Clipboard` | 이미지 강제 붙여넣기 |
 
-## 최근 업데이트 (v1.1.2 - v1.1.6)
+## 실제 활용 사례
 
-- **v1.1.6**: AI CLI 워크플로우를 위한 이미지 인식 터미널 붙여넣기(`Cmd+V` / `Ctrl+Shift+V`)와 강제 이미지 붙여넣기 명령 추가. 또한 시작 시 auto-attach 타이밍을 보정해, 가끔 터미널이 작게 렌더링되었다가 창 크기 조절 후 정상화되던 문제를 완화했고, 강제 resize 이후 `window-size latest`를 복구해 지속적인 화면 잘림을 줄였으며, 일부 환경에서 attach 실행이 실패하던 셸 스크립트 파싱 회귀도 수정했습니다.
-- **v1.1.4 - v1.1.5**: tmux attach 시 클립보드/패스스루 옵션을 자동 설정해 원격 환경 클립보드 신뢰성 개선.
-- **v1.1.3**: 레거시 세션 prefix 호환 로직 정리로 마이그레이션 안정성 개선.
-- **v1.1.2**: 슬러그 충돌 처리와 no-git 워크스페이스 라벨(`current project (no git)`) 추가.
+### 병렬 AI 개발
 
-## 설치 요구사항
+```
+myapp/
+├── main              → Copilot: Claude가 PR 리뷰 도와줌
+├── feat/oauth        → Worker: Claude가 OAuth 플로우 구현 중
+├── feat/dashboard    → Worker: Codex가 UI 컴포넌트 생성 중
+└── fix/memory-leak   → Worker: Gemini가 프로파일링 및 패치 중
+```
 
-- **tmux** — 설치되어 있어야 하고 PATH에 있어야 합니다
-- **git** — 설치되어 있어야 하고 PATH에 있어야 합니다
+독립적인 태스크에 Worker를 띄워놓고, VS Code에서 결과를 확인하세요. 세션은 백그라운드에서 계속 돌아갑니다.
+
+### 원격 서버 + 모바일 접속
+
+SSH로 개발 서버에 접속해서 Hydra로 Worker를 관리하고, 연결을 끊어도 세션은 유지됩니다. 집, 카페, 폰에서 다시 연결하세요:
+
+```bash
+ssh dev-server
+tmux attach -t myapp-a1b2c3d4_feat-oauth
+```
+
+Termux로 통근길에 AI가 작성한 코드를 리뷰할 수 있습니다.
+
+## 설정
+
+| 설정 | 기본값 | 설명 |
+|------|--------|------|
+| `hydra.defaultAgent` | `claude` | 새 copilot/worker의 기본 에이전트 |
+| `hydra.agentCommands` | `{...}` | 에이전트 타입 → 실행 명령어 매핑 |
+| `hydra.baseBranch` | 자동 감지 | Worker 생성 시 기준 브랜치 지정 |
+| `tmuxWorktree.multiplexer` | `tmux` | 백엔드: `tmux` 또는 `zellij` |
+| `tmuxWorktree.baseBranch` | 자동 감지 | 기준 브랜치 지정 (레거시) |
+
+## 요구사항
+
+- **tmux** (또는 **Zellij**) — 설치되어 있고 PATH에 있어야 합니다
+- **git** — 설치되어 있고 PATH에 있어야 합니다
 - **VS Code** 1.85.0 이상
-
-## 시작하기
-
-1. 확장 프로그램 설치
-2. VS Code에서 git 저장소 열기
-3. 액티비티 바(사이드바)에서 **TMUX** 아이콘 클릭
-4. 기존 worktree와 tmux 세션이 자동으로 표시됩니다
-
-새 태스크 만들기: TMUX 패널 헤더의 **+** 버튼 클릭, 브랜치 이름 입력하면 끝!
 
 ## 작동 원리
 
 ```
-저장소 (루트)
-├── main              → tmux 세션: "project-a1b2c3d4_main"
-├── feature/login     → tmux 세션: "project-a1b2c3d4_feature-login"
-└── fix/bug-123       → tmux 세션: "project-a1b2c3d4_fix-bug-123"
+저장소
+├── main                → 세션: "project-a1b2c3d4_main"
+├── feat/auth           → 세션: "project-a1b2c3d4_feat-auth"    [Worker: Claude]
+└── fix/bug-123         → 세션: "project-a1b2c3d4_fix-bug-123"  [Worker: Codex]
+                        → 세션: "hydra-copilot"                  [Copilot: Claude]
 ```
 
-각 worktree마다 전용 tmux 세션이 생깁니다. 세션 이름은 `repo-name + path hash` 네임스페이스와 슬러그를 함께 써서, 같은 저장소 이름이 다른 경로에 있어도 충돌을 피합니다.
-새 태스크용 worktree는 기본적으로 저장소 바깥의 `~/.tmux-worktrees/<repo-name-hash>/` 아래에 생성됩니다.
+**Worker**는 각각 전용 git worktree + 터미널 세션을 갖습니다. 세션 이름은 `repo-name + path-hash` 네임스페이스로 같은 이름의 저장소 간 충돌을 방지합니다. Worktree는 기본적으로 `<repo>/.hydra/worktrees/` 아래에 생성됩니다.
 
-## 더 알아보기
+**Copilot**은 워크스페이스 디렉토리에 연결된 하나의 글로벌 세션(`hydra-copilot`)입니다 — worktree가 필요 없습니다.
 
-- [마켓플레이스](https://marketplace.visualstudio.com/items?itemName=kargnas.vscode-tmux-worktree)
-- [GitHub 저장소](https://github.com/kargnas/vscode-ext-tmux-worktree)
-- [이슈 제보](https://github.com/kargnas/vscode-ext-tmux-worktree/issues)
+Copilot과 Worker 모두 역할과 에이전트 타입을 세션 메타데이터로 저장해서, Hydra가 트리 뷰에 올바른 상태를 표시할 수 있습니다.
 
 ## 라이선스
 
