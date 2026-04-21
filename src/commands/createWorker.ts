@@ -13,6 +13,7 @@ import {
 } from '../utils/git';
 import { getActiveBackend } from '../utils/multiplexer';
 import { pickAgentType, getAgentCommand } from '../utils/agentConfig';
+import { injectWorkerInstructions } from '../utils/hydraGlobalConfig';
 
 async function resolveRepoRoot(): Promise<string | undefined> {
   const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -100,6 +101,9 @@ export async function createWorker(): Promise<void> {
 
     // 5. Create worktree
     const worktreePath = await addWorktree(repoRoot, branchName, finalSlug, baseBranch);
+
+    // 5b. Inject worker instructions into worktree
+    injectWorkerInstructions(worktreePath, agentType);
 
     // 6. Create session
     const sessionName = backend.buildSessionName(repoSessionNamespace, finalSlug);
