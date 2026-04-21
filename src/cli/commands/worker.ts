@@ -22,12 +22,14 @@ export function registerWorkerCommands(program: Command): void {
     .option('--agent <type>', 'Agent type (claude, codex, gemini)', 'claude')
     .option('--base <branch>', 'Base branch override')
     .option('--task <prompt>', 'Task prompt for the agent')
+    .option('--task-file <path>', 'Path to a file containing the task description')
     .action(async (opts: {
       repo: string;
       branch: string;
       agent: string;
       base?: string;
       task?: string;
+      taskFile?: string;
     }) => {
       try {
         const repoPath = expandPath(opts.repo);
@@ -42,6 +44,7 @@ export function registerWorkerCommands(program: Command): void {
           agentType: opts.agent,
           baseBranchOverride: opts.base,
           task: opts.task,
+          taskFile: opts.taskFile,
         });
 
         console.log(`Worker created: ${workerInfo.sessionName}`);

@@ -115,12 +115,12 @@ Hydra 面板让你一目了然地查看所有运行中的内容：
 
 检测并移除没有对应 worktree 的会话。一键保持环境整洁。
 
-### CLI 工具（`hydra-worker`）
+### CLI 工具（`hydra worker create`）
 
 无需 VS Code，直接在终端中创建 Worker：
 
 ```bash
-hydra-worker --repo ~/myapp --branch feat/auth --agent claude --task "实现 OAuth2 登录"
+hydra worker create --repo ~/myapp --branch feat/auth --agent claude --task "实现 OAuth2 登录"
 ```
 
 | 参数 | 必填 | 说明 |
