@@ -765,13 +765,7 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
         group.workers.push(w);
       }
 
-      // If only one repo, show workers directly
-      if (byRepo.size === 1) {
-        const group = [...byRepo.values()][0];
-        return this.buildWorkerItems(group.workers, group.repoName, group.repoRoot);
-      }
-
-      // Multiple repos → RepoGroupItem per repo
+      // Always show RepoGroupItem per repo
       const items: TmuxItem[] = [];
       for (const group of byRepo.values()) {
         let baseBranch: string | undefined;
