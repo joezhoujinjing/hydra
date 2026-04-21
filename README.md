@@ -46,9 +46,8 @@ A disposable AI agent that gets its own git branch, its own worktree, and its ow
 | Agent | Command | Description |
 |-------|---------|-------------|
 | Claude | `claude` | Anthropic's Claude Code CLI |
-| Codex | `codex` | OpenAI's Codex CLI |
+| Codex | `codex --full-auto` | OpenAI's Codex CLI |
 | Gemini | `gemini` | Google's Gemini CLI |
-| Aider | `aider` | Open-source AI pair programming |
 | Custom | configurable | Any CLI agent you want |
 
 Configure default agent and commands in settings:
@@ -58,9 +57,8 @@ Configure default agent and commands in settings:
   "hydra.defaultAgent": "claude",
   "hydra.agentCommands": {
     "claude": "claude",
-    "codex": "codex",
-    "gemini": "gemini",
-    "aider": "aider"
+    "codex": "codex --full-auto",
+    "gemini": "gemini"
   }
 }
 ```
@@ -119,23 +117,23 @@ Switch between tmux and Zellij from the panel header. Both backends support the 
 
 Detect and remove tmux sessions that no longer have matching worktrees. One click to keep your environment tidy.
 
-### CLI Tool (`hydra-worker`)
+### CLI Tool (`hydra`)
 
 Create workers directly from your terminal without VS Code:
 
 ```bash
-hydra-worker --repo ~/myapp --branch feat/auth --agent claude --task "implement OAuth2 login"
+hydra worker create --repo ~/myapp --branch feat/auth --agent claude --task "implement OAuth2 login"
 ```
 
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--repo` | yes | Path to the git repository |
 | `--branch` | yes | Branch name to create |
-| `--agent` | no | Agent type: `claude`, `codex`, `gemini`, `aider` (default: `claude`) |
+| `--agent` | no | Agent type: `claude`, `codex`, `gemini` (default: `claude`) |
 | `--base` | no | Base branch override (default: auto-detect) |
 | `--task` | no | Initial prompt to give the agent |
 
-The script mirrors the full `Hydra: Create Worker` flow — branch validation, slug collision resolution, worktree creation under `.hydra/`, tmux session setup, and agent launch.
+The CLI mirrors the full `Hydra: Create Worker` flow — branch validation, slug collision resolution, worktree creation under `.hydra/`, tmux session setup, and agent launch.
 
 ## Commands
 
