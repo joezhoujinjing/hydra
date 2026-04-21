@@ -106,12 +106,38 @@ You are a **focused worker agent** operating in a Hydra-managed worktree. Your j
 - **If blocked, say so.** Output a clear message describing the blocker so the copilot can see it via \`tmux capture-pane\`.
 `;
 
-/** Ensure ~/.hydra/ exists and write default instruction files if missing. */
+const HYDRA_TAG = '<hydra>';
+const HYDRA_BLOCK_START = '<hydra>\n';
+const HYDRA_BLOCK_END = '</hydra>\n';
+
+/** Append content wrapped in <hydra> tags to a file, skipping if already present. */
+function injectHydraBlock(filePath: string, content: string): boolean {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  if (fs.existsSync(filePath)) {
+    const existing = fs.readFileSync(filePath, 'utf-8');
+    if (existing.includes(HYDRA_TAG)) { return false; }
+  }
+
+  const block = `\n${HYDRA_BLOCK_START}${content}${HYDRA_BLOCK_END}`;
+  fs.appendFileSync(filePath, block, 'utf-8');
+  return true;
+}
+
+/**
+ * Ensure ~/.hydra/ exists with default instruction files,
+ * and inject copilot instructions into global agent config files.
+ */
 export function ensureHydraGlobalConfig(): void {
+  // Ensure ~/.hydra/ directory
   if (!fs.existsSync(HYDRA_DIR)) {
     fs.mkdirSync(HYDRA_DIR, { recursive: true });
   }
 
+  // Write default instruction files to ~/.hydra/
   const copilotPath = path.join(HYDRA_DIR, 'COPILOT_AGENTS.md');
   if (!fs.existsSync(copilotPath)) {
     fs.writeFileSync(copilotPath, COPILOT_AGENTS_MD, 'utf-8');
@@ -121,12 +147,18 @@ export function ensureHydraGlobalConfig(): void {
   if (!fs.existsSync(workerPath)) {
     fs.writeFileSync(workerPath, WORKER_AGENTS_MD, 'utf-8');
   }
+
+  // Inject copilot instructions into global agent config files
+  const home = os.homedir();
+  injectHydraBlock(path.join(home, '.claude', 'CLAUDE.md'), COPILOT_AGENTS_MD);
+  injectHydraBlock(path.join(home, '.codex', 'AGENTS.md'), COPILOT_AGENTS_MD);
+  injectHydraBlock(path.join(home, '.gemini', 'GEMINI.md'), COPILOT_AGENTS_MD);
 }
 
 /**
- * Inject worker instructions into the worktree's agent instruction file.
- * Wraps content in <hydra> tags; skips if already present.
- * Returns the target file path if injected, or undefined if skipped.
+ * Inject worker instructions into LOCAL-ONLY files in the worktree.
+ * Uses CLAUDE.local.md for Claude/Aider, AGENTS.override.md for Codex.
+ * Gemini is not supported (no reliable local-only mechanism).
  */
 export function injectWorkerInstructions(worktreePath: string, agentType: string): string | undefined {
   const workerPath = path.join(HYDRA_DIR, 'WORKER_AGENTS.md');
@@ -134,20 +166,22 @@ export function injectWorkerInstructions(worktreePath: string, agentType: string
 
   let targetFilename: string;
   switch (agentType) {
-    case 'codex': targetFilename = 'AGENTS.md'; break;
-    case 'gemini': targetFilename = 'GEMINI.md'; break;
-    default: targetFilename = 'CLAUDE.md'; break;
+    case 'claude':
+    case 'aider':
+      targetFilename = 'CLAUDE.local.md';
+      break;
+    case 'codex':
+      targetFilename = 'AGENTS.override.md';
+      break;
+    default:
+      return undefined; // gemini and others: no reliable local-only mechanism
   }
+
   const targetFile = path.join(worktreePath, targetFilename);
-
-  // Duplicate check
-  if (fs.existsSync(targetFile)) {
-    const existing = fs.readFileSync(targetFile, 'utf-8');
-    if (existing.includes('<hydra>')) { return undefined; }
-  }
-
   const content = fs.readFileSync(workerPath, 'utf-8');
-  const block = `\n<hydra>\n${content}</hydra>\n`;
-  fs.appendFileSync(targetFile, block, 'utf-8');
-  return targetFile;
+
+  if (injectHydraBlock(targetFile, content)) {
+    return targetFile;
+  }
+  return undefined;
 }

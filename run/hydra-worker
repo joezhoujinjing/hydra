@@ -152,28 +152,28 @@ else
   echo '.hydra' > "$GITIGNORE"
 fi
 
-# --- Inject worker instructions into worktree ---
+# --- Inject worker instructions into local-only file ---
 WORKER_INSTRUCTIONS="$HOME/.hydra/WORKER_AGENTS.md"
 if [[ -f "$WORKER_INSTRUCTIONS" ]]; then
-  # Determine target file based on agent type
+  # Use local-only files that don't conflict with the repo's own instruction files
   case "$AGENT" in
-    claude|aider) TARGET_FILE="$WORKTREE_PATH/CLAUDE.md" ;;
-    codex)        TARGET_FILE="$WORKTREE_PATH/AGENTS.md" ;;
-    gemini)       TARGET_FILE="$WORKTREE_PATH/GEMINI.md" ;;
-    *)            TARGET_FILE="$WORKTREE_PATH/CLAUDE.md" ;;
+    claude|aider) TARGET_FILE="$WORKTREE_PATH/CLAUDE.local.md" ;;
+    codex)        TARGET_FILE="$WORKTREE_PATH/AGENTS.override.md" ;;
+    *)            TARGET_FILE="" ;; # gemini and others: no reliable local-only mechanism
   esac
 
-  # Check for duplicates: skip if <hydra> tag already exists in target
-  if [[ -f "$TARGET_FILE" ]] && grep -q '<hydra>' "$TARGET_FILE"; then
-    echo "  Worker instructions already present in $(basename "$TARGET_FILE"), skipping injection."
-  else
-    {
-      echo ""
-      echo "<hydra>"
-      cat "$WORKER_INSTRUCTIONS"
-      echo "</hydra>"
-    } >> "$TARGET_FILE"
-    echo "  Injected worker instructions into $(basename "$TARGET_FILE")"
+  if [[ -n "$TARGET_FILE" ]]; then
+    # Check for duplicates: skip if <hydra> tag already exists in target
+    if [[ -f "$TARGET_FILE" ]] && grep -q '<hydra>' "$TARGET_FILE"; then
+      echo "  Worker instructions already present in $(basename "$TARGET_FILE"), skipping."
+    else
+      {
+        echo "<hydra>"
+        cat "$WORKER_INSTRUCTIONS"
+        echo "</hydra>"
+      } >> "$TARGET_FILE"
+      echo "  Injected worker instructions into $(basename "$TARGET_FILE")"
+    fi
   fi
 fi
 
@@ -190,31 +190,31 @@ tmux set-option -t "$SESSION_NAME" '@hydra-role' 'worker'
 tmux set-option -t "$SESSION_NAME" '@hydra-agent' "$AGENT"
 
 # --- Launch agent ---
+if [[ -n "$TASK" ]]; then
+  # Write task to a file to avoid shell quoting issues with tmux send-keys
+  TASK_FILE="$WORKTREE_PATH/.hydra-task.md"
+  printf '%s' "$TASK" > "$TASK_FILE"
+fi
+
 get_agent_command() {
   local agent="$1"
-  local task="$2"
+  local task_file="$2"
   case "$agent" in
     claude)
-      if [[ -n "$task" ]]; then
-        printf 'claude %q' "$task"
+      if [[ -n "$task_file" ]]; then
+        echo "claude \"\$(cat $task_file)\""
       else
         echo "claude"
       fi
       ;;
-    codex)
-      if [[ -n "$task" ]]; then
-        printf 'codex %q' "$task"
-      else
-        echo "codex"
-      fi
-      ;;
+    codex)  echo "codex" ;;
     gemini) echo "gemini" ;;
     aider)  echo "aider" ;;
     *)      echo "$agent" ;;
   esac
 }
 
-AGENT_CMD="$(get_agent_command "$AGENT" "$TASK")"
+AGENT_CMD="$(get_agent_command "$AGENT" "${TASK_FILE:-}")"
 tmux send-keys -t "$SESSION_NAME" "$AGENT_CMD" Enter
 
 # --- Output ---
