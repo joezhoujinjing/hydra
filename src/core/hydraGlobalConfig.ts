@@ -30,30 +30,11 @@ export function ensureHydraGlobalConfig(): void {
  * Returns the target file path if injected, or undefined if skipped.
  */
 export function injectWorkerInstructions(worktreePath: string, agentType: string, taskFilename?: string): string | undefined {
+  // Disabled as per user request to avoid polluting instruction files with <hydra> blocks.
+  return undefined;
+  /*
   const workerPath = path.join(HYDRA_DIR, 'WORKER_AGENTS.md');
   if (!fs.existsSync(workerPath)) { return undefined; }
-
-  let targetFilename: string;
-  switch (agentType) {
-    case 'codex': targetFilename = 'AGENTS.md'; break;
-    case 'gemini': targetFilename = 'GEMINI.md'; break;
-    default: targetFilename = 'CLAUDE.md'; break;
-  }
-  const targetFile = path.join(worktreePath, targetFilename);
-
-  // Duplicate check
-  if (fs.existsSync(targetFile)) {
-    const existing = fs.readFileSync(targetFile, 'utf-8');
-    if (existing.includes('<hydra>')) { return undefined; }
-  }
-
-  let content = fs.readFileSync(workerPath, 'utf-8');
-  
-  // Replace placeholder
-  const taskRef = taskFilename ? `in \`${taskFilename}\`` : "as your initial prompt";
-  content = content.replace('{{TASK_REFERENCE}}', taskRef);
-
-  const block = `\n<hydra>\n${content}</hydra>\n`;
-  fs.appendFileSync(targetFile, block, 'utf-8');
-  return targetFile;
+  ...
+  */
 }
