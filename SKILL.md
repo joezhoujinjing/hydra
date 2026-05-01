@@ -1,0 +1,100 @@
+---
+name: hydra
+description: Use when you need to create a Hydra worker from natural language by resolving a repo, branch, and agent, then launching the corresponding worker session.
+---
+
+# Skill: hydra
+
+Create and manage Hydra workers (git worktree + tmux session + AI agent) from natural language.
+
+## Prerequisites
+
+Requires: **Node.js 18+**, **git**, **tmux**.
+
+If `hydra` is not on PATH, install it:
+
+```bash
+# Clone and build
+git clone https://github.com/joezhoujinjing/hydra.git ~/code/hydra
+cd ~/code/hydra && npm install && npm run compile
+
+# Link the CLI globally (pick one)
+npm link
+# or: ln -s ~/code/hydra/out/cli/index.js /usr/local/bin/hydra
+
+# Verify
+hydra --version
+```
+
+## Invocation
+
+The user says something like:
+- "create a worker for feat/auth on sudocode"
+- "spin up a worker on hydra for fix/bug-123 with codex"
+- "clean up completed workers"
+
+## Instructions
+
+### Creating workers
+
+1. **Parse the user's request** to extract:
+   - **repo**: A path or short name (e.g., "sudocode", "hydra", "~/code/foo")
+   - **branch**: The git branch to create (e.g., "feat/auth", "fix/bug-123")
+   - **agent** (optional): Agent type — `claude` (default), `codex`, `gemini`
+   - **task** (optional): A task description or prompt for the agent
+
+2. **Resolve repo name to path** if not an absolute path:
+   - Search in `~/code/<name>` first, then `~/code/*/<name>` (e.g. `~/code/sudoprivacy/sudocode`)
+   - Then try the current working directory if it matches
+   - If ambiguous, ask the user
+
+3. **Run the command**:
+   ```bash
+   hydra worker create --repo <resolved_path> --branch <branch> --agent <agent> [--task "<task>"] [--task-file <path>]
+   ```
+
+   Available options:
+   - `--repo <path>` — Path to the repository (required)
+   - `--branch <name>` — Branch name to create (required)
+   - `--agent <type>` — Agent type: `claude` (default), `codex`, `gemini`
+   - `--base <branch>` — Base branch override (defaults to main/master)
+   - `--task <prompt>` — Task prompt for the agent
+   - `--task-file <path>` — Path to a file containing the task description
+
+### Cleaning up workers
+
+When the user asks to clean up, delete, or remove workers:
+
+1. **List workers**: Run `hydra list` to see all workers and their branches.
+2. **Cross-reference with PRs**: Use `gh pr list -R <repo> --state all --json headRefName,state` to identify which worker branches are merged/closed.
+3. **Ask the user** which workers to delete before proceeding.
+4. **Delete one at a time** to avoid UI issues:
+   ```bash
+   hydra worker delete <session-name>
+   ```
+   Do NOT bulk-delete in a loop — the Hydra sidebar can hang when many workers are removed at once.
+
+### Other commands
+
+- `hydra list` — List all copilots and workers
+- `hydra worker stop <session>` — Stop a worker (kill tmux session, keep worktree)
+- `hydra worker start <session>` — Start a stopped worker
+- `hydra worker delete <session>` — Delete a worker (kill session + remove worktree + delete branch)
+
+### Report the result
+
+Show session name and worktree path on success, or the error on failure.
+
+## Examples
+
+User: "create a worker for feat/auth on sudocode"
+→ `hydra worker create --repo /Users/jinjingzhou/code/sudoprivacy/sudocode --branch feat/auth --agent claude`
+
+User: "new worker with task 'refactor the API layer'"
+→ `hydra worker create --repo $(pwd) --branch task/refactor-api --agent claude --task "refactor the API layer"`
+
+User: "clean up old workers"
+→ Run `hydra list`, cross-reference with merged PRs, ask user, then delete confirmed ones one at a time.
+
+User: "list all workers"
+→ `hydra list`
