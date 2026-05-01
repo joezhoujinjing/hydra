@@ -29,7 +29,7 @@ export async function newTask(): Promise<void> {
     return;
   }
 
-  // 1. branch name 입력 받기
+  // 1. Get branch name input
   const branchInput = await vscode.window.showInputBox({
     prompt: 'Enter branch name (e.g., "feat/auth", "task/my-task")',
     placeHolder: 'feat/my-task',
@@ -38,9 +38,9 @@ export async function newTask(): Promise<void> {
     }
   });
 
-  if (!branchInput) return; // 취소됨
+  if (!branchInput) return; // cancelled
 
-  // 2. branch name 정규화
+  // 2. Normalize branch name
   const branchName = branchInput.trim();
   const branchValidationError = validateBranchName(branchName);
   if (branchValidationError) {
@@ -53,10 +53,10 @@ export async function newTask(): Promise<void> {
       throw new Error(`Branch "${branchName}" already exists.`);
     }
 
-    // 3. 기준 브랜치 결정
+    // 3. Determine base branch
     const baseBranch = await getBaseBranch(repoRoot);
 
-    // 4. session/worktree slug 충돌 확인 및 해결
+    // 4. Resolve session/worktree slug collisions
     const slug = branchNameToSlug(branchName);
     let finalSlug = slug;
     let suffix = 1;
@@ -65,10 +65,10 @@ export async function newTask(): Promise<void> {
       finalSlug = `${slug}-${suffix}`;
     }
 
-    // 5. worktree 생성
+    // 5. Create worktree
     const worktreePath = await addWorktree(repoRoot, branchName, finalSlug, baseBranch);
 
-    // 6. session 생성
+    // 6. Create session
     const sessionName = backend.buildSessionName(repoSessionNamespace, finalSlug);
     await backend.createSession(sessionName, worktreePath);
     await backend.setSessionWorkdir(sessionName, worktreePath);
@@ -76,10 +76,10 @@ export async function newTask(): Promise<void> {
     // 7. attach
     backend.attachSession(sessionName, worktreePath);
 
-    // 8. 성공 메시지
+    // 8. Success message
     vscode.window.showInformationMessage(`Created task: ${branchName}`);
 
-    // 9. TreeView 갱신 (refresh 명령 호출)
+    // 9. Refresh tree view
     vscode.commands.executeCommand('tmux.refresh');
 
   } catch (error) {
