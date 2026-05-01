@@ -44,7 +44,7 @@ The user says something like:
    - **task** (optional): A task description or prompt for the agent
 
 2. **Resolve repo name to path** if not an absolute path:
-   - Search in `~/code/<name>` first, then `~/code/*/<name>` (e.g. `~/code/sudoprivacy/sudocode`)
+   - Search in `~/code/<name>` first, then `~/code/*/<name>` (e.g. `~/code/org/myproject`)
    - Then try the current working directory if it matches
    - If ambiguous, ask the user
 
@@ -59,7 +59,46 @@ The user says something like:
    - `--agent <type>` — Agent type: `claude` (default), `codex`, `gemini`
    - `--base <branch>` — Base branch override (defaults to main/master)
    - `--task <prompt>` — Task prompt for the agent
-   - `--task-file <path>` — Path to a file containing the task description
+   - `--task-file <path>` — Path to a markdown file with detailed requirements (recommended for complex tasks)
+
+### Monitoring workers
+
+```bash
+# List running workers
+hydra list
+
+# Read last 20 lines of a worker's terminal
+tmux capture-pane -t <session_name> -p | tail -20
+
+# Read deeper scrollback
+tmux capture-pane -t <session_name> -p -S -200 | tail -200
+```
+
+### Reviewing changes
+
+Worker worktrees live at `<repo>/.hydra/worktrees/<slug>/`.
+
+```bash
+git -C <worktree_path> diff --stat
+git -C <worktree_path> diff
+git -C <worktree_path> log --oneline <base_branch>..HEAD
+```
+
+### Sending follow-up instructions
+
+```bash
+tmux send-keys -t <session_name> "<message>" Enter Enter
+```
+
+Double Enter: first submits the text, second confirms to the agent.
+
+### Creating PRs from worker branches
+
+```bash
+cd <worktree_path>
+git push -u origin <branch_name>
+gh pr create --title "<title>" --body "<description>"
+```
 
 ### Cleaning up workers
 
@@ -81,14 +120,28 @@ When the user asks to clean up, delete, or remove workers:
 - `hydra worker start <session>` — Start a stopped worker
 - `hydra worker delete <session>` — Delete a worker (kill session + remove worktree + delete branch)
 
-### Report the result
+## Copilot role
 
-Show session name and worktree path on success, or the error on failure.
+When acting as a **copilot** (orchestrating multiple workers), follow this workflow:
+
+1. **Plan** — Break the task into parallelizable units of work
+2. **Delegate** — Spawn a worker per unit via `hydra worker create`
+3. **Monitor** — Poll worker terminals for progress via `tmux capture-pane`
+4. **Review** — Read diffs in worker worktrees, check quality
+5. **Iterate** — Send corrections or follow-ups via `tmux send-keys`
+6. **Ship** — Push and create PRs for approved branches
+
+**Rules:**
+- Never implement code directly — always delegate to workers
+- Be specific in task prompts — include file paths, function names, and acceptance criteria
+- Parallelize independent work — two non-conflicting tasks = two workers
+- Review before shipping — always read the full diff before creating a PR
+- One branch per worker — don't reuse sessions for unrelated tasks
 
 ## Examples
 
 User: "create a worker for feat/auth on sudocode"
-→ `hydra worker create --repo /Users/jinjingzhou/code/sudoprivacy/sudocode --branch feat/auth --agent claude`
+→ `hydra worker create --repo ~/code/org/sudocode --branch feat/auth --agent claude`
 
 User: "new worker with task 'refactor the API layer'"
 → `hydra worker create --repo $(pwd) --branch task/refactor-api --agent claude --task "refactor the API layer"`
