@@ -132,7 +132,7 @@ export async function removeTask(item: TmuxItem): Promise<void> {
   }
   slug = slug || String(item.label);
 
-  // ── Main worktree: tmux 세션만 종료, 워크트리/브랜치 삭제 불가 ──
+  // ── Main worktree: can only kill session, cannot delete worktree/branch ──
   if (isMain) {
     const backend = getActiveBackend();
     const sessions = await backend.listSessions();
@@ -164,7 +164,7 @@ export async function removeTask(item: TmuxItem): Promise<void> {
     return;
   }
 
-  // ── Orphan: worktree 이미 없음, 세션만 종료 ──
+  // ── Orphan: worktree already gone, kill session only ──
   if (isOrphanItem(item)) {
     const confirm = await vscode.window.showWarningMessage(
       `Kill orphan session "${sessionName}"? (Worktree no longer exists)`,
@@ -184,7 +184,7 @@ export async function removeTask(item: TmuxItem): Promise<void> {
     return;
   }
 
-  // ── 일반 워크트리: 세션 + 워크트리 + 브랜치 모두 삭제 가능 ──
+  // ── Regular worktree: can delete session + worktree + branch ──
 
   if (worktreePath && repoRoot) {
     try {

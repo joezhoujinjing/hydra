@@ -21,7 +21,7 @@ on:
           - minor
           - major
 
-# 신규 커밋이 들어오면 대기 중인 이전 실행을 취소
+# Cancel pending runs when new commits arrive
 concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: true
@@ -35,10 +35,10 @@ jobs:
       - name: Wait 10 minutes before publishing (on push)
         if: github.event_name == 'push'
         run: |
-          echo "⏳ 10분 후 자동 릴리즈가 시작됩니다..."
-          echo "💡 이 시간 동안 새로운 커밋이 push되면 이 실행은 취소되고 새로운 타이머가 시작됩니다."
+          echo "Waiting 10 minutes before auto-publishing..."
+          echo "If a new commit is pushed during this window, this run will be cancelled and a new timer starts."
           sleep 600
-          echo "✅ 10분 대기 완료. 릴리즈를 시작합니다."
+          echo "10-minute wait complete. Starting publish."
       
 
       - uses: actions/checkout@v4
@@ -93,14 +93,14 @@ jobs:
         run: npm run compile
 
       - name: Package VSIX
-        run: npx @vscode/vsce package --out "vscode-tmux-worktree-${{ steps.version.outputs.version }}.vsix"
+        run: npx @vscode/vsce package --out "hydra-${{ steps.version.outputs.version }}.vsix"
 
       - name: Publish to VS Code Marketplace
         run: npx @vscode/vsce publish -p ${{ secrets.VSCE_PAT }}
         continue-on-error: false
 
       - name: Publish to Open VSX
-        run: npx ovsx publish "vscode-tmux-worktree-${{ steps.version.outputs.version }}.vsix" -p ${{ secrets.OVSX_PAT }}
+        run: npx ovsx publish "hydra-${{ steps.version.outputs.version }}.vsix" -p ${{ secrets.OVSX_PAT }}
         continue-on-error: true
 
       - name: Create GitHub Release
@@ -108,5 +108,5 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
-          files: vscode-tmux-worktree-${{ steps.version.outputs.version }}.vsix
+          files: hydra-${{ steps.version.outputs.version }}.vsix
           generate_release_notes: true

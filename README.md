@@ -204,6 +204,14 @@ Repository
 
 Both Copilot and Worker sessions store their role and agent type as session metadata, so Hydra can display the right status in the tree view.
 
+## Security Note
+
+Worker agents run with **auto-approved permissions** (e.g., `--dangerously-skip-permissions` for Claude). This means workers can execute shell commands, read/write files, and make network requests without prompting. This is by design for autonomous operation, but you should:
+
+- Only run workers in trusted repositories
+- Review worker diffs before merging (`git diff` in the worktree)
+- Use isolated environments (containers, VMs) for untrusted workloads
+
 ## License
 
 [MIT](LICENSE.md)
