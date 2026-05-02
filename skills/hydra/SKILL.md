@@ -9,18 +9,19 @@ Create and manage Hydra workers (git worktree + tmux session + AI agent) from na
 
 ## Prerequisites
 
-Requires: **Node.js 18+**, **git**, **tmux**.
+Requires: **Node.js 18+**, **git**, **tmux** (macOS/Linux only — tmux is not available on Windows).
 
 If `hydra` is not on PATH, install it:
 
 ```bash
 # Clone and build
-git clone https://github.com/joezhoujinjing/hydra.git ~/code/hydra
-cd ~/code/hydra && npm install && npm run compile
+mkdir -p ~/.hydra
+git clone https://github.com/joezhoujinjing/hydra.git ~/.hydra/repo
+cd ~/.hydra/repo && npm install && npm run compile
 
 # Link the CLI globally (pick one)
 npm link
-# or: ln -s ~/code/hydra/out/cli/index.js /usr/local/bin/hydra
+# or: ln -s ~/.hydra/repo/out/cli/index.js /usr/local/bin/hydra
 
 # Verify
 hydra --version
