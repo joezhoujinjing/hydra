@@ -63,30 +63,39 @@ jobs:
         id: version
         run: |
           BUMP_TYPE="${{ github.event.inputs.version_bump || 'patch' }}"
-          
+
           if [ "$BUMP_TYPE" = "skip" ]; then
             VERSION=$(node -p "require('./package.json').version")
             echo "Skipping version bump, using current: $VERSION"
           else
             CURRENT=$(node -p "require('./package.json').version")
             IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-            
+
             case "$BUMP_TYPE" in
               major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
               minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
               patch) PATCH=$((PATCH + 1)) ;;
             esac
-            
+
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+            # Skip past any existing tags from previous failed runs
+            while git rev-parse "v${VERSION}" >/dev/null 2>&1; do
+              echo "Tag v${VERSION} already exists, incrementing..."
+              IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+              PATCH=$((PATCH + 1))
+              VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            done
+
             npm version $VERSION --no-git-tag-version
-            
+
             git add package.json package-lock.json
             git commit -m "chore: release v${VERSION}"
             git tag "v${VERSION}"
             git push origin main
             git push origin "v${VERSION}"
           fi
-          
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Compile
