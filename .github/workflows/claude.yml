@@ -51,7 +51,7 @@ jobs:
             issues: write
 
           claude_args: >-
-            --model claude-opus-4-6
+            --model claude-opus-4-6[1m]
             --allowedTools
             "Bash(npm install)"
             "Bash(npm run compile)"
