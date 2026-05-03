@@ -9,7 +9,6 @@ import { SessionManager, WorkerInfo, CopilotInfo } from '../core/sessionManager'
 import { Worktree } from '../core/types';
 
 export type Classification = 'attached' | 'alive' | 'idle' | 'stopped' | 'orphan';
-export type FilterType = 'all' | 'attached' | 'alive' | 'idle' | 'stopped' | 'orphans';
 
 export interface SessionStatus {
   attached: boolean;
@@ -608,7 +607,7 @@ function getActiveWorkspacePath(): string | undefined {
   }
 }
 
-function sortAndFilter(items: TmuxItem[], filter: FilterType): TmuxItem[] {
+function sortItems(items: TmuxItem[]): TmuxItem[] {
   items.sort((a, b) => {
     const currentA = a instanceof WorktreeItem && a.isCurrentWorkspace;
     const currentB = b instanceof WorktreeItem && b.isCurrentWorkspace;
@@ -622,16 +621,7 @@ function sortAndFilter(items: TmuxItem[], filter: FilterType): TmuxItem[] {
     return scoreA - scoreB;
   });
 
-  if (filter === 'all') return items;
-
-  return items.filter(item => {
-    if (item instanceof InactiveWorktreeItem) return filter === 'stopped';
-    if (item instanceof TmuxSessionItem) {
-      if (filter === 'orphans') return item.session.status.classification === 'orphan';
-      return item.session.status.classification === filter;
-    }
-    return true;
-  });
+  return items;
 }
 
 function getItemScore(item: TmuxItem): number {
@@ -716,12 +706,10 @@ export class CopilotProvider implements vscode.TreeDataProvider<TmuxItem> {
 export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<TmuxItem | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-  private _filter: FilterType = 'all';
   private _extensionUri: vscode.Uri | undefined;
 
   setExtensionUri(uri: vscode.Uri): void { this._extensionUri = uri; }
   refresh(): void { this._onDidChangeTreeData.fire(undefined); }
-  setFilter(filter: string): void { this._filter = filter as FilterType; }
   getTreeItem(element: TmuxItem): vscode.TreeItem { return element; }
 
   async getChildren(element?: TmuxItem): Promise<TmuxItem[]> {
@@ -833,6 +821,6 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
       }
     }
 
-    return sortAndFilter(items, this._filter);
+    return sortItems(items);
   }
 }
