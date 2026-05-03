@@ -4,42 +4,98 @@
 
 <h1 align="center">Hydra</h1>
 
-<p align="center"><strong>Command an army of AI coding agents — each on its own branch, in its own terminal, all from VS Code.</strong></p>
+<p align="center"><strong>Command an army of AI coding agents — each on its own branch, in its own terminal, all visible from VS Code.</strong></p>
 
 🌏 **Read this in other languages:** **English** | [中文](docs/README.zh.md)
 
-## What is Hydra?
+## Why Hydra?
 
-Hydra turns VS Code into a control panel for parallel AI development. Instead of running one agent at a time, spin up multiple agents — each working on a separate git branch in its own terminal session.
+Modern AI coding agents are powerful — but one agent at a time is a bottleneck.
+Hydra turns VS Code into a **command center** where you orchestrate many agents in parallel, each isolated on its own git branch, each visible in a single sidebar.
+
+**You are the orchestrator. Your agents are the army.**
 
 ```
 Your Project
-├── main            → Copilot (Claude) — pair-programming in your workspace
+├── main            → Copilot (Claude) — orchestrating the work, reviewing PRs
 ├── feat/auth       → Worker (Claude) — building OAuth from scratch
 ├── feat/dashboard  → Worker (Codex) — creating the admin dashboard
-└── fix/perf        → Worker (Gemini) — profiling and fixing bottlenecks
+├── fix/perf        → Worker (Gemini) — profiling and fixing bottlenecks
+└── feat/api-tests  → Worker (Claude) — writing integration tests
 ```
 
 Every session persists in tmux (or Zellij). Close VS Code, SSH from your phone, come back tomorrow — your agents are still running.
 
+## Hero Use Case: The Parity Port
+
+Imagine you need to port 40 features from one codebase to another. Doing it sequentially takes weeks. With Hydra:
+
+1. **Copilot** (on `main`) analyzes the master issue, breaks it into 8 independent tasks
+2. **Copilot** spawns 8 Workers — one per feature group — each on its own branch
+3. All 8 Workers implement their features **simultaneously**
+4. **Copilot** monitors progress, reviews diffs, sends follow-up instructions
+5. You merge PRs as they complete — what took weeks now takes hours
+
+```
+codebase/
+├── main               → Copilot: breaking down the master issue, reviewing PRs
+├── port/auth          → Worker: porting authentication (3 features)
+├── port/billing       → Worker: porting billing flow (5 features)
+├── port/notifications → Worker: porting notification system (4 features)
+├── port/search        → Worker: porting search & filters (6 features)
+├── port/settings      → Worker: porting user settings (3 features)
+├── port/analytics     → Worker: porting analytics dashboard (5 features)
+├── port/export        → Worker: porting data export (4 features)
+└── port/onboarding    → Worker: porting onboarding flow (3 features)
+```
+
+> See the full walkthrough in [examples/parity-port.md](examples/parity-port.md).
+
 ## Core Concepts
 
-### Copilot
+### The Orchestrator: Copilot
 
-A single persistent AI agent session in your current workspace. Think of it as your pair-programming partner — it sees the same code you do and works alongside you on the current branch.
+A persistent AI agent session in your current workspace. The Copilot acts as your **tech lead** — it plans work, spawns Workers, monitors their progress, reviews their output, and coordinates merges.
 
-- One per workspace
-- Runs in your current directory (no worktree needed)
-- Stays alive across VS Code restarts
+- One per workspace — runs on your current branch
+- No worktree needed — it works in your existing directory
+- Survives VS Code restarts via tmux/Zellij
+- Can spawn and manage Workers via the [Hydra CLI](#cli-tool-hydra)
 
-### Worker
+### The Army: Workers
 
-A disposable AI agent that gets its own git branch, its own worktree, and its own terminal session. Give it a task and let it work independently while you focus on something else.
+Disposable AI agents that each get their own git branch, worktree, and terminal session. Give a Worker a task and it works independently — no conflicts with your code or other Workers.
 
-- One per task/branch
-- Isolated git worktree (no conflicts with your work)
+- One per task — isolated git worktree per branch
 - Auto-creates branch + worktree + session + launches agent in one step
 - Workers live under `<repo>/.hydra/worktrees/` to keep your repo root clean
+- Run with auto-approved permissions for autonomous operation
+
+### The Mental Model
+
+```
+┌─────────────────────────────────────────────────┐
+│                   VS Code                        │
+│  ┌─────────────┐  ┌──────────────────────────┐  │
+│  │  Hydra       │  │  Editor / Terminal Tabs   │  │
+│  │  Sidebar     │  │                          │  │
+│  │             │  │  ┌────────────────────┐  │  │
+│  │  Copilots   │  │  │ Worker: feat/auth  │  │  │
+│  │   ● Claude  │  │  │ (Claude running)   │  │  │
+│  │             │  │  └────────────────────┘  │  │
+│  │  Workers    │  │  ┌────────────────────┐  │  │
+│  │   ● auth   │  │  │ Worker: feat/api   │  │  │
+│  │   ● api    │  │  │ (Codex running)    │  │  │
+│  │   ● perf   │  │  └────────────────────┘  │  │
+│  │   ○ docs   │  │                          │  │
+│  └─────────────┘  └──────────────────────────┘  │
+└─────────────────────────────────────────────────┘
+         │                      │
+         ▼                      ▼
+   Live status:           tmux/Zellij sessions
+   pane count,            persist independently
+   CPU, git diff          of VS Code
+```
 
 ## Supported Agents
 
@@ -65,7 +121,7 @@ Configure default agent and commands in settings:
 
 ## Getting Started
 
-1. Install the extension from VS Marketplace
+1. Install the extension from [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=zhoujinjing.hydra-code)
 2. Make sure `tmux` and `git` are available in PATH
 3. Open the **Hydra** panel in the Activity Bar
 
@@ -75,9 +131,9 @@ Configure default agent and commands in settings:
 
 ## Features
 
-### Sidebar Tree View
+### Agent Visibility: Sidebar Tree View
 
-The Hydra panel gives you a live overview of everything running:
+The Hydra panel is your command center — see every agent's status at a glance:
 
 - **Copilot group** — your workspace AI session
 - **Worker group** — all active workers organized by branch
@@ -119,7 +175,7 @@ Detect and remove tmux sessions that no longer have matching worktrees. One clic
 
 ### CLI Tool (`hydra`)
 
-Create workers directly from your terminal without VS Code:
+Create workers directly from your terminal — or let your Copilot agent spawn them programmatically:
 
 ```bash
 hydra worker create --repo ~/myapp --branch feat/auth --agent claude --task "implement OAuth2 login"
@@ -149,17 +205,17 @@ The CLI mirrors the full `Hydra: Create Worker` flow — branch validation, slug
 
 ## Real-World Workflows
 
-### Parallel AI Development
+### Parity Port — Parallelize a Large Migration
 
-```
-myapp/
-├── main              → Copilot: Claude helping you review PRs
-├── feat/oauth        → Worker: Claude building the OAuth flow
-├── feat/dashboard    → Worker: Codex generating UI components
-└── fix/memory-leak   → Worker: Gemini profiling and patching
-```
+Break a 40-feature migration into 8 parallel Workers. Your Copilot orchestrates the work while Workers implement independently. [Full example →](examples/parity-port.md)
 
-Fire off workers for independent tasks. Check results in VS Code. Sessions keep running in the background.
+### Cross-Language Code Generation
+
+Generate TypeScript clients from Rust gRPC services. One Worker generates protobuf bindings, another builds the TS client, a third writes integration tests. [Full example →](examples/grpc-generation.md)
+
+### Reliable Subagent Lifecycle
+
+Spawn Workers from a Copilot, monitor their scrollback for completion signals, and `await` their results before proceeding. [Full example →](examples/agent-await.md)
 
 ### Remote Server + Mobile Access
 
@@ -169,8 +225,6 @@ SSH into a dev server, manage workers with Hydra, disconnect — sessions persis
 ssh dev-server
 tmux attach -t myapp-a1b2c3d4_feat-oauth
 ```
-
-Review AI-written code during your commute via Termux.
 
 ## Configuration
 
