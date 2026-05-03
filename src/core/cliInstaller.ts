@@ -47,6 +47,24 @@ export function installCli(extensionPath: string, version: string): { installed:
   return { installed: false, updated: false };
 }
 
+export function ensurePathInShellProfile(): void {
+  const snippet = 'export PATH="$HOME/.hydra/bin:$PATH"';
+  const marker = '.hydra/bin';
+  const candidates = [
+    path.join(os.homedir(), '.zshrc'),
+    path.join(os.homedir(), '.bashrc'),
+  ];
+  for (const rc of candidates) {
+    if (!fs.existsSync(rc)) continue;
+    const content = fs.readFileSync(rc, 'utf-8');
+    if (content.includes(marker)) return;
+    fs.appendFileSync(rc, `\n# Hydra CLI\n${snippet}\n`);
+    return;
+  }
+  // No rc file found — create ~/.zshrc (macOS default)
+  fs.writeFileSync(candidates[0], `# Hydra CLI\n${snippet}\n`, 'utf-8');
+}
+
 export function isCliOnPath(): boolean {
   const envPath = process.env.PATH || '';
   return envPath.split(path.delimiter).some(p => {

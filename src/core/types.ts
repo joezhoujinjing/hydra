@@ -36,6 +36,8 @@ export interface MultiplexerBackendCore {
   getSessionAgent(sessionName: string): Promise<string | undefined>;
   setSessionAgent(sessionName: string, agent: string): Promise<void>;
   sendKeys(sessionName: string, keys: string): Promise<void>;
+  capturePane(sessionName: string, lines?: number): Promise<string>;
+  sendMessage(sessionName: string, message: string): Promise<void>;
   getSessionInfo(sessionName: string): Promise<SessionStatusInfo>;
   getSessionPaneCount(sessionName: string): Promise<number>;
   getSessionPanePids(sessionName: string): Promise<string[]>;

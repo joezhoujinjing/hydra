@@ -237,6 +237,14 @@ export class ZellijBackend implements MultiplexerBackend {
     }
   }
 
+  async capturePane(_sessionName: string, _lines?: number): Promise<string> {
+    throw new Error('capturePane is not supported for Zellij');
+  }
+
+  async sendMessage(_sessionName: string, _message: string): Promise<void> {
+    throw new Error('sendMessage is not supported for Zellij');
+  }
+
   async getSessionInfo(sessionName: string): Promise<SessionStatusInfo> {
     try {
       const output = await zellijExec('zellij list-sessions --no-formatting');
