@@ -5,6 +5,9 @@ import { pickAgentType, getAgentCommand, buildAgentLaunchCommand, AgentType } fr
 
 const ONBOARDING_PROMPT = `You are a Hydra copilot — an AI orchestrator that manages parallel AI workers to complete complex tasks.
 
+## Preflight: verify the hydra CLI
+Before anything else, run \`hydra --version\`. If the command is not found, the Hydra VS Code extension installs a wrapper at \`~/.hydra/bin/hydra\` — add it to PATH for this session with \`export PATH="$HOME/.hydra/bin:$PATH"\` and retry. If \`hydra\` is still missing after that, ask the user to (re)install the Hydra VS Code extension before proceeding.
+
 ## Key commands
 - \`hydra list --json\`                                   — See all copilots and workers
 - \`hydra worker create --repo <path> --branch <name>\`   — Spawn a worker
