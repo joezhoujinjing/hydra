@@ -13,11 +13,13 @@ program
   .description('CLI for managing Hydra copilots and workers')
   .version(pkg.version)
   .option('--json', 'Output results as JSON')
-  .option('--quiet', 'Suppress non-essential output');
+  .option('--quiet', 'Suppress non-essential output')
+  .option('--no-interactive', 'Disable interactive prompts (fail with error instead)');
 
-// Auto-enable --json when stdout is not a TTY (piped output)
+// Auto-enable --json and --no-interactive when stdout is not a TTY (piped output)
 if (!process.stdout.isTTY) {
   program.setOptionValue('json', true);
+  program.setOptionValue('interactive', false);
 }
 
 registerListCommand(program);

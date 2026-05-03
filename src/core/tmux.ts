@@ -164,6 +164,17 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
     await exec(`tmux send-keys -t ${shellQuote(sessionName)} ${shellQuote(keys)} Enter`);
   }
 
+  async capturePane(sessionName: string, lines?: number): Promise<string> {
+    const startArg = lines ? `-S -${lines}` : '';
+    return exec(`tmux capture-pane -t ${shellQuote(sessionName)} -p ${startArg}`.trim());
+  }
+
+  async sendMessage(sessionName: string, message: string): Promise<void> {
+    await exec(`tmux send-keys -t ${shellQuote(sessionName)} ${shellQuote(message)} Enter`);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    await exec(`tmux send-keys -t ${shellQuote(sessionName)} Enter`);
+  }
+
   async getSessionInfo(sessionName: string): Promise<SessionStatusInfo> {
     try {
       const output = await exec(`tmux display-message -p -t ${shellQuote(sessionName)} '#{session_attached}|||#{session_activity}'`);

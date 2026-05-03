@@ -57,13 +57,13 @@ The user says something like:
 
 ```bash
 # List running workers
-hydra list
+hydra list --json
 
 # Read last 20 lines of a worker's terminal
-tmux capture-pane -t <session_name> -p | tail -20
+hydra worker logs <session> --lines 20
 
 # Read deeper scrollback
-tmux capture-pane -t <session_name> -p -S -200 | tail -200
+hydra worker logs <session> --lines 200
 ```
 
 ### Reviewing changes
@@ -79,10 +79,12 @@ git -C <worktree_path> log --oneline <base_branch>..HEAD
 ### Sending follow-up instructions
 
 ```bash
-tmux send-keys -t <session_name> "<message>" Enter Enter
-```
+# Send to a single worker
+hydra worker send <session> "<message>"
 
-Double Enter: first submits the text, second confirms to the agent.
+# Broadcast to all running workers
+hydra worker send --all "<message>"
+```
 
 ### Creating PRs from worker branches
 
@@ -108,6 +110,9 @@ When the user asks to clean up, delete, or remove workers:
 ### Other commands
 
 - `hydra list` — List all copilots and workers
+- `hydra worker logs <session> [--lines N]` — Read worker terminal output (default: 50 lines)
+- `hydra worker send <session> <message>` — Send a message to a worker (reliable double-Enter)
+- `hydra worker send --all <message>` — Broadcast to all running workers
 - `hydra worker stop <session>` — Stop a worker (kill tmux session, keep worktree)
 - `hydra worker start <session>` — Start a stopped worker
 - `hydra worker delete <session>` — Delete a worker (kill session + remove worktree + delete branch)
@@ -118,9 +123,9 @@ When acting as a **copilot** (orchestrating multiple workers), follow this workf
 
 1. **Plan** — Break the task into parallelizable units of work
 2. **Delegate** — Spawn a worker per unit via `hydra worker create`
-3. **Monitor** — Poll worker terminals for progress via `tmux capture-pane`
+3. **Monitor** — Poll worker terminals via `hydra worker logs <session>`
 4. **Review** — Read diffs in worker worktrees, check quality
-5. **Iterate** — Send corrections or follow-ups via `tmux send-keys`
+5. **Iterate** — Send corrections via `hydra worker send <session> "<message>"`
 6. **Ship** — Push and create PRs for approved branches
 
 **Rules:**

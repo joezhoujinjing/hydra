@@ -151,4 +151,84 @@ export function registerWorkerCommands(program: Command): void {
         outputError(error, globalOpts);
       }
     });
+
+  worker
+    .command('logs <session>')
+    .description('Read worker terminal output')
+    .option('--lines <n>', 'Number of lines to capture', '50')
+    .action(async (sessionName: string, opts: { lines: string }) => {
+      const globalOpts = program.opts() as OutputOpts;
+      try {
+        const lines = parseInt(opts.lines, 10);
+        if (isNaN(lines) || lines <= 0) {
+          throw new Error('Invalid --lines value: must be a positive integer');
+        }
+
+        const backend = new TmuxBackendCore();
+        const output = await backend.capturePane(sessionName, lines);
+
+        outputResult(
+          { session: sessionName, lines, output },
+          globalOpts,
+          () => process.stdout.write(output),
+        );
+      } catch (error) {
+        outputError(error, globalOpts);
+      }
+    });
+
+  worker
+    .command('send <session> <message>')
+    .description('Send a message to a worker')
+    .option('--all', 'Broadcast to all running workers (session arg is the message)')
+    .action(async (sessionOrMessage: string, messageOrUndefined: string, opts: { all?: boolean }) => {
+      const globalOpts = program.opts() as OutputOpts;
+      try {
+        const backend = new TmuxBackendCore();
+
+        if (opts.all) {
+          // When --all, first positional is the message, second is undefined/empty
+          const message = sessionOrMessage;
+          const sm = new SessionManager(backend);
+          const state = await sm.sync();
+          const running = Object.values(state.workers).filter(w => w.status === 'running');
+
+          if (running.length === 0) {
+            throw new Error('No running workers found');
+          }
+
+          const sent: string[] = [];
+          for (const worker of running) {
+            await backend.sendMessage(worker.sessionName, message);
+            sent.push(worker.sessionName);
+          }
+
+          outputResult(
+            { status: 'sent', sessions: sent, message },
+            globalOpts,
+            () => {
+              const truncated = message.length > 60 ? message.substring(0, 60) + '...' : message;
+              for (const s of sent) {
+                console.log(`Sent to ${s}: ${truncated}`);
+              }
+            },
+          );
+        } else {
+          const session = sessionOrMessage;
+          const message = messageOrUndefined;
+          await backend.sendMessage(session, message);
+
+          outputResult(
+            { status: 'sent', session, message },
+            globalOpts,
+            () => {
+              const truncated = message.length > 60 ? message.substring(0, 60) + '...' : message;
+              console.log(`Sent to ${session}: ${truncated}`);
+            },
+          );
+        }
+      } catch (error) {
+        outputError(error, globalOpts);
+      }
+    });
 }

@@ -126,7 +126,7 @@ function silentInstallCli(context: vscode.ExtensionContext): void {
     if (result.installed && !isCliOnPath()) {
       const snippet = getShellConfigSnippet();
       vscode.window.showInformationMessage(
-        `Hydra CLI installed. Add to PATH: \`${snippet}\``,
+        `Hydra CLI installed at ~/.hydra/bin/hydra. Add to your shell profile: \`${snippet}\` — then run \`hydra list --json\` to verify. See AGENTS.md for the full CLI reference.`,
         'Copy to Clipboard',
         'Dismiss'
       ).then(choice => {
@@ -147,10 +147,12 @@ function setupCli(context: vscode.ExtensionContext): void {
     installCli(context.extensionPath, version);
     const snippet = getShellConfigSnippet();
     if (isCliOnPath()) {
-      vscode.window.showInformationMessage('Hydra CLI is installed and on PATH.');
+      vscode.window.showInformationMessage(
+        'Hydra CLI is installed and on PATH. Run `hydra list --json` to verify.'
+      );
     } else {
       vscode.window.showInformationMessage(
-        `Hydra CLI installed at ~/.hydra/bin/hydra. Add to PATH: \`${snippet}\``,
+        `Hydra CLI installed at ~/.hydra/bin/hydra. Add to your shell profile: \`${snippet}\` — then run \`hydra list --json\` to verify.`,
         'Copy to Clipboard'
       ).then(choice => {
         if (choice === 'Copy to Clipboard') {
