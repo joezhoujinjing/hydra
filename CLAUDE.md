@@ -23,7 +23,6 @@ After changes, always run `npm run compile` to verify the build succeeds before 
 │   ├── core/               # Agent config, worker lifecycle
 │   ├── resources/          # Agent instruction templates
 │   └── utils/              # tmux, git, session utilities
-├── cli/                    # CLI tool (Go, legacy TUI)
 ├── out/                    # Compiled output
 ├── skills/                 # Hydra skill definition
 └── resources/              # Icons and assets

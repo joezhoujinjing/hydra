@@ -25,8 +25,6 @@ views-ux.md
 vscode-api.template
 vscode.d.ts
 vscode.proposed.*.d.ts
-cli/twt
-cli/tmux-worktree-tui
 
 .sisyphus/
 .hydra
