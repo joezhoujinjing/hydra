@@ -1,11 +1,32 @@
 import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
+import { SessionManager } from '../../core/sessionManager';
 import { outputResult, outputError, type OutputOpts } from '../output';
 
 export function registerCopilotCommands(program: Command): void {
   const copilot = program
     .command('copilot')
     .description('Manage Hydra copilots');
+
+  copilot
+    .command('rename <session> <new-name>')
+    .description('Rename a copilot session')
+    .action(async (sessionName: string, newName: string) => {
+      const globalOpts = program.opts() as OutputOpts;
+      try {
+        const backend = new TmuxBackendCore();
+        const sm = new SessionManager(backend);
+        const copilot = await sm.renameCopilot(sessionName, newName);
+
+        outputResult(
+          { status: 'renamed', oldSession: sessionName, newSession: copilot.sessionName },
+          globalOpts,
+          () => console.log(`Renamed copilot: ${sessionName} -> ${copilot.sessionName}`),
+        );
+      } catch (error) {
+        outputError(error, globalOpts);
+      }
+    });
 
   copilot
     .command('logs <session>')

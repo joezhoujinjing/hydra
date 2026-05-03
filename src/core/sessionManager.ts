@@ -400,6 +400,143 @@ export class SessionManager {
     return copilotInfo;
   }
 
+  async renameWorker(oldSessionName: string, newBranchName: string): Promise<WorkerInfo> {
+    const state = this.readSessionState();
+    const worker = state.workers[oldSessionName];
+    if (!worker) {
+      throw new Error(`Worker "${oldSessionName}" not found`);
+    }
+
+    if (!worker.repoRoot) {
+      throw new Error(`Worker "${oldSessionName}" has no associated repository`);
+    }
+
+    // Validate new branch name
+    const validationError = coreGit.validateBranchName(newBranchName);
+    if (validationError) {
+      throw new Error(validationError);
+    }
+
+    // Derive new slug, session name, worktree path
+    const repoSessionNamespace = coreGit.getRepoSessionNamespace(worker.repoRoot, this.backend);
+    const newSlug = coreGit.branchNameToSlug(newBranchName, this.backend);
+    const newSessionName = this.backend.buildSessionName(repoSessionNamespace, newSlug);
+    const worktreesDir = coreGit.getManagedRepoWorktreesDir(worker.repoRoot);
+    const newWorktreePath = path.join(worktreesDir, newSlug);
+
+    // Check conflicts
+    if (newSessionName !== oldSessionName && (state.workers[newSessionName] || state.copilots[newSessionName])) {
+      throw new Error(`Session "${newSessionName}" already exists`);
+    }
+    if (await coreGit.localBranchExists(worker.repoRoot, newBranchName)) {
+      throw new Error(`Branch "${newBranchName}" already exists`);
+    }
+
+    // 1. Rename git branch
+    if (worker.branch) {
+      await exec(
+        `git branch -m ${shellQuote(worker.branch)} ${shellQuote(newBranchName)}`,
+        { cwd: worker.repoRoot },
+      );
+
+      // Update vscode-merge-base config
+      try {
+        const baseBranch = await exec(
+          `git config ${shellQuote(`branch.${worker.branch}.vscode-merge-base`)}`,
+          { cwd: worker.repoRoot },
+        );
+        if (baseBranch.trim()) {
+          await exec(
+            `git config ${shellQuote(`branch.${newBranchName}.vscode-merge-base`)} ${shellQuote(baseBranch.trim())}`,
+            { cwd: worker.repoRoot },
+          );
+        }
+      } catch {
+        // No vscode-merge-base config — skip
+      }
+      try {
+        await exec(
+          `git config --unset ${shellQuote(`branch.${worker.branch}.vscode-merge-base`)}`,
+          { cwd: worker.repoRoot },
+        );
+      } catch {
+        // Already absent — skip
+      }
+    }
+
+    // 2. Move worktree directory (if it's a managed worktree and slug changed)
+    if (worker.workdir && newSlug !== worker.slug && fs.existsSync(worker.workdir)) {
+      await exec(
+        `git worktree move ${shellQuote(worker.workdir)} ${shellQuote(newWorktreePath)}`,
+        { cwd: worker.repoRoot },
+      );
+    }
+
+    // 3. Rename tmux session (if running and name changed)
+    if (newSessionName !== oldSessionName) {
+      const hasLive = await this.backend.hasSession(oldSessionName);
+      if (hasLive) {
+        await this.backend.renameSession(oldSessionName, newSessionName);
+
+        // Update @workdir metadata if worktree moved
+        if (newSlug !== worker.slug) {
+          await this.backend.setSessionWorkdir(newSessionName, newWorktreePath);
+        }
+      }
+    }
+
+    // 4. Update sessions.json
+    const worktreeMoved = newSlug !== worker.slug && fs.existsSync(newWorktreePath);
+    delete state.workers[oldSessionName];
+    worker.sessionName = newSessionName;
+    worker.tmuxSession = newSessionName;
+    worker.branch = newBranchName;
+    worker.slug = newSlug;
+    if (worktreeMoved) {
+      worker.workdir = newWorktreePath;
+    }
+    state.workers[newSessionName] = worker;
+    state.updatedAt = new Date().toISOString();
+    this.writeSessionState(state);
+
+    return worker;
+  }
+
+  async renameCopilot(oldSessionName: string, newSessionName: string): Promise<CopilotInfo> {
+    const state = this.readSessionState();
+    const copilot = state.copilots[oldSessionName];
+    if (!copilot) {
+      throw new Error(`Copilot "${oldSessionName}" not found`);
+    }
+
+    // Validate new name
+    const sanitized = this.backend.sanitizeSessionName(newSessionName);
+    if (!sanitized) {
+      throw new Error('New session name is invalid');
+    }
+
+    // Check conflict
+    if (state.copilots[newSessionName] || state.workers[newSessionName]) {
+      throw new Error(`Session "${newSessionName}" already exists`);
+    }
+
+    // Rename live tmux session (copilots are always running)
+    const hasLive = await this.backend.hasSession(oldSessionName);
+    if (hasLive) {
+      await this.backend.renameSession(oldSessionName, newSessionName);
+    }
+
+    // Update sessions.json
+    delete state.copilots[oldSessionName];
+    copilot.sessionName = newSessionName;
+    copilot.tmuxSession = newSessionName;
+    state.copilots[newSessionName] = copilot;
+    state.updatedAt = new Date().toISOString();
+    this.writeSessionState(state);
+
+    return copilot;
+  }
+
   async deleteCopilot(sessionName: string): Promise<void> {
     try {
       await this.backend.killSession(sessionName);
