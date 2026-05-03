@@ -170,8 +170,10 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
   }
 
   async sendMessage(sessionName: string, message: string): Promise<void> {
-    await exec(`tmux send-keys -t ${shellQuote(sessionName)} ${shellQuote(message)} Enter`);
+    // Send message text literally (without Enter) to avoid it being absorbed in bracketed paste
+    await exec(`tmux send-keys -l -t ${shellQuote(sessionName)} ${shellQuote(message)}`);
     await new Promise(resolve => setTimeout(resolve, 100));
+    // Send Enter separately to submit
     await exec(`tmux send-keys -t ${shellQuote(sessionName)} Enter`);
   }
 
