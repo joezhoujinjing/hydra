@@ -11,7 +11,14 @@ const program = new Command();
 program
   .name('hydra')
   .description('CLI for managing Hydra copilots and workers')
-  .version(pkg.version);
+  .version(pkg.version)
+  .option('--json', 'Output results as JSON')
+  .option('--quiet', 'Suppress non-essential output');
+
+// Auto-enable --json when stdout is not a TTY (piped output)
+if (!process.stdout.isTTY) {
+  program.setOptionValue('json', true);
+}
 
 registerListCommand(program);
 registerWorkerCommands(program);
