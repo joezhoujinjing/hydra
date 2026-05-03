@@ -19,6 +19,7 @@ To test the extension in a VS Code Extension Development Host:
 ```bash
 cd <worktree-or-repo-path>
 npm run compile
+mkdir -p /tmp/hydra-test
 code --extensionDevelopmentPath="$(pwd)" /tmp/hydra-test
 ```
 
