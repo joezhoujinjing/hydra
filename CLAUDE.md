@@ -23,7 +23,6 @@ mkdir -p /tmp/hydra-test
 code --extensionDevelopmentPath="$(pwd)" /tmp/hydra-test
 ```
 
-The Extension Development Host window loads your local dev build. Confirm by checking for **"[Extension Development Host]"** in the title bar. The `/tmp/hydra-test` workspace provides an isolated environment to avoid interference from existing sessions.
 
 ## Project Structure
 
