@@ -17,14 +17,12 @@ After changes, always run `npm run compile` to verify the build succeeds before 
 To test the extension in a VS Code Extension Development Host:
 
 ```bash
-# Option A: Launch directly from terminal (recommended — no extra VS Code window needed)
-code --extensionDevelopmentPath=<worktree-or-repo-path>
-
-# Option B: Open the worktree in VS Code, then press F5 (uses .vscode/launch.json)
-code <worktree-or-repo-path>
+cd <worktree-or-repo-path>
+npm run compile
+code --extensionDevelopmentPath="$(pwd)" /tmp/hydra-test
 ```
 
-The Extension Development Host window loads your local dev build. Confirm by checking for **"[Extension Development Host]"** in the title bar.
+The Extension Development Host window loads your local dev build. Confirm by checking for **"[Extension Development Host]"** in the title bar. The `/tmp/hydra-test` workspace provides an isolated environment to avoid interference from existing sessions.
 
 ## Project Structure
 
