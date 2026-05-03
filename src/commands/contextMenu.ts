@@ -9,7 +9,8 @@ import {
   GitStatusItem,
   CopilotItem,
 } from '../providers/tmuxSessionProvider';
-import { getActiveBackend } from '../utils/multiplexer';
+import { getActiveBackend, HydraRole } from '../utils/multiplexer';
+import { getHydraEditorLocation } from '../utils/hydraEditorGroup';
 
 function getWorktreePath(item: TmuxItem): string | undefined {
   if (item instanceof CopilotItem) return item.worktreePath;
@@ -19,6 +20,12 @@ function getWorktreePath(item: TmuxItem): string | undefined {
   if (item instanceof InactiveDetailItem) return item.worktree?.path;
   if (item instanceof WorktreeItem) return item.worktreePath;
   if (item instanceof GitStatusItem) return item.worktreePath;
+  return undefined;
+}
+
+function getRoleFromItem(item: TmuxItem): HydraRole | undefined {
+  if (item instanceof CopilotItem) return 'copilot';
+  if (item instanceof TmuxSessionItem) return item.session.hydraRole;
   return undefined;
 }
 
@@ -52,7 +59,8 @@ export async function attach(item: TmuxItem): Promise<void> {
     await ensureSessionExists(item.sessionName, worktreePath);
 
     const workdir = worktreePath || await backend.getSessionWorkdir(item.sessionName);
-    backend.attachSession(item.sessionName, workdir, vscode.TerminalLocation.Panel);
+    const role = getRoleFromItem(item);
+    backend.attachSession(item.sessionName, workdir, vscode.TerminalLocation.Panel, role);
   } catch (err) {
     vscode.window.showErrorMessage(`Failed to attach: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -74,7 +82,8 @@ export async function attachInEditor(item: TmuxItem): Promise<void> {
     await ensureSessionExists(item.sessionName, worktreePath);
 
     const workdir = worktreePath || await backend.getSessionWorkdir(item.sessionName);
-    backend.attachSession(item.sessionName, workdir, vscode.TerminalLocation.Editor);
+    const role = getRoleFromItem(item);
+    backend.attachSession(item.sessionName, workdir, getHydraEditorLocation(role), role);
   } catch (err) {
     vscode.window.showErrorMessage(`Failed to attach: ${err instanceof Error ? err.message : String(err)}`);
   }

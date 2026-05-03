@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { getRepoRoot } from '../utils/git';
 import { getActiveBackend } from '../utils/multiplexer';
-import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem, CopilotItem } from '../providers/tmuxSessionProvider';
+import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem } from '../providers/tmuxSessionProvider';
 import { createRepoSessionPrefixConfig, isWorkdirInRepo } from '../utils/sessionCompatibility';
 
 async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
@@ -37,7 +37,8 @@ async function handleTreeViewItem(item: TmuxItem): Promise<void> {
 
     if (exists) {
         const workdir = await backend.getSessionWorkdir(sessionName);
-        backend.attachSession(sessionName, workdir);
+        const role = await backend.getSessionRole(sessionName);
+        backend.attachSession(sessionName, workdir, undefined, role);
         return;
     }
 
@@ -78,7 +79,8 @@ async function handleCommandExecution(): Promise<void> {
     if (matchingSessions.length > 0) {
         for (const session of matchingSessions) {
             const workdir = await backend.getSessionWorkdir(session);
-            backend.attachSession(session, workdir);
+            const role = await backend.getSessionRole(session);
+            backend.attachSession(session, workdir, undefined, role);
         }
         vscode.window.showInformationMessage(`Attached to ${matchingSessions.length} session(s)`);
     } else {

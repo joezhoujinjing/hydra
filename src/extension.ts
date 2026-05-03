@@ -96,8 +96,12 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.window.onDidOpenTerminal(() => refreshAll()),
-    vscode.window.onDidCloseTerminal(() => refreshAll()),
+    vscode.window.onDidOpenTerminal(() => {
+      refreshAll();
+    }),
+    vscode.window.onDidCloseTerminal(() => {
+      refreshAll();
+    }),
     vscode.window.onDidChangeWindowState((e) => {
         if (e.focused) refreshAll();
     })

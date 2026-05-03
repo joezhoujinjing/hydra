@@ -50,7 +50,7 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
   for (const session of sessions) {
     if (session.name === sessionName) {
       const workdir = await backend.getSessionWorkdir(session.name);
-      backend.attachSession(session.name, workdir);
+      backend.attachSession(session.name, workdir, undefined, 'copilot');
       return;
     }
   }
@@ -71,7 +71,7 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
     // Send onboarding prompt after agent boots
     sendCopilotOnboarding(backend, sessionName);
 
-    backend.attachSession(sessionName, cwd);
+    backend.attachSession(sessionName, cwd, undefined, 'copilot');
 
     vscode.window.showInformationMessage(`Copilot created: ${sessionName} (${agentType})`);
     vscode.commands.executeCommand('tmux.refresh');
@@ -114,7 +114,7 @@ export async function createCopilot(): Promise<void> {
       );
       if (action === 'Attach') {
         const workdir = await backend.getSessionWorkdir(session.name);
-        backend.attachSession(session.name, workdir);
+        backend.attachSession(session.name, workdir, undefined, 'copilot');
       }
       return;
     }
@@ -141,7 +141,7 @@ export async function createCopilot(): Promise<void> {
     sendCopilotOnboarding(backend, sessionName);
 
     // Attach
-    backend.attachSession(sessionName, cwd);
+    backend.attachSession(sessionName, cwd, undefined, 'copilot');
 
     vscode.window.showInformationMessage(`Copilot created: ${sessionName} (${agentType})`);
     vscode.commands.executeCommand('tmux.refresh');
