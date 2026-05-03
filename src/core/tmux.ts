@@ -97,6 +97,10 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
     await exec(`tmux kill-session -t ${shellQuote(sessionName)}`);
   }
 
+  async renameSession(oldName: string, newName: string): Promise<void> {
+    await exec(`tmux rename-session -t ${shellQuote(oldName)} ${shellQuote(newName)}`);
+  }
+
   async hasSession(sessionName: string): Promise<boolean> {
     try {
       await exec(`tmux has-session -t ${shellQuote(sessionName)}`);
