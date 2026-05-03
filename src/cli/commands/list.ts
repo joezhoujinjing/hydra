@@ -18,13 +18,17 @@ export function registerListCommand(program: Command): void {
           return;
         }
 
-        // Pretty-print copilots
-        const copilots = Object.values(state.copilots);
+        // Legend
+        console.log('\n  \x1b[32m●\x1b[0m Running  ○ Stopped');
+
+        // Pretty-print copilots (sorted alphabetically by name for stability)
+        const copilots = Object.values(state.copilots)
+          .sort((a, b) => (a.sessionName || a.tmuxSession).localeCompare(b.sessionName || b.tmuxSession));
         if (copilots.length > 0) {
           console.log('\nCopilots:');
           console.log('─'.repeat(60));
           for (const c of copilots) {
-            const statusIcon = c.status === 'running' ? '●' : '○';
+            const statusIcon = c.status === 'running' ? '\x1b[32m●\x1b[0m' : '○';
             const attached = c.attached ? ' (attached)' : '';
             const name = c.sessionName || c.tmuxSession;
             console.log(`  ${statusIcon} ${name}  [${c.agent}]${attached}`);
@@ -34,7 +38,7 @@ export function registerListCommand(program: Command): void {
           console.log('\nNo copilots running.');
         }
 
-        // Pretty-print workers
+        // Pretty-print workers (sorted alphabetically by name within each repo group)
         const workers = Object.values(state.workers);
         if (workers.length > 0) {
           console.log('\nWorkers:');
@@ -49,10 +53,14 @@ export function registerListCommand(program: Command): void {
             byRepo.set(key, group);
           }
 
-          for (const [repo, repoWorkers] of byRepo) {
+          // Sort repo groups alphabetically, sort workers within each group by name
+          const sortedRepos = [...byRepo.keys()].sort((a, b) => a.localeCompare(b));
+          for (const repo of sortedRepos) {
+            const repoWorkers = byRepo.get(repo)!
+              .sort((a, b) => (a.sessionName || a.tmuxSession).localeCompare(b.sessionName || b.tmuxSession));
             console.log(`  ${repo}:`);
             for (const w of repoWorkers) {
-              const statusIcon = w.status === 'running' ? '●' : '○';
+              const statusIcon = w.status === 'running' ? '\x1b[32m●\x1b[0m' : '○';
               const attached = w.attached ? ' (attached)' : '';
               const branch = w.branch ? ` (${w.branch})` : '';
               const name = w.sessionName || w.tmuxSession;
