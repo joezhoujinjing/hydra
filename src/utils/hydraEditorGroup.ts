@@ -38,6 +38,13 @@ export function getHydraEditorLocation(role?: HydraRole): vscode.TerminalEditorL
   return { viewColumn: existing ?? vscode.ViewColumn.Beside, preserveFocus: false };
 }
 
+const MAX_SHORT_NAME_LENGTH = 20;
+
+function truncateShortName(name: string): string {
+  if (name.length <= MAX_SHORT_NAME_LENGTH) return name;
+  return name.slice(0, MAX_SHORT_NAME_LENGTH - 1) + '\u2026';
+}
+
 /**
  * Build a terminal name with a Hydra prefix based on role.
  * Returns a plain shortName when no role is specified.
@@ -45,10 +52,10 @@ export function getHydraEditorLocation(role?: HydraRole): vscode.TerminalEditorL
 export function buildHydraTerminalName(shortName: string, role?: HydraRole): string {
   if (role === 'copilot') {
     const agentName = shortName.replace(/^hydra-copilot-/, '');
-    return `${HYDRA_PREFIX_COPILOT} ${agentName}`;
+    return `${HYDRA_PREFIX_COPILOT} ${truncateShortName(agentName)}`;
   }
-  if (role === 'worker') return `${HYDRA_PREFIX_WORKER} ${shortName}`;
-  return shortName;
+  if (role === 'worker') return `${HYDRA_PREFIX_WORKER} ${truncateShortName(shortName)}`;
+  return truncateShortName(shortName);
 }
 
 /**

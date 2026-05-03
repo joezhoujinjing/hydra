@@ -14,11 +14,12 @@ function getShortName(sessionName: string): string {
 
 function findTerminalBySession(sessionName: string): vscode.Terminal | undefined {
   const shortName = getShortName(sessionName);
-  const candidateNames = [
+  const candidateNames = new Set([
     buildHydraTerminalName(shortName, 'copilot'),
     buildHydraTerminalName(shortName, 'worker'),
-  ];
-  return vscode.window.terminals.find(t => candidateNames.includes(t.name));
+    shortName, // legacy: no prefix, no truncation
+  ]);
+  return vscode.window.terminals.find(t => candidateNames.has(t.name));
 }
 
 export class TmuxBackend extends TmuxBackendCore implements MultiplexerBackend {

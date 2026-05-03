@@ -72,9 +72,10 @@ export async function newTask(): Promise<void> {
     const sessionName = backend.buildSessionName(repoSessionNamespace, finalSlug);
     await backend.createSession(sessionName, worktreePath);
     await backend.setSessionWorkdir(sessionName, worktreePath);
+    await backend.setSessionRole(sessionName, 'worker');
 
     // 7. attach
-    backend.attachSession(sessionName, worktreePath);
+    backend.attachSession(sessionName, worktreePath, undefined, 'worker');
 
     // 8. Success message
     vscode.window.showInformationMessage(`Created task: ${branchName}`);
