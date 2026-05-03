@@ -30,15 +30,35 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          assignee_trigger: 'claude'
-          claude_args: '--model claude-opus-4-6[1m] --dangerously-skip-permissions'
+
           additional_permissions: |
             actions: read
             contents: write
-            pull-requests: write
+            pull_requests: write
             issues: write
+
+          claude_args: >-
+            --model claude-opus-4-6
+            --allowedTools
+            "Bash(npm install)"
+            "Bash(npm run compile)"
+            "Bash(npm run lint)"
+            "Bash(gh pr:*)"
+            "Bash(gh issue:*)"
+            "Bash(git:*)"
+            "Bash(curl:*)"
+            --system-prompt
+            "When you make code changes, always create a pull request with a clear summary. After changes, run npm run compile to verify the build. Follow the project conventions in CLAUDE.md."
