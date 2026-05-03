@@ -52,13 +52,6 @@ jobs:
 
           claude_args: >-
             --model claude-opus-4-6[1m]
-            --allowedTools
-            "Bash(npm install)"
-            "Bash(npm run compile)"
-            "Bash(npm run lint)"
-            "Bash(gh pr:*)"
-            "Bash(gh issue:*)"
-            "Bash(git:*)"
-            "Bash(curl:*)"
+            --dangerously-skip-permissions
             --system-prompt
             "When you make code changes, always create a pull request with a clear summary. After changes, run npm run compile to verify the build. Follow the project conventions in CLAUDE.md."
