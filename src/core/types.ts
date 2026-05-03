@@ -1,4 +1,4 @@
-export type MultiplexerType = 'tmux' | 'zellij';
+export type MultiplexerType = 'tmux';
 export type HydraRole = 'copilot' | 'worker';
 export type AgentType = 'claude' | 'codex' | 'gemini' | 'custom';
 
