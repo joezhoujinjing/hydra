@@ -212,11 +212,10 @@
         "tmuxWorktree.multiplexer": {
           "type": "string",
           "enum": [
-            "tmux",
-            "zellij"
+            "tmux"
           ],
           "default": "tmux",
-          "markdownDescription": "Terminal multiplexer backend to use (`tmux` or `zellij`). Changes apply immediately."
+          "markdownDescription": "Terminal multiplexer backend (`tmux`)."
         },
         "tmuxWorktree.baseBranch": {
           "type": "string",

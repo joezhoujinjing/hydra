@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { CopilotProvider, WorkerProvider } from './providers/tmuxSessionProvider';
-import { getActiveBackend, refreshBackendFromConfig, getConfiguredMultiplexerType, MultiplexerType } from './utils/multiplexer';
+import { getActiveBackend, refreshBackendFromConfig } from './utils/multiplexer';
 import { attachCreate } from './commands/attachCreate';
 // newTask is now an alias for createWorker
 import { removeTask } from './commands/removeTask';
@@ -55,23 +55,8 @@ export function activate(context: vscode.ExtensionContext) {
         workerProvider.refresh();
       }
     }),
-    vscode.commands.registerCommand('tmux.switchBackend', async () => {
-      const current = getConfiguredMultiplexerType();
-      const options: { label: string; value: MultiplexerType }[] = [
-        { label: 'tmux', value: 'tmux' },
-        { label: 'Zellij', value: 'zellij' },
-      ];
-      const picked = await vscode.window.showQuickPick(
-        options.map(o => ({
-          label: o.label,
-          description: o.value === current ? '(current)' : '',
-          value: o.value,
-        })),
-        { placeHolder: `Current: ${current}` }
-      );
-      if (!picked || (picked as { value: MultiplexerType }).value === current) return;
-      await vscode.workspace.getConfiguration('tmuxWorktree')
-        .update('multiplexer', (picked as { value: MultiplexerType }).value, vscode.ConfigurationTarget.Global);
+    vscode.commands.registerCommand('tmux.switchBackend', () => {
+      vscode.window.showInformationMessage('Only tmux backend is supported.');
     }),
     vscode.commands.registerCommand('tmux.attach', attach),
     vscode.commands.registerCommand('tmux.attachInEditor', attachInEditor),

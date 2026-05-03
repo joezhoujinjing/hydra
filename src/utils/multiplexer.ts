@@ -32,10 +32,8 @@ export function refreshBackendFromConfig(): void {
 
 /**
  * Read the user's multiplexer preference from VS Code settings.
- * Falls back to 'tmux' when no preference is set.
+ * Currently only 'tmux' is supported.
  */
-export function getConfiguredMultiplexerType(): 'tmux' | 'zellij' {
-  return vscode.workspace
-    .getConfiguration('tmuxWorktree')
-    .get<'tmux' | 'zellij'>('multiplexer', 'tmux');
+export function getConfiguredMultiplexerType(): 'tmux' {
+  return 'tmux';
 }
