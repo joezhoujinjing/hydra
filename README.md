@@ -24,7 +24,7 @@ Your Project
 └── feat/api-tests  → Worker (Claude) — writing integration tests
 ```
 
-Every session persists in tmux (or Zellij). Close VS Code, SSH from your phone, come back tomorrow — your agents are still running.
+Every session persists in tmux. Close VS Code, SSH from your phone, come back tomorrow — your agents are still running.
 
 ## Hero Use Case: The Parity Port
 
@@ -59,7 +59,7 @@ A persistent AI agent session in your current workspace. The Copilot acts as you
 
 - One per workspace — runs on your current branch
 - No worktree needed — it works in your existing directory
-- Survives VS Code restarts via tmux/Zellij
+- Survives VS Code restarts via tmux
 - Can spawn and manage Workers via the [Hydra CLI](#cli-tool-hydra)
 
 ### The Army: Workers
@@ -92,7 +92,7 @@ Disposable AI agents that each get their own git branch, worktree, and terminal 
 └─────────────────────────────────────────────────┘
          │                      │
          ▼                      ▼
-   Live status:           tmux/Zellij sessions
+   Live status:           tmux sessions
    pane count,            persist independently
    CPU, git diff          of VS Code
 ```
@@ -147,7 +147,7 @@ The Hydra panel is your command center — see every agent's status at a glance:
 - **Attach in Editor** — embed a session as an editor tab
 - **Auto-attach** — automatically reconnect when opening a worktree folder
 - **Size-stable attach** — syncs PTY size before attaching to avoid 80x24 first-paint issues
-- **Prompt-stable attach** — strips VS Code shell-integration env vars to prevent rendering corruption inside tmux/Zellij
+- **Prompt-stable attach** — strips VS Code shell-integration env vars to prevent rendering corruption inside tmux
 
 ### Smart Paste (Image-Aware)
 
@@ -156,10 +156,6 @@ The Hydra panel is your command center — see every agent's status at a glance:
 - Image in clipboard → saves as temp `.png` and inserts the file path
 
 Works over Remote-SSH too — clipboard images are bridged from local to remote.
-
-### Dual Backend: tmux + Zellij
-
-Switch between tmux and Zellij from the panel header. Both backends support the same features: session creation, metadata storage, pane management, and agent lifecycle.
 
 ### Session Management
 
@@ -233,12 +229,12 @@ tmux attach -t myapp-a1b2c3d4_feat-oauth
 | `hydra.defaultAgent` | `claude` | Default agent for new copilot/worker sessions |
 | `hydra.agentCommands` | `{...}` | Map of agent type → shell command |
 | `hydra.baseBranch` | auto-detect | Override base branch for new workers |
-| `tmuxWorktree.multiplexer` | `tmux` | Backend: `tmux` or `zellij` |
+| `tmuxWorktree.multiplexer` | `tmux` | Backend: `tmux` |
 | `tmuxWorktree.baseBranch` | auto-detect | Override base branch (legacy) |
 
 ## Requirements
 
-- **tmux** (or **Zellij**) — installed and in PATH
+- **tmux** — installed and in PATH
 - **git** — installed and in PATH
 - **VS Code** 1.85.0+
 

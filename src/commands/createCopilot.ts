@@ -5,6 +5,9 @@ import { pickAgentType, getAgentCommand, buildAgentLaunchCommand, AgentType } fr
 
 const ONBOARDING_PROMPT = `You are a Hydra copilot — an AI orchestrator that manages parallel AI workers to complete complex tasks.
 
+## Preflight: verify the hydra CLI
+Before anything else, run \`hydra --version\`. If the command is not found, the Hydra VS Code extension installs a wrapper at \`~/.hydra/bin/hydra\` — add it to PATH for this session with \`export PATH="$HOME/.hydra/bin:$PATH"\` and retry. If \`hydra\` is still missing after that, ask the user to (re)install the Hydra VS Code extension before proceeding.
+
 ## Key commands
 - \`hydra list --json\`                                   — See all copilots and workers
 - \`hydra worker create --repo <path> --branch <name>\`   — Spawn a worker
@@ -47,7 +50,7 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
   for (const session of sessions) {
     if (session.name === sessionName) {
       const workdir = await backend.getSessionWorkdir(session.name);
-      backend.attachSession(session.name, workdir);
+      backend.attachSession(session.name, workdir, undefined, 'copilot');
       return;
     }
   }
@@ -68,7 +71,7 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
     // Send onboarding prompt after agent boots
     sendCopilotOnboarding(backend, sessionName);
 
-    backend.attachSession(sessionName, cwd);
+    backend.attachSession(sessionName, cwd, undefined, 'copilot');
 
     vscode.window.showInformationMessage(`Copilot created: ${sessionName} (${agentType})`);
     vscode.commands.executeCommand('tmux.refresh');
@@ -111,7 +114,7 @@ export async function createCopilot(): Promise<void> {
       );
       if (action === 'Attach') {
         const workdir = await backend.getSessionWorkdir(session.name);
-        backend.attachSession(session.name, workdir);
+        backend.attachSession(session.name, workdir, undefined, 'copilot');
       }
       return;
     }
@@ -138,7 +141,7 @@ export async function createCopilot(): Promise<void> {
     sendCopilotOnboarding(backend, sessionName);
 
     // Attach
-    backend.attachSession(sessionName, cwd);
+    backend.attachSession(sessionName, cwd, undefined, 'copilot');
 
     vscode.window.showInformationMessage(`Copilot created: ${sessionName} (${agentType})`);
     vscode.commands.executeCommand('tmux.refresh');

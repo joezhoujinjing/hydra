@@ -14,6 +14,17 @@ npm run lint          # Run ESLint
 
 After changes, always run `npm run compile` to verify the build succeeds before committing.
 
+### Manual Testing
+
+To test the extension in a VS Code Extension Development Host:
+
+```bash
+cd <worktree-or-repo-path>
+npm run compile
+mkdir -p /tmp/hydra-test
+code --extensionDevelopmentPath="$(pwd)" /tmp/hydra-test
+```
+
 ## Project Structure
 
 ```
@@ -51,7 +62,6 @@ Critical lessons learned — do not change without understanding the full implic
 - **Terminal Creation**: Use `/bin/sh -c 'exec tmux attach ...'` — NOT `shellPath: 'tmux'` (breaks mouse drag/pane resize) or `terminal.sendText` (race condition with other extensions).
 - **Shell Integration**: Set `TERM_PROGRAM`, `VSCODE_SHELL_INTEGRATION`, `VSCODE_INJECTION` to `null` to prevent OSC 633 interference inside tmux.
 - **Environment Pollution**: Scrub `VSCODE_*` and `ELECTRON_RUN_AS_NODE` from tmux server environment before `new-session` and before `attach` — long-lived tmux servers re-poison new panes otherwise.
-- **Zellij**: Same env stripping applies. Strip vars both when spawning commands and when creating the bootstrap terminal.
 - **Clipboard**: Set `set-clipboard on`, `terminal-features ...:clipboard`, `terminal-overrides ...:clipboard` before attach for OSC52 in Remote-SSH. Enable `allow-passthrough on` for agent TUI clipboard support.
 - **Startup Size Race**: Delay initial attach briefly, sync `default-size` from `stty size`, then `resize-window` to avoid 80x24 first-paint. Restore `window-size latest` after forced resize.
 - **Shell Script Assembly**: Join `/bin/sh -c` fragments with newlines, not `; `, to avoid `do;` syntax errors.

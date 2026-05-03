@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { exec } from './exec';
 import { TmuxBackendCore, buildStoredTmuxEnvScrubCommand } from '../core/tmux';
-import { MultiplexerBackend } from './multiplexer';
+import { MultiplexerBackend, HydraRole } from './multiplexer';
+import { getHydraEditorLocation, buildHydraTerminalName, getHydraTerminalIcon, getHydraTerminalColor } from './hydraEditorGroup';
 
 function getShortName(sessionName: string): string {
   const parts = sessionName.split('_');
@@ -11,22 +12,35 @@ function getShortName(sessionName: string): string {
   return sessionName;
 }
 
+function findTerminalBySession(sessionName: string): vscode.Terminal | undefined {
+  const shortName = getShortName(sessionName);
+  const candidateNames = [
+    buildHydraTerminalName(shortName, 'copilot'),
+    buildHydraTerminalName(shortName, 'worker'),
+  ];
+  return vscode.window.terminals.find(t => candidateNames.includes(t.name));
+}
+
 export class TmuxBackend extends TmuxBackendCore implements MultiplexerBackend {
   attachSession(
     sessionName: string,
     cwd?: string,
-    location: vscode.TerminalLocation = vscode.TerminalLocation.Editor
+    location?: vscode.TerminalLocation | vscode.TerminalEditorLocationOptions,
+    role?: HydraRole
   ): vscode.Terminal {
+    const resolvedLocation = location ?? getHydraEditorLocation(role);
     const shortName = getShortName(sessionName);
-    const terminalName = shortName;
+    const terminalName = buildHydraTerminalName(shortName, role);
 
-    const oldName = `tmux: ${sessionName}`;
-    const existing = vscode.window.terminals.find(t => t.name === terminalName || t.name === oldName);
+    const existing = findTerminalBySession(sessionName);
 
     if (existing) {
       void exec(`tmux set-window-option -t "${sessionName}":. window-size latest`).catch(() => {});
       const options = existing.creationOptions as vscode.TerminalOptions;
-      if (options && options.location === location) {
+      // For editor locations, reuse if both are editor-area targets
+      const existingIsEditor = options?.location !== vscode.TerminalLocation.Panel;
+      const requestedIsEditor = resolvedLocation !== vscode.TerminalLocation.Panel;
+      if (options && existingIsEditor === requestedIsEditor) {
         existing.show();
         return existing;
       }
@@ -68,8 +82,9 @@ export class TmuxBackend extends TmuxBackendCore implements MultiplexerBackend {
         'VSCODE_SHELL_INTEGRATION': null,
         'VSCODE_INJECTION': null,
       },
-      location,
-      iconPath: new vscode.ThemeIcon('server')
+      location: resolvedLocation,
+      iconPath: getHydraTerminalIcon(),
+      color: getHydraTerminalColor(role)
     });
     terminal.show();
     return terminal;

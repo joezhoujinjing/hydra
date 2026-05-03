@@ -83,7 +83,7 @@ export async function createWorker(): Promise<void> {
     });
 
     // Attach (vscode-specific) — no need to await postCreatePromise, extension is long-running
-    backend.attachSession(workerInfo.sessionName, workerInfo.workdir);
+    backend.attachSession(workerInfo.sessionName, workerInfo.workdir, undefined, 'worker');
 
     vscode.window.showInformationMessage(`Worker created: ${branchName} (${agentType})`);
     vscode.commands.executeCommand('tmux.refresh');

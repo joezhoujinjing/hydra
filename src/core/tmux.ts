@@ -97,6 +97,10 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
     await exec(`tmux kill-session -t ${shellQuote(sessionName)}`);
   }
 
+  async renameSession(oldName: string, newName: string): Promise<void> {
+    await exec(`tmux rename-session -t ${shellQuote(oldName)} ${shellQuote(newName)}`);
+  }
+
   async hasSession(sessionName: string): Promise<boolean> {
     try {
       await exec(`tmux has-session -t ${shellQuote(sessionName)}`);
@@ -170,8 +174,10 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
   }
 
   async sendMessage(sessionName: string, message: string): Promise<void> {
-    await exec(`tmux send-keys -t ${shellQuote(sessionName)} ${shellQuote(message)} Enter`);
+    // Send message text literally (without Enter) to avoid it being absorbed in bracketed paste
+    await exec(`tmux send-keys -l -t ${shellQuote(sessionName)} ${shellQuote(message)}`);
     await new Promise(resolve => setTimeout(resolve, 100));
+    // Send Enter separately to submit
     await exec(`tmux send-keys -t ${shellQuote(sessionName)} Enter`);
   }
 

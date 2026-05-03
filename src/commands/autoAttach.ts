@@ -46,6 +46,7 @@ export async function autoAttachOnStartup(): Promise<void> {
     if (index > 0) {
       await sleep(ATTACH_STAGGER_MS);
     }
-    backend.attachSession(sessionName);
+    const role = await backend.getSessionRole(sessionName);
+    backend.attachSession(sessionName, undefined, undefined, role);
   }
 }

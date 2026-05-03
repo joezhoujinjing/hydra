@@ -153,6 +153,36 @@ export function registerWorkerCommands(program: Command): void {
     });
 
   worker
+    .command('rename <session> <new-branch>')
+    .description('Rename a worker (branch, worktree, and session)')
+    .action(async (sessionName: string, newBranch: string) => {
+      const globalOpts = program.opts() as OutputOpts;
+      try {
+        const backend = new TmuxBackendCore();
+        const sm = new SessionManager(backend);
+        const worker = await sm.renameWorker(sessionName, newBranch);
+
+        outputResult(
+          {
+            status: 'renamed',
+            oldSession: sessionName,
+            session: worker.sessionName,
+            branch: worker.branch,
+            workdir: worker.workdir,
+          },
+          globalOpts,
+          () => {
+            console.log(`Renamed worker: ${sessionName} -> ${worker.sessionName}`);
+            console.log(`  Branch:   ${worker.branch}`);
+            console.log(`  Workdir:  ${worker.workdir}`);
+          },
+        );
+      } catch (error) {
+        outputError(error, globalOpts);
+      }
+    });
+
+  worker
     .command('logs <session>')
     .description('Read worker terminal output')
     .option('--lines <n>', 'Number of lines to capture', '50')

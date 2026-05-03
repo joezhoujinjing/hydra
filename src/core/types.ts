@@ -1,4 +1,4 @@
-export type MultiplexerType = 'tmux' | 'zellij';
+export type MultiplexerType = 'tmux';
 export type HydraRole = 'copilot' | 'worker';
 export type AgentType = 'claude' | 'codex' | 'gemini' | 'custom';
 
@@ -28,6 +28,7 @@ export interface MultiplexerBackendCore {
   listSessions(): Promise<MultiplexerSession[]>;
   createSession(sessionName: string, cwd: string): Promise<void>;
   killSession(sessionName: string): Promise<void>;
+  renameSession(oldName: string, newName: string): Promise<void>;
   hasSession(sessionName: string): Promise<boolean>;
   getSessionWorkdir(sessionName: string): Promise<string | undefined>;
   setSessionWorkdir(sessionName: string, workdir: string): Promise<void>;

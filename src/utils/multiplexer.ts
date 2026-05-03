@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { createBackendFromConfig } from './backendFactory';
-import { MultiplexerBackendCore } from '../core/types';
+import { MultiplexerBackendCore, HydraRole } from '../core/types';
 
 // ─── Re-export shared types from core ─────────────────────
 export { MultiplexerType, HydraRole, MultiplexerSession, SessionStatusInfo } from '../core/types';
@@ -11,7 +11,8 @@ export interface MultiplexerBackend extends MultiplexerBackendCore {
   attachSession(
     sessionName: string,
     cwd?: string,
-    location?: vscode.TerminalLocation
+    location?: vscode.TerminalLocation | vscode.TerminalEditorLocationOptions,
+    role?: HydraRole
   ): vscode.Terminal;
 }
 
@@ -32,10 +33,8 @@ export function refreshBackendFromConfig(): void {
 
 /**
  * Read the user's multiplexer preference from VS Code settings.
- * Falls back to 'tmux' when no preference is set.
+ * Currently only 'tmux' is supported.
  */
-export function getConfiguredMultiplexerType(): 'tmux' | 'zellij' {
-  return vscode.workspace
-    .getConfiguration('tmuxWorktree')
-    .get<'tmux' | 'zellij'>('multiplexer', 'tmux');
+export function getConfiguredMultiplexerType(): 'tmux' {
+  return 'tmux';
 }
