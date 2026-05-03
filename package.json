@@ -1,7 +1,7 @@
 {
   "name": "hydra-code",
   "displayName": "Hydra Code",
-  "description": "Control panel for managing an army of AI coding agents",
+  "description": "Monitor and orchestrate parallel AI coding agents — see every worker's status, git diff, and terminal output from one sidebar",
   "version": "0.1.8",
   "engines": {
     "vscode": "^1.85.0"
