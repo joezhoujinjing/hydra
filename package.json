@@ -74,6 +74,32 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "hydraCopilots",
+        "contents": "Start a copilot to orchestrate AI workers."
+      },
+      {
+        "view": "hydraCopilots",
+        "contents": "[Start Copilot (Claude)](command:hydra.startCopilotClaude)",
+        "when": "hydra.claudeAvailable"
+      },
+      {
+        "view": "hydraCopilots",
+        "contents": "[Start Copilot (Codex)](command:hydra.startCopilotCodex)",
+        "when": "hydra.codexAvailable"
+      },
+      {
+        "view": "hydraCopilots",
+        "contents": "[Start Copilot (Gemini)](command:hydra.startCopilotGemini)",
+        "when": "hydra.geminiAvailable"
+      },
+      {
+        "view": "hydraCopilots",
+        "contents": "No supported agents found on PATH.\nInstall [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), or [Gemini CLI](https://github.com/google-gemini/gemini-cli).",
+        "when": "hydra.noAgentsAvailable"
+      }
+    ],
     "commands": [
       {
         "command": "tmux.attachCreate",
@@ -157,6 +183,18 @@
         "command": "hydra.setupCli",
         "title": "Hydra: Setup CLI",
         "icon": "$(terminal)"
+      },
+      {
+        "command": "hydra.startCopilotClaude",
+        "title": "Hydra: Start Copilot (Claude)"
+      },
+      {
+        "command": "hydra.startCopilotCodex",
+        "title": "Hydra: Start Copilot (Codex)"
+      },
+      {
+        "command": "hydra.startCopilotGemini",
+        "title": "Hydra: Start Copilot (Gemini)"
       }
     ],
     "keybindings": [

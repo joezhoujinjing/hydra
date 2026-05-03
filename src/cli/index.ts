@@ -4,6 +4,7 @@ import { join } from 'path';
 import { Command } from 'commander';
 import { registerListCommand } from './commands/list';
 import { registerWorkerCommands } from './commands/worker';
+import { registerCopilotCommands } from './commands/copilot';
 
 const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
 
@@ -24,5 +25,6 @@ if (!process.stdout.isTTY) {
 
 registerListCommand(program);
 registerWorkerCommands(program);
+registerCopilotCommands(program);
 
 program.parse();

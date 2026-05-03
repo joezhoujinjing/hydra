@@ -9,11 +9,8 @@ Hydra lets an AI agent orchestrate parallel workers. Each worker is a git worktr
 **Option A — VS Code extension (recommended):**
 1. Install the **Hydra Code** extension from the VS Code Marketplace
 2. The CLI is auto-installed at `~/.hydra/bin/hydra` on first activation
-3. Add to your shell profile (`~/.zshrc`, `~/.bashrc`):
-   ```bash
-   export PATH="$HOME/.hydra/bin:$PATH"
-   ```
-4. Verify: `hydra --version`
+3. PATH is automatically added to your shell profile (`~/.zshrc` or `~/.bashrc`)
+4. Restart your shell or open a new terminal, then verify: `hydra --version`
 
 **Option B — Manual setup:** Run `Hydra: Setup CLI` from the VS Code command palette.
 
@@ -130,6 +127,32 @@ Kill session + remove worktree + delete branch. Irreversible.
 
 ```json
 { "status": "deleted", "session": "hydra-ab12_feat-auth" }
+```
+
+### `hydra copilot logs <session>`
+
+Read terminal output from a copilot.
+
+```bash
+hydra copilot logs <session> --lines 50
+```
+
+```json
+{ "session": "hydra-copilot-claude", "lines": 50, "output": "..." }
+```
+
+Default: 50 lines. Use `--lines 200` for deeper scrollback.
+
+### `hydra copilot send <session> <message>`
+
+Send a message to a copilot.
+
+```bash
+hydra copilot send <session> "review the workers and report status"
+```
+
+```json
+{ "status": "sent", "session": "hydra-copilot-claude", "message": "..." }
 ```
 
 ## Exit codes

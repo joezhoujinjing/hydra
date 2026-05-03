@@ -1,9 +1,25 @@
 import * as vscode from 'vscode';
 import { AgentType } from '../core/types';
 import { AGENT_LABELS } from '../core/agentConfig';
+import { exec } from '../core/exec';
 
 export type { AgentType } from '../core/types';
 export { AGENT_LABELS, DEFAULT_AGENT_COMMANDS, buildAgentLaunchCommand } from '../core/agentConfig';
+
+export async function detectAvailableAgents(): Promise<AgentType[]> {
+  const agents: AgentType[] = ['claude', 'codex', 'gemini'];
+  const results = await Promise.all(agents.map(async (agent) => {
+    const cmd = getAgentCommand(agent);
+    const binary = cmd.split(/\s+/)[0];
+    try {
+      await exec(`which ${binary}`);
+      return agent;
+    } catch {
+      return null;
+    }
+  }));
+  return results.filter((a): a is AgentType => a !== null);
+}
 
 export function getDefaultAgent(): AgentType {
   return vscode.workspace

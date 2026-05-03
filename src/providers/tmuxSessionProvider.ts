@@ -661,10 +661,7 @@ export class CopilotProvider implements vscode.TreeDataProvider<TmuxItem> {
       const copilots = await sm.listCopilots();
 
       if (copilots.length === 0) {
-        const hint = new TmuxItem('No copilot running', vscode.TreeItemCollapsibleState.None);
-        hint.iconPath = new vscode.ThemeIcon('info');
-        hint.command = { command: 'hydra.createCopilot', title: 'Create Copilot' };
-        return [hint];
+        return [];  // triggers viewsWelcome
       }
 
       const items: TmuxItem[] = [];

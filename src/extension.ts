@@ -16,10 +16,11 @@ import {
 } from './commands/contextMenu';
 import { terminalSmartPaste, pasteImageForce, cleanupTempImages } from './commands/pasteImage';
 import { createWorktreeFromBranch } from './commands/createWorktreeFromBranch';
-import { createCopilot } from './commands/createCopilot';
+import { createCopilot, createCopilotWithAgent } from './commands/createCopilot';
 import { createWorker } from './commands/createWorker';
 import { ensureHydraGlobalConfig } from './utils/hydraGlobalConfig';
-import { installCli, isCliOnPath, getShellConfigSnippet } from './core/cliInstaller';
+import { installCli, isCliOnPath, getShellConfigSnippet, ensurePathInShellProfile } from './core/cliInstaller';
+import { detectAvailableAgents } from './utils/agentConfig';
 
 function updateViewDescriptions(...views: vscode.TreeView<unknown>[]): void {
   const backend = getActiveBackend();
@@ -84,11 +85,15 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('hydra.createCopilot', createCopilot),
     vscode.commands.registerCommand('hydra.createWorker', createWorker),
     vscode.commands.registerCommand('hydra.setupCli', () => setupCli(context)),
+    vscode.commands.registerCommand('hydra.startCopilotClaude', () => createCopilotWithAgent('claude')),
+    vscode.commands.registerCommand('hydra.startCopilotCodex', () => createCopilotWithAgent('codex')),
+    vscode.commands.registerCommand('hydra.startCopilotGemini', () => createCopilotWithAgent('gemini')),
   );
 
   ensureHydraGlobalConfig();
   silentInstallCli(context);
   autoAttachOnStartup();
+  detectAndSetAgentContext();
 
   const refreshAll = () => { copilotProvider.refresh(); workerProvider.refresh(); };
 
@@ -98,6 +103,9 @@ export function activate(context: vscode.ExtensionContext) {
         refreshBackendFromConfig();
         updateViewDescriptions(copilotView, workerView);
         refreshAll();
+      }
+      if (e.affectsConfiguration('hydra.agentCommands')) {
+        detectAndSetAgentContext();
       }
     })
   );
@@ -119,21 +127,27 @@ export function activate(context: vscode.ExtensionContext) {
   });
 }
 
+async function detectAndSetAgentContext(): Promise<void> {
+  try {
+    const available = await detectAvailableAgents();
+    vscode.commands.executeCommand('setContext', 'hydra.claudeAvailable', available.includes('claude'));
+    vscode.commands.executeCommand('setContext', 'hydra.codexAvailable', available.includes('codex'));
+    vscode.commands.executeCommand('setContext', 'hydra.geminiAvailable', available.includes('gemini'));
+    vscode.commands.executeCommand('setContext', 'hydra.noAgentsAvailable', available.length === 0);
+  } catch {
+    // Best-effort — don't block activation
+  }
+}
+
 function silentInstallCli(context: vscode.ExtensionContext): void {
   try {
     const version = (context.extension.packageJSON as { version: string }).version;
     const result = installCli(context.extensionPath, version);
-    if (result.installed && !isCliOnPath()) {
-      const snippet = getShellConfigSnippet();
+    if (result.installed) {
+      ensurePathInShellProfile();
       vscode.window.showInformationMessage(
-        `Hydra CLI installed at ~/.hydra/bin/hydra. Add to your shell profile: \`${snippet}\` — then run \`hydra list --json\` to verify. See AGENTS.md for the full CLI reference.`,
-        'Copy to Clipboard',
-        'Dismiss'
-      ).then(choice => {
-        if (choice === 'Copy to Clipboard') {
-          vscode.env.clipboard.writeText(snippet);
-        }
-      });
+        'Hydra CLI installed. PATH configured automatically — restart your shell or open a new terminal to use `hydra`.'
+      );
     }
   } catch (err) {
     // CLI install is best-effort — don't block activation

@@ -4,7 +4,8 @@ src/**
 **/*.map
 .gitignore
 tsconfig.json
-node_modules/**
+node_modules/.package-lock.json
+node_modules/@types/**
 cli/**
 cli_backup/**
 .sisyphus/**
