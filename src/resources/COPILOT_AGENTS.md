@@ -31,8 +31,11 @@ Save the printed session name for monitoring.
 ## Monitoring Workers
 
 ```bash
-# List running workers
-tmux list-sessions | grep <namespace>
+# List all workers (pretty-print)
+hydra list
+
+# List all workers (structured JSON for parsing)
+hydra list --json
 
 # Read last 20 lines of a worker's terminal
 tmux capture-pane -t <session_name> -p | tail -20

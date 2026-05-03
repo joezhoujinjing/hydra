@@ -152,6 +152,11 @@
         "command": "hydra.createWorker",
         "title": "Hydra: Create Worker",
         "icon": "$(server-process)"
+      },
+      {
+        "command": "hydra.setupCli",
+        "title": "Hydra: Setup CLI",
+        "icon": "$(terminal)"
       }
     ],
     "keybindings": [
@@ -226,6 +231,11 @@
         },
         {
           "command": "tmux.cleanupOrphans",
+          "when": "view == hydraCopilots || view == hydraWorkers",
+          "group": "navigation"
+        },
+        {
+          "command": "hydra.setupCli",
           "when": "view == hydraCopilots || view == hydraWorkers",
           "group": "navigation"
         },

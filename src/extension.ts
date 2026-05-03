@@ -19,6 +19,7 @@ import { createWorktreeFromBranch } from './commands/createWorktreeFromBranch';
 import { createCopilot } from './commands/createCopilot';
 import { createWorker } from './commands/createWorker';
 import { ensureHydraGlobalConfig } from './utils/hydraGlobalConfig';
+import { installCli, isCliOnPath, getShellConfigSnippet } from './core/cliInstaller';
 
 function updateViewDescriptions(...views: vscode.TreeView<unknown>[]): void {
   const backend = getActiveBackend();
@@ -82,9 +83,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('tmux.createWorktreeFromBranch', (item) => createWorktreeFromBranch(item)),
     vscode.commands.registerCommand('hydra.createCopilot', createCopilot),
     vscode.commands.registerCommand('hydra.createWorker', createWorker),
+    vscode.commands.registerCommand('hydra.setupCli', () => setupCli(context)),
   );
 
   ensureHydraGlobalConfig();
+  silentInstallCli(context);
   autoAttachOnStartup();
 
   const refreshAll = () => { copilotProvider.refresh(); workerProvider.refresh(); };
@@ -114,6 +117,50 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push({
       dispose: () => clearInterval(intervalId)
   });
+}
+
+function silentInstallCli(context: vscode.ExtensionContext): void {
+  try {
+    const version = (context.extension.packageJSON as { version: string }).version;
+    const result = installCli(context.extensionPath, version);
+    if (result.installed && !isCliOnPath()) {
+      const snippet = getShellConfigSnippet();
+      vscode.window.showInformationMessage(
+        `Hydra CLI installed. Add to PATH: \`${snippet}\``,
+        'Copy to Clipboard',
+        'Dismiss'
+      ).then(choice => {
+        if (choice === 'Copy to Clipboard') {
+          vscode.env.clipboard.writeText(snippet);
+        }
+      });
+    }
+  } catch (err) {
+    // CLI install is best-effort — don't block activation
+    console.error('Hydra CLI install failed:', err);
+  }
+}
+
+function setupCli(context: vscode.ExtensionContext): void {
+  try {
+    const version = (context.extension.packageJSON as { version: string }).version;
+    installCli(context.extensionPath, version);
+    const snippet = getShellConfigSnippet();
+    if (isCliOnPath()) {
+      vscode.window.showInformationMessage('Hydra CLI is installed and on PATH.');
+    } else {
+      vscode.window.showInformationMessage(
+        `Hydra CLI installed at ~/.hydra/bin/hydra. Add to PATH: \`${snippet}\``,
+        'Copy to Clipboard'
+      ).then(choice => {
+        if (choice === 'Copy to Clipboard') {
+          vscode.env.clipboard.writeText(snippet);
+        }
+      });
+    }
+  } catch (err) {
+    vscode.window.showErrorMessage(`Failed to setup Hydra CLI: ${err}`);
+  }
 }
 
 export function deactivate() {
