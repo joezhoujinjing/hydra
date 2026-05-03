@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { createBackendFromConfig } from './backendFactory';
-import { MultiplexerBackendCore } from '../core/types';
+import { MultiplexerBackendCore, HydraRole } from '../core/types';
 
 // ─── Re-export shared types from core ─────────────────────
 export { MultiplexerType, HydraRole, MultiplexerSession, SessionStatusInfo } from '../core/types';
@@ -11,7 +11,8 @@ export interface MultiplexerBackend extends MultiplexerBackendCore {
   attachSession(
     sessionName: string,
     cwd?: string,
-    location?: vscode.TerminalLocation
+    location?: vscode.TerminalLocation | vscode.TerminalEditorLocationOptions,
+    role?: HydraRole
   ): vscode.Terminal;
 }
 
