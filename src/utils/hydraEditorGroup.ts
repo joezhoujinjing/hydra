@@ -43,7 +43,10 @@ export function getHydraEditorLocation(role?: HydraRole): vscode.TerminalEditorL
  * Returns a plain shortName when no role is specified.
  */
 export function buildHydraTerminalName(shortName: string, role?: HydraRole): string {
-  if (role === 'copilot') return `${HYDRA_PREFIX_COPILOT} ${shortName}`;
+  if (role === 'copilot') {
+    const agentName = shortName.replace(/^hydra-copilot-/, '');
+    return `${HYDRA_PREFIX_COPILOT} ${agentName}`;
+  }
   if (role === 'worker') return `${HYDRA_PREFIX_WORKER} ${shortName}`;
   return shortName;
 }

@@ -17,8 +17,6 @@ function findTerminalBySession(sessionName: string): vscode.Terminal | undefined
   const candidateNames = [
     buildHydraTerminalName(shortName, 'copilot'),
     buildHydraTerminalName(shortName, 'worker'),
-    shortName,
-    `tmux: ${sessionName}`,
   ];
   return vscode.window.terminals.find(t => candidateNames.includes(t.name));
 }
