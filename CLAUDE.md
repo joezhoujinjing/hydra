@@ -12,6 +12,18 @@ npm run lint          # Run ESLint
 
 After changes, always run `npm run compile` to verify the build succeeds before committing.
 
+### Manual Testing
+
+To test the extension in a VS Code Extension Development Host:
+
+```bash
+cd <worktree-or-repo-path>
+npm run compile
+mkdir -p /tmp/hydra-test
+code --extensionDevelopmentPath="$(pwd)" /tmp/hydra-test
+```
+
+
 ## Project Structure
 
 ```

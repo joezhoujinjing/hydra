@@ -2,12 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "────────── VS Code Extension ──────────",
-      "type": "",
-      "request": "launch"
-    },
-    {
-      "name": "🚀 Run Extension",
+      "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
@@ -20,28 +15,6 @@
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
       "outFiles": ["${workspaceFolder}/out/**/*.js"]
-    },
-    {
-      "name": "────────── Go CLI (tmux-worktree-tui) ──────────",
-      "type": "",
-      "request": "launch"
-    },
-    {
-      "name": "🔧 Debug CLI",
-      "type": "go",
-      "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}/cli",
-      "cwd": "${workspaceFolder}/cli",
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "Debug CLI Test",
-      "type": "go",
-      "request": "launch",
-      "mode": "test",
-      "program": "${workspaceFolder}/cli/pkg/discovery",
-      "cwd": "${workspaceFolder}/cli"
     }
   ]
 }
