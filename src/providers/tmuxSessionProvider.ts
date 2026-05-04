@@ -493,7 +493,8 @@ export class TmuxSessionItem extends WorktreeItem {
     extensionUri?: vscode.Uri,
     branchLabelOverride?: string,
     agentType?: string,
-    repoRoot?: string
+    repoRoot?: string,
+    workerId?: number
   ) {
     const isRoot = Boolean(worktree?.isMain);
     const branchLabel = branchLabelOverride || worktree?.branch || (isRoot ? 'main' : session.slug);
@@ -513,11 +514,11 @@ export class TmuxSessionItem extends WorktreeItem {
     this.session = session;
     this.detailItem = new TmuxDetailItem(session, repoName, worktree, extensionUri);
 
-    if (agentType) {
-      this.description = this.description
-        ? `${this.description} [${agentType}]`
-        : `[${agentType}]`;
-    }
+    const descParts: string[] = [];
+    if (this.description) descParts.push(String(this.description));
+    if (workerId != null) descParts.push(`#${workerId}`);
+    if (agentType) descParts.push(`[${agentType}]`);
+    if (descParts.length > 0) this.description = descParts.join(' ');
 
     const hasGitChanges = session.status.commitsAhead > 0 || session.status.gitModified > 0 ||
       session.status.gitDeleted > 0 || session.status.gitAdded > 0 || session.status.gitUntracked > 0;
@@ -816,7 +817,7 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
         const worktree: Worktree = { path: w.workdir, branch: w.branch, isMain: false };
         items.push(new TmuxSessionItem(
           session, repoName, worktree, isCurrentWs, hasGit,
-          this._extensionUri, branchLabel, w.agent, repoRoot
+          this._extensionUri, branchLabel, w.agent, repoRoot, w.workerId
         ));
       } else {
         const worktree: Worktree = { path: w.workdir, branch: w.branch, isMain: false };
