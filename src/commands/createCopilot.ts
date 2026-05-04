@@ -56,10 +56,9 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
       backend.attachSession(sessionName, existing.workdir, undefined, 'copilot');
       return;
     }
-    // Stopped — resume
+    // Stopped — resume (skip onboarding since agent already has context)
     try {
       const { postCreatePromise } = await sm.resumeCopilot(sessionName);
-      sendCopilotOnboarding(backend, sessionName);
       backend.attachSession(sessionName, existing.workdir || cwd, undefined, 'copilot');
       postCreatePromise.catch(() => { /* best-effort */ });
       vscode.window.showInformationMessage(`Resumed copilot: ${sessionName} (${agentType})`);
@@ -141,7 +140,7 @@ export async function createCopilot(): Promise<void> {
     if (action === 'Resume') {
       try {
         const { postCreatePromise } = await sm.resumeCopilot(sessionName);
-        sendCopilotOnboarding(backend, sessionName);
+        // Skip onboarding — agent already has context from previous session
         backend.attachSession(sessionName, existing.workdir || cwd, undefined, 'copilot');
         postCreatePromise.catch(() => { /* best-effort */ });
         vscode.window.showInformationMessage(`Resumed copilot: ${sessionName} (${agentType})`);

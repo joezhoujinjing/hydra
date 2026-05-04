@@ -254,7 +254,7 @@
       "view/item/context": [
         {
           "command": "tmux.attach",
-          "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem' || viewItem == 'copilotItem')",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem' || viewItem == 'copilotItem' || viewItem == 'copilotItemStopped')",
           "group": "1_open"
         },
         {
@@ -264,7 +264,7 @@
         },
         {
           "command": "tmux.removeTask",
-          "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem' || viewItem == 'copilotItem')",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem' || viewItem == 'copilotItem' || viewItem == 'copilotItemStopped')",
           "group": "9_danger"
         }
       ]

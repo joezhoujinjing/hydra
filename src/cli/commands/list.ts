@@ -26,7 +26,7 @@ export function registerListCommand(program: Command): void {
             status: c.status,
             attached: c.attached,
             workdir: c.workdir || null,
-            agentSessionId: c.sessionId || null,
+            agentSessionId: c.sessionId ?? null,
           })),
           workers: workers.map(w => ({
             session: w.sessionName || w.tmuxSession,
@@ -36,6 +36,7 @@ export function registerListCommand(program: Command): void {
             status: w.status,
             attached: w.attached,
             workdir: w.workdir || null,
+            agentSessionId: w.sessionId ?? null,
           })),
           count: copilots.length + workers.length,
         };

@@ -5,7 +5,7 @@ import { exec } from '../utils/exec';
 import { getRepoRoot, getRepoName, getBaseBranch } from '../utils/git';
 import { getActiveBackend, MultiplexerSession, HydraRole } from '../utils/multiplexer';
 import { toCanonicalPath } from '../utils/path';
-import { SessionManager, WorkerInfo, CopilotInfo } from '../core/sessionManager';
+import { SessionManager, WorkerInfo } from '../core/sessionManager';
 import { Worktree } from '../core/types';
 
 export type Classification = 'attached' | 'alive' | 'idle' | 'stopped' | 'orphan';
@@ -300,10 +300,10 @@ export class CopilotItem extends TmuxItem {
     this.agentType = opts.agentType;
     this.classification = opts.classification;
     this.description = description;
-    this.contextValue = 'copilotItem';
+    this.contextValue = opts.classification === 'stopped' ? 'copilotItemStopped' : 'copilotItem';
     this.command = {
       command: 'tmux.attachCreate',
-      title: 'Open Session',
+      title: opts.classification === 'stopped' ? 'Resume Copilot' : 'Open Session',
       arguments: [this]
     };
 
