@@ -1,10 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { randomUUID } from 'crypto';
 import { MultiplexerBackendCore } from './types';
 import * as coreGit from './git';
 import { injectWorkerInstructions, ensureHydraGlobalConfig } from './hydraGlobalConfig';
-import { buildAgentLaunchCommand, DEFAULT_AGENT_COMMANDS } from './agentConfig';
+import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS } from './agentConfig';
 import { exec } from './exec';
 import { shellQuote } from './shell';
 
@@ -43,6 +44,7 @@ export interface WorkerInfo {
   tmuxSession: string;
   createdAt: string;
   lastSeenAt: string;
+  sessionId: string | null;
 }
 
 export interface CopilotInfo {
@@ -54,6 +56,7 @@ export interface CopilotInfo {
   tmuxSession: string;
   createdAt: string;
   lastSeenAt: string;
+  sessionId: string | null;
 }
 
 export interface SessionState {
@@ -62,6 +65,8 @@ export interface SessionState {
   nextWorkerId: number;
   updatedAt: string;
 }
+
+type SessionSnapshot = Record<string, never>;
 
 export interface CreateWorkerOpts {
   repoRoot: string;
@@ -169,6 +174,7 @@ export class SessionManager {
           tmuxSession: session.name,
           createdAt: now,
           lastSeenAt: now,
+          sessionId: null,
         };
       } else if (role === 'copilot') {
         state.copilots[session.name] = {
@@ -180,6 +186,7 @@ export class SessionManager {
           tmuxSession: session.name,
           createdAt: now,
           lastSeenAt: now,
+          sessionId: null,
         };
       }
     }
@@ -278,8 +285,13 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'worker');
     await this.backend.setSessionAgent(sessionName, agentType);
 
-    // Build & send agent launch command
-    const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, task, repoRoot);
+    // For Claude, pre-assign session ID via --session-id flag (guaranteed correct).
+    // For other agents, capture from filesystem after launch.
+    const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+    const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
+
+    // Launch agent without task (task sent after session ID capture)
+    const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, repoRoot, preAssignedSessionId ?? undefined);
     await this.backend.sendKeys(sessionName, launchCmd);
 
     const now = new Date().toISOString();
@@ -301,14 +313,15 @@ export class SessionManager {
       tmuxSession: sessionName,
       createdAt: now,
       lastSeenAt: now,
+      sessionId: preAssignedSessionId,
     };
 
     state.workers[sessionName] = workerInfo;
     state.updatedAt = now;
     this.writeSessionState(state);
 
-    // Delayed Enter for Claude trust prompt — returns a promise the CLI can await
-    const postCreatePromise = this.delayedEnterForClaude(agentType, sessionName);
+    // Post-create: capture session ID for non-Claude agents, then send task
+    const postCreatePromise = this.postCreate(sessionName, agentType, worktreePath, snapshot, task, preAssignedSessionId);
 
     return { workerInfo, postCreatePromise };
   }
@@ -371,17 +384,41 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'worker');
     await this.backend.setSessionAgent(sessionName, agent);
 
-    const launchCmd = buildAgentLaunchCommand(agent, command, undefined, worker.repoRoot);
-    await this.backend.sendKeys(sessionName, launchCmd);
+    // Resume from stored session ID if available; otherwise fresh start
+    const storedSessionId = worker.sessionId;
+    const resumeCmd = storedSessionId
+      ? buildAgentResumeCommand(agent, command, storedSessionId, worker.repoRoot)
+      : null;
 
-    worker.status = 'running';
-    worker.attached = false;
-    worker.agent = agent;
-    worker.lastSeenAt = new Date().toISOString();
-    state.updatedAt = new Date().toISOString();
-    this.writeSessionState(state);
+    let postCreatePromise: Promise<void>;
 
-    const postCreatePromise = this.delayedEnterForClaude(agent, sessionName);
+    if (resumeCmd) {
+      // Resume existing session — session ID stays the same
+      await this.backend.sendKeys(sessionName, resumeCmd);
+      worker.status = 'running';
+      worker.attached = false;
+      worker.agent = agent;
+      worker.lastSeenAt = new Date().toISOString();
+      state.updatedAt = new Date().toISOString();
+      this.writeSessionState(state);
+      postCreatePromise = Promise.resolve();
+    } else {
+      // Fresh start — capture new session ID
+      const preAssignedSessionId = agent === 'claude' ? randomUUID() : null;
+      const snapshot = this.snapshotAgentSessions(agent, worker.workdir);
+      const launchCmd = buildAgentLaunchCommand(agent, command, undefined, worker.repoRoot, preAssignedSessionId ?? undefined);
+      await this.backend.sendKeys(sessionName, launchCmd);
+
+      worker.status = 'running';
+      worker.attached = false;
+      worker.agent = agent;
+      worker.sessionId = preAssignedSessionId;
+      worker.lastSeenAt = new Date().toISOString();
+      state.updatedAt = new Date().toISOString();
+      this.writeSessionState(state);
+
+      postCreatePromise = this.postCreate(sessionName, agent, worker.workdir, snapshot, undefined, preAssignedSessionId);
+    }
 
     return { workerInfo: worker, postCreatePromise };
   }
@@ -405,7 +442,14 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'copilot');
     await this.backend.setSessionAgent(sessionName, agentType);
 
-    await this.backend.sendKeys(sessionName, agentCommand);
+    const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+    const snapshot = this.snapshotAgentSessions(agentType, opts.workdir);
+
+    // For Claude, launch with --session-id; for others, use agentCommand as-is
+    const launchCmd = agentType === 'claude'
+      ? buildAgentLaunchCommand(agentType, agentCommand, undefined, undefined, preAssignedSessionId ?? undefined)
+      : agentCommand;
+    await this.backend.sendKeys(sessionName, launchCmd);
 
     const now = new Date().toISOString();
     const copilotInfo: CopilotInfo = {
@@ -417,12 +461,18 @@ export class SessionManager {
       tmuxSession: sessionName,
       createdAt: now,
       lastSeenAt: now,
+      sessionId: preAssignedSessionId,
     };
 
     const state = this.readSessionState();
     state.copilots[sessionName] = copilotInfo;
     state.updatedAt = now;
     this.writeSessionState(state);
+
+    // Capture session ID in background for non-Claude agents
+    if (!preAssignedSessionId) {
+      this.postCreate(sessionName, agentType, opts.workdir, snapshot, undefined, null).catch(() => {});
+    }
 
     return copilotInfo;
   }
@@ -575,6 +625,44 @@ export class SessionManager {
     this.writeSessionState(state);
   }
 
+  // ── Public helpers for VS Code extension ──
+
+  /**
+   * Persist a copilot entry to sessions.json with pre-assigned session ID.
+   * Called by the VS Code extension which creates sessions directly via backend.
+   */
+  persistCopilotSessionId(
+    sessionName: string,
+    agentType: string,
+    workdir: string,
+    sessionId: string | null,
+  ): void {
+    const state = this.readSessionState();
+    const now = new Date().toISOString();
+    state.copilots[sessionName] = {
+      sessionName,
+      status: 'running',
+      attached: false,
+      agent: agentType,
+      workdir,
+      tmuxSession: sessionName,
+      createdAt: now,
+      lastSeenAt: now,
+      sessionId,
+    };
+    state.updatedAt = now;
+    this.writeSessionState(state);
+  }
+
+  /**
+   * Capture session ID via slash command and persist to sessions.json.
+   * Used by VS Code extension for Codex/Gemini copilots.
+   */
+  async captureAndPersistSessionId(sessionName: string, agentType: string): Promise<void> {
+    const sessionId = await this.captureAgentSessionId(sessionName, agentType);
+    this.updateSessionId(sessionName, sessionId);
+  }
+
   // ── Private helpers ──
 
   private readSessionState(): SessionState {
@@ -582,12 +670,20 @@ export class SessionManager {
       if (fs.existsSync(SESSIONS_FILE)) {
         const raw = fs.readFileSync(SESSIONS_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
-        return {
+        const state: SessionState = {
           copilots: parsed.copilots || {},
           workers: parsed.workers || {},
           nextWorkerId: parsed.nextWorkerId || 1,
           updatedAt: parsed.updatedAt || new Date().toISOString(),
         };
+        // Backward compat: ensure sessionId field exists for legacy entries
+        for (const w of Object.values(state.workers)) {
+          w.sessionId ??= null;
+        }
+        for (const c of Object.values(state.copilots)) {
+          c.sessionId ??= null;
+        }
+        return state;
       }
     } catch {
       // Corrupted file — start fresh
@@ -633,14 +729,105 @@ export class SessionManager {
     }
   }
 
-  private delayedEnterForClaude(agentType: string, sessionName: string): Promise<void> {
-    if (agentType !== 'claude') return Promise.resolve();
-    return new Promise(resolve => {
-      setTimeout(async () => {
-        try { await this.backend.sendKeys(sessionName, ''); } catch { /* */ }
-        resolve();
-      }, 8000);
-    });
+  /**
+   * Post-create flow: wait for agent readiness, capture session ID if needed,
+   * then send task.
+   *
+   * For Claude, sessionId is pre-assigned via --session-id flag (no capture needed).
+   * For Codex/Gemini, sends slash command and parses session ID from pane output.
+   */
+  private async postCreate(
+    sessionName: string,
+    agentType: string,
+    _workdir: string,
+    _snapshot: SessionSnapshot,
+    task?: string,
+    preAssignedSessionId?: string | null,
+  ): Promise<void> {
+    if (preAssignedSessionId) {
+      // Session ID already known (Claude) — just wait for readiness then send task
+      await this.sleep(CLAUDE_READY_DELAY_MS);
+    } else {
+      // Capture session ID via slash command (/status or /stats)
+      const sessionId = await this.captureAgentSessionId(sessionName, agentType);
+      this.updateSessionId(sessionName, sessionId);
+    }
+    if (task) {
+      await this.backend.sendMessage(sessionName, task);
+    }
+  }
+
+  /**
+   * Snapshot before launch (placeholder for future use / compatibility).
+   */
+  private snapshotAgentSessions(_agentType: string, _workdir: string): SessionSnapshot {
+    return {};
+  }
+
+  /**
+   * Capture session ID by sending a slash command (/status or /stats) to the agent,
+   * waiting for output, and parsing the result from the terminal pane.
+   *
+   * Used for Codex and Gemini. Claude uses --session-id flag instead.
+   * Returns null on failure (graceful fallback).
+   */
+  private async captureAgentSessionId(
+    sessionName: string,
+    agentType: string,
+  ): Promise<string | null> {
+    const config = AGENT_SESSION_CAPTURE[agentType];
+    if (!config) return null;
+
+    try {
+      // For Codex, accept the trust prompt first
+      if (agentType === 'codex') {
+        await this.sleep(3000);
+        await this.backend.sendKeys(sessionName, ''); // Enter to accept trust prompt
+        await this.sleep(config.readyDelayMs);
+      } else {
+        await this.sleep(config.readyDelayMs);
+      }
+
+      // Send status slash command (use sendMessage for reliable Enter delivery to TUIs)
+      await this.backend.sendMessage(sessionName, config.statusCommand);
+
+      // Poll pane output until session ID is found
+      const maxAttempts = 10;
+      const pollInterval = config.captureDelayMs;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await this.sleep(pollInterval);
+        const output = await this.backend.capturePane(sessionName, 200);
+        const match = output.match(config.sessionIdPattern);
+        if (match?.[1]) {
+          return match[1];
+        }
+      }
+
+      console.warn(
+        `[hydra] Could not parse session ID for ${agentType} in ${sessionName}`,
+      );
+      return null;
+    } catch (error) {
+      console.warn(`[hydra] Session ID capture failed for ${sessionName}:`, error);
+      return null;
+    }
+  }
+
+  private updateSessionId(sessionName: string, sessionId: string | null): void {
+    const state = this.readSessionState();
+    if (state.workers[sessionName]) {
+      state.workers[sessionName].sessionId = sessionId;
+      state.updatedAt = new Date().toISOString();
+      this.writeSessionState(state);
+    } else if (state.copilots[sessionName]) {
+      state.copilots[sessionName].sessionId = sessionId;
+      state.updatedAt = new Date().toISOString();
+      this.writeSessionState(state);
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   private extractSlugFromSessionName(sessionName: string): string {
@@ -673,8 +860,8 @@ export class SessionManager {
       const now = new Date().toISOString();
 
       const state = this.readSessionState();
-      const existingId = state.workers[sessionName]?.workerId;
-      const workerId = existingId ?? state.nextWorkerId++;
+      const existingWorker = state.workers[sessionName];
+      const workerId = existingWorker?.workerId ?? state.nextWorkerId++;
 
       const workerInfo: WorkerInfo = {
         sessionName,
@@ -690,6 +877,7 @@ export class SessionManager {
         tmuxSession: sessionName,
         createdAt: now,
         lastSeenAt: now,
+        sessionId: existingWorker?.sessionId ?? null,
       };
 
       state.workers[sessionName] = workerInfo;
@@ -707,13 +895,39 @@ export class SessionManager {
       await this.backend.setSessionRole(sessionName, 'worker');
       await this.backend.setSessionAgent(sessionName, agentType);
 
-      const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, task, repoRoot);
-      await this.backend.sendKeys(sessionName, launchCmd);
-
       const now = new Date().toISOString();
       const state = this.readSessionState();
-      const existingId = state.workers[sessionName]?.workerId;
+      const existingWorker = state.workers[sessionName];
+      const existingId = existingWorker?.workerId;
       const workerId = existingId ?? state.nextWorkerId++;
+      const storedSessionId = existingWorker?.sessionId;
+
+      // Resume from stored session ID if available; otherwise fresh start
+      const resumeCmd = storedSessionId
+        ? buildAgentResumeCommand(agentType, agentCommand, storedSessionId, repoRoot)
+        : null;
+
+      let postCreatePromise: Promise<void>;
+      let sessionId: string | null;
+
+      if (resumeCmd) {
+        // Resume existing session — session ID stays the same
+        await this.backend.sendKeys(sessionName, resumeCmd);
+        sessionId = storedSessionId;
+        // Send task after agent resumes (needs readiness delay)
+        postCreatePromise = (async () => {
+          await this.sleep(CLAUDE_READY_DELAY_MS);
+          if (task) await this.backend.sendMessage(sessionName, task);
+        })();
+      } else {
+        // Fresh start — capture new session ID
+        const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+        const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
+        const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, repoRoot, preAssignedSessionId ?? undefined);
+        await this.backend.sendKeys(sessionName, launchCmd);
+        sessionId = preAssignedSessionId;
+        postCreatePromise = this.postCreate(sessionName, agentType, worktreePath, snapshot, task, preAssignedSessionId);
+      }
 
       const workerInfo: WorkerInfo = {
         sessionName,
@@ -729,13 +943,13 @@ export class SessionManager {
         tmuxSession: sessionName,
         createdAt: now,
         lastSeenAt: now,
+        sessionId,
       };
 
       state.workers[sessionName] = workerInfo;
       state.updatedAt = now;
       this.writeSessionState(state);
 
-      const postCreatePromise = this.delayedEnterForClaude(agentType, sessionName);
       return { workerInfo, postCreatePromise };
     }
 

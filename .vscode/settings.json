@@ -11,5 +11,9 @@
     "editor.defaultFormatter": "golang.go"
   },
   "go.lintOnSave": "workspace",
-  "go.formatTool": "goimports"
+  "go.formatTool": "goimports",
+  "files.associations": {
+    "*.ttml": "xml",
+    "*.ttss": "css"
+  }
 }

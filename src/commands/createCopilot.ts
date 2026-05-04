@@ -1,7 +1,10 @@
 import * as os from 'os';
+import { randomUUID } from 'crypto';
 import * as vscode from 'vscode';
 import { getActiveBackend, MultiplexerBackend } from '../utils/multiplexer';
 import { pickAgentType, getAgentCommand, buildAgentLaunchCommand, AgentType } from '../utils/agentConfig';
+import { TmuxBackendCore } from '../core/tmux';
+import { SessionManager } from '../core/sessionManager';
 
 const ONBOARDING_PROMPT = `You are a Hydra copilot — an AI orchestrator that manages parallel AI workers to complete complex tasks.
 
@@ -25,14 +28,27 @@ Before anything else, run \`hydra --version\`. If the command is not found, the 
 
 Full reference: https://github.com/joezhoujinjing/hydra/blob/main/AGENTS.md`;
 
-function sendCopilotOnboarding(backend: MultiplexerBackend, sessionName: string): void {
-  setTimeout(async () => {
+function sendCopilotOnboarding(
+  backend: MultiplexerBackend,
+  sessionName: string,
+  agentType?: string,
+  sm?: SessionManager,
+  preAssignedSessionId?: string,
+): void {
+  (async () => {
     try {
+      if (!preAssignedSessionId && agentType && sm) {
+        // Non-Claude: capture session ID first (includes readiness wait)
+        await sm.captureAndPersistSessionId(sessionName, agentType);
+      } else {
+        // Claude: wait for agent readiness before sending prompt
+        await new Promise(resolve => setTimeout(resolve, 8000));
+      }
       await backend.sendMessage(sessionName, ONBOARDING_PROMPT);
     } catch {
       // Best-effort — agent may not be ready yet
     }
-  }, 5000);
+  })();
 }
 
 export async function createCopilotWithAgent(agentType: AgentType): Promise<void> {
@@ -64,12 +80,18 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
     // Prepend PATH so `hydra` CLI is available inside the session
     await backend.sendKeys(sessionName, 'export PATH="$HOME/.hydra/bin:$PATH"');
 
+    // For Claude, pre-assign session ID via --session-id flag
+    const preAssignedSessionId = agentType === 'claude' ? randomUUID() : undefined;
     const agentBinary = getAgentCommand(agentType);
-    const launchCmd = buildAgentLaunchCommand(agentType, agentBinary);
+    const launchCmd = buildAgentLaunchCommand(agentType, agentBinary, undefined, undefined, preAssignedSessionId);
     await backend.sendKeys(sessionName, launchCmd);
 
-    // Send onboarding prompt after agent boots
-    sendCopilotOnboarding(backend, sessionName);
+    // Persist copilot with session ID to sessions.json
+    const sm = new SessionManager(new TmuxBackendCore());
+    sm.persistCopilotSessionId(sessionName, agentType, cwd, preAssignedSessionId ?? null);
+
+    // Send onboarding prompt after agent boots (and capture session ID for non-Claude)
+    sendCopilotOnboarding(backend, sessionName, agentType, sm, preAssignedSessionId);
 
     backend.attachSession(sessionName, cwd, undefined, 'copilot');
 
@@ -132,13 +154,18 @@ export async function createCopilot(): Promise<void> {
     // Prepend PATH so `hydra` CLI is available inside the session
     await backend.sendKeys(sessionName, 'export PATH="$HOME/.hydra/bin:$PATH"');
 
-    // Launch agent with full-auto flags
+    // For Claude, pre-assign session ID via --session-id flag
+    const preAssignedSessionId = agentType === 'claude' ? randomUUID() : undefined;
     const agentBinary = getAgentCommand(agentType);
-    const launchCmd = buildAgentLaunchCommand(agentType, agentBinary);
+    const launchCmd = buildAgentLaunchCommand(agentType, agentBinary, undefined, undefined, preAssignedSessionId);
     await backend.sendKeys(sessionName, launchCmd);
 
-    // Send onboarding prompt after agent boots
-    sendCopilotOnboarding(backend, sessionName);
+    // Persist copilot with session ID to sessions.json
+    const sm = new SessionManager(new TmuxBackendCore());
+    sm.persistCopilotSessionId(sessionName, agentType, cwd, preAssignedSessionId ?? null);
+
+    // Send onboarding prompt after agent boots (and capture session ID for non-Claude)
+    sendCopilotOnboarding(backend, sessionName, agentType, sm, preAssignedSessionId);
 
     // Attach
     backend.attachSession(sessionName, cwd, undefined, 'copilot');
