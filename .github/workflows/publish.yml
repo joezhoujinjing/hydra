@@ -67,6 +67,7 @@ jobs:
           if [ "$BUMP_TYPE" = "skip" ]; then
             VERSION=$(node -p "require('./package.json').version")
             echo "Skipping version bump, using current: $VERSION"
+            echo "bumped=false" >> $GITHUB_OUTPUT
           else
             CURRENT=$(node -p "require('./package.json').version")
             IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
@@ -88,15 +89,42 @@ jobs:
             done
 
             npm version $VERSION --no-git-tag-version
-
-            git add package.json package-lock.json
-            git commit -m "chore: release v${VERSION}"
-            git tag "v${VERSION}"
-            git push origin main
-            git push origin "v${VERSION}"
+            echo "bumped=true" >> $GITHUB_OUTPUT
           fi
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Determine previous tag for release notes
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^v${VERSION}$" | head -1)
+          echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+
+      - name: Generate Release Notes
+        if: steps.version.outputs.bumped == 'true' && steps.version.outputs.prev_tag != ''
+        id: release_notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PREV_TAG="${{ steps.version.outputs.prev_tag }}"
+
+          # Create the new tag locally (not pushed yet) so the script can reference it
+          if ! git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            git tag "v${VERSION}"
+          fi
+
+          # Generate release notes (also updates CHANGELOG.md)
+          NOTES=$(bash scripts/release-notes.sh "$PREV_TAG" "v${VERSION}" 2>/dev/null || true)
+
+          # Save release notes body for GitHub Release
+          {
+            echo 'body<<RELEASE_NOTES_EOF'
+            echo "$NOTES"
+            echo 'RELEASE_NOTES_EOF'
+          } >> $GITHUB_OUTPUT
+
+          # Commit changelog + version bump together
+          git add package.json package-lock.json CHANGELOG.md
+          git commit -m "chore: release v${VERSION}"
+          git push origin main
+          git push origin "v${VERSION}"
 
       - name: Compile
         run: npm run compile
@@ -118,4 +146,5 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
           files: hydra-${{ steps.version.outputs.version }}.vsix
-          generate_release_notes: true
+          body: ${{ steps.release_notes.outputs.body }}
+          generate_release_notes: ${{ steps.release_notes.outputs.body == '' }}

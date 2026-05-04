@@ -81,6 +81,10 @@ Critical lessons learned — do not change without understanding the full implic
 - Run `npm run compile` and `npm run lint` before committing
 - Descriptive, conventional commit messages
 
+## Release Workflow
+
+Releases are automated via `.github/workflows/publish.yml` — bumps version, generates changelog via `scripts/release-notes.sh`, publishes to Marketplace + Open VSX, and creates a GitHub Release. Changelog categories: `feat:` → Added, `fix:` → Fixed, `revert:` → Removed, everything else → Changed. Manual use: `bash scripts/release-notes.sh [<prev-tag> <new-tag>]`.
+
 ---
 
 ## Install

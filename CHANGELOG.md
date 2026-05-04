@@ -1,0 +1,139 @@
+# Changelog
+
+## [0.1.21] - 2026-05-04
+
+### Changed
+- chore: restructure CLAUDE.md and AGENTS.md — single source of truth (#49)
+- chore: clean up launch.json — remove legacy Go CLI entries (#48)
+
+### Commits
+1. 4e8b4ff chore: restructure CLAUDE.md and AGENTS.md — single source of truth (#49)
+2. b997b0c chore: clean up launch.json — remove legacy Go CLI entries (#48)
+
+## [0.1.20] - 2026-05-03
+
+### Added
+- feat: add rename command for copilots and workers (#42)
+
+### Commits
+1. 6e0b5a0 feat: add rename command for copilots and workers (#42)
+
+## [0.1.19] - 2026-05-03
+
+### Added
+- feat: separate editor groups for copilots and workers (#36)
+
+### Commits
+1. 8102c78 feat: separate editor groups for copilots and workers (#36)
+
+## [0.1.18] - 2026-05-03
+
+### Changed
+- test: use --dangerously-skip-permissions instead of --allowedTools
+- test: try claude-opus-4-6[1m] model suffix
+- Add Claude Code GitHub Workflow (#37)
+
+### Fixed
+- fix: align Claude workflow config with working pattern
+
+### Commits
+1. ed928c7 test: use --dangerously-skip-permissions instead of --allowedTools
+2. 4b9e831 test: try claude-opus-4-6[1m] model suffix
+3. d3a729c fix: align Claude workflow config with working pattern
+4. 9475378 Add Claude Code GitHub Workflow (#37)
+
+## [0.1.17] - 2026-05-03
+
+### Changed
+- chore: remove Zellij backend entirely (#33) (#35)
+
+### Commits
+1. 24e73ca chore: remove Zellij backend entirely (#33) (#35)
+
+## [0.1.16] - 2026-05-03
+
+### Fixed
+- fix: send Enter separately after message paste to avoid bracketed paste absorption (#31) (#32)
+
+### Commits
+1. 7a39a53 fix: send Enter separately after message paste to avoid bracketed paste absorption (#31) (#32)
+
+## [0.1.15] - 2026-05-03
+
+### Added
+- feat: add copilot preflight CLI verification (#30)
+
+### Commits
+1. d6218ab feat: add copilot preflight CLI verification (#30)
+
+## [0.1.13] - 2026-05-03
+
+### Added
+- feat(cli): worker logs, send commands + CLI install (#29)
+
+### Commits
+1. 4dc323a feat(cli): worker logs, send commands + CLI install (#29)
+
+## [0.1.12] - 2026-05-03
+
+### Added
+- feat: CLI install & update mechanism (#28)
+
+### Commits
+1. e5961c2 feat: CLI install & update mechanism (#28)
+
+## [0.1.11] - 2026-05-03
+
+### Added
+- feat(cli): stable sorting and status legend for list command (#26)
+
+### Fixed
+- fix: add missing hydra activity bar icon SVG
+
+### Commits
+1. 4d91c45 fix: add missing hydra activity bar icon SVG
+2. 8140367 feat(cli): stable sorting and status legend for list command (#26)
+
+## [0.1.10] - 2026-05-03
+
+### Changed
+- chore: remove legacy Go CLI (#27)
+
+### Commits
+1. e450b04 chore: remove legacy Go CLI (#27)
+
+## [0.1.9] - 2026-05-03
+
+### Changed
+- docs: revamp README and add real-world workflow examples (#25)
+
+### Commits
+1. ca7bc97 docs: revamp README and add real-world workflow examples (#25)
+
+## [0.1.8] - 2026-05-02
+
+### Fixed
+- fix: publish workflow and Marketplace icon (#24)
+
+### Commits
+1. 1ebf6bd fix: publish workflow and Marketplace icon (#24)
+
+## [0.1.7] - 2026-05-02
+
+### Changed
+- chore: resize SVG icons to 150x150
+- chore: rename to hydra-code, bump to v0.1.3, update icons
+- chore: remove completed CLI rewrite planning doc
+- chore: replace hardcoded ~/code paths with ~/.hydra/repo
+
+### Fixed
+- fix: skip past existing tags in publish workflow (#23)
+- fix: correct publisher to zhoujinjing for VS Code Marketplace
+
+### Commits
+1. 82771ec fix: skip past existing tags in publish workflow (#23)
+2. 240fae4 fix: correct publisher to zhoujinjing for VS Code Marketplace
+3. 1096378 chore: resize SVG icons to 150x150
+4. 4545405 chore: rename to hydra-code, bump to v0.1.3, update icons
+5. 76c8cdf chore: remove completed CLI rewrite planning doc
+6. d9936c3 chore: replace hardcoded ~/code paths with ~/.hydra/repo
