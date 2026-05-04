@@ -19,16 +19,16 @@ Release a new version of the Hydra VS Code extension.
 
 2. **Collect commits since last release**
 
-   Find the last release commit:
+   Find the last release tag:
 
    ```bash
-   git log --oneline --grep="^chore: release" -1
+   git tag --sort=-creatordate | head -1
    ```
 
-   Then get all commits between that and HEAD, excluding release commits:
+   Then get all commits between that tag and HEAD, excluding release commits:
 
    ```bash
-   git log --oneline <last-release-hash>..HEAD --no-merges | grep -v 'chore: release'
+   git log --oneline <last-tag>..HEAD --no-merges | grep -v 'chore: release'
    ```
 
 3. **Generate high-level changelog entry**
