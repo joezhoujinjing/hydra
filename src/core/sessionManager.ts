@@ -115,6 +115,10 @@ export class SessionManager {
         worker.status = 'running';
         worker.attached = live.attached;
         worker.lastSeenAt = now;
+        // Backfill missing sessionId for running workers
+        if (!worker.sessionId) {
+          worker.sessionId = await this.ensureSessionId(worker.sessionName, worker.agent, null);
+        }
       } else if (worker.workdir && fs.existsSync(worker.workdir)) {
         worker.status = 'stopped';
         worker.attached = false;
@@ -131,6 +135,10 @@ export class SessionManager {
         copilot.status = 'running';
         copilot.attached = live.attached;
         copilot.lastSeenAt = now;
+        // Backfill missing sessionId for running copilots
+        if (!copilot.sessionId) {
+          copilot.sessionId = await this.ensureSessionId(copilot.sessionName, copilot.agent, null);
+        }
       } else {
         delete state.copilots[key];
       }
@@ -160,6 +168,8 @@ export class SessionManager {
             repoRoot = workdir.substring(0, hydraIdx);
           }
         }
+        // Attempt passive session ID capture for discovered live session
+        const sessionId = await this.ensureSessionId(session.name, agent, null);
         state.workers[session.name] = {
           sessionName: session.name,
           workerId: state.nextWorkerId++,
@@ -174,9 +184,11 @@ export class SessionManager {
           tmuxSession: session.name,
           createdAt: now,
           lastSeenAt: now,
-          sessionId: null,
+          sessionId,
         };
       } else if (role === 'copilot') {
+        // Attempt passive session ID capture for discovered live copilot
+        const sessionId = await this.ensureSessionId(session.name, agent, null);
         state.copilots[session.name] = {
           sessionName: session.name,
           status: 'running',
@@ -186,7 +198,7 @@ export class SessionManager {
           tmuxSession: session.name,
           createdAt: now,
           lastSeenAt: now,
-          sessionId: null,
+          sessionId,
         };
       }
     }
@@ -286,8 +298,10 @@ export class SessionManager {
     await this.backend.setSessionAgent(sessionName, agentType);
 
     // For Claude, pre-assign session ID via --session-id flag (guaranteed correct).
-    // For other agents, capture from filesystem after launch.
+    // For other agents, assign a provisional UUID so the record is never null;
+    // postCreate will overwrite with the agent's real ID when captured.
     const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+    const provisionalSessionId = preAssignedSessionId ?? randomUUID();
     const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
 
     // Launch agent without task (task sent after session ID capture)
@@ -313,7 +327,7 @@ export class SessionManager {
       tmuxSession: sessionName,
       createdAt: now,
       lastSeenAt: now,
-      sessionId: preAssignedSessionId,
+      sessionId: provisionalSessionId,
     };
 
     state.workers[sessionName] = workerInfo;
@@ -405,6 +419,7 @@ export class SessionManager {
     } else {
       // Fresh start — capture new session ID
       const preAssignedSessionId = agent === 'claude' ? randomUUID() : null;
+      const provisionalSessionId = preAssignedSessionId ?? randomUUID();
       const snapshot = this.snapshotAgentSessions(agent, worker.workdir);
       const launchCmd = buildAgentLaunchCommand(agent, command, undefined, worker.repoRoot, preAssignedSessionId ?? undefined);
       await this.backend.sendKeys(sessionName, launchCmd);
@@ -412,7 +427,7 @@ export class SessionManager {
       worker.status = 'running';
       worker.attached = false;
       worker.agent = agent;
-      worker.sessionId = preAssignedSessionId;
+      worker.sessionId = provisionalSessionId;
       worker.lastSeenAt = new Date().toISOString();
       state.updatedAt = new Date().toISOString();
       this.writeSessionState(state);
@@ -442,7 +457,11 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'copilot');
     await this.backend.setSessionAgent(sessionName, agentType);
 
+    // Pre-assign session ID for Claude (used as --session-id flag).
+    // For non-Claude, assign a provisional UUID so the record is never null;
+    // postCreate will overwrite with the agent's real ID when captured.
     const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+    const provisionalSessionId = preAssignedSessionId ?? randomUUID();
     const snapshot = this.snapshotAgentSessions(agentType, opts.workdir);
 
     // For Claude, launch with --session-id; for others, use agentCommand as-is
@@ -461,7 +480,7 @@ export class SessionManager {
       tmuxSession: sessionName,
       createdAt: now,
       lastSeenAt: now,
-      sessionId: preAssignedSessionId,
+      sessionId: provisionalSessionId,
     };
 
     const state = this.readSessionState();
@@ -469,7 +488,7 @@ export class SessionManager {
     state.updatedAt = now;
     this.writeSessionState(state);
 
-    // Capture session ID in background for non-Claude agents
+    // Capture real session ID in background for non-Claude agents
     if (!preAssignedSessionId) {
       this.postCreate(sessionName, agentType, opts.workdir, snapshot, undefined, null).catch(() => {});
     }
@@ -637,6 +656,8 @@ export class SessionManager {
     workdir: string,
     sessionId: string | null,
   ): void {
+    // Never persist null — use a provisional UUID as fallback
+    const durableSessionId = sessionId ?? randomUUID();
     const state = this.readSessionState();
     const now = new Date().toISOString();
     state.copilots[sessionName] = {
@@ -648,7 +669,7 @@ export class SessionManager {
       tmuxSession: sessionName,
       createdAt: now,
       lastSeenAt: now,
-      sessionId,
+      sessionId: durableSessionId,
     };
     state.updatedAt = now;
     this.writeSessionState(state);
@@ -813,6 +834,50 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Ensure a running session has a non-null sessionId.
+   * Attempts passive capture from pane scrollback (non-disruptive).
+   * Returns the existing or newly-captured sessionId, or null only if
+   * capture is truly impossible (unknown agent, no scrollback match).
+   */
+  private async ensureSessionId(
+    sessionName: string,
+    agentType: string,
+    currentId: string | null,
+  ): Promise<string | null> {
+    if (currentId) return currentId;
+
+    // Passive capture: read pane scrollback without sending any commands
+    try {
+      const output = await this.backend.capturePane(sessionName, 500);
+
+      // Claude: look for --session-id or --resume <uuid> in the launch command
+      if (agentType === 'claude') {
+        const match = output.match(
+          /(?:--session-id|--resume)\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/,
+        );
+        if (match?.[1]) {
+          this.updateSessionId(sessionName, match[1]);
+          return match[1];
+        }
+      }
+
+      // Codex / Gemini: reuse their existing sessionIdPattern against scrollback
+      const config = AGENT_SESSION_CAPTURE[agentType];
+      if (config) {
+        const match = output.match(config.sessionIdPattern);
+        if (match?.[1]) {
+          this.updateSessionId(sessionName, match[1]);
+          return match[1];
+        }
+      }
+    } catch {
+      // Pane capture failed (session may have just died) — fall through
+    }
+
+    return null;
+  }
+
   private updateSessionId(sessionName: string, sessionId: string | null): void {
     const state = this.readSessionState();
     if (state.workers[sessionName]) {
@@ -863,6 +928,9 @@ export class SessionManager {
       const existingWorker = state.workers[sessionName];
       const workerId = existingWorker?.workerId ?? state.nextWorkerId++;
 
+      // Backfill sessionId if missing on a running session
+      const sessionId = await this.ensureSessionId(sessionName, agent, existingWorker?.sessionId ?? null);
+
       const workerInfo: WorkerInfo = {
         sessionName,
         workerId,
@@ -877,7 +945,7 @@ export class SessionManager {
         tmuxSession: sessionName,
         createdAt: now,
         lastSeenAt: now,
-        sessionId: existingWorker?.sessionId ?? null,
+        sessionId,
       };
 
       state.workers[sessionName] = workerInfo;
@@ -922,10 +990,11 @@ export class SessionManager {
       } else {
         // Fresh start — capture new session ID
         const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+        const provisionalSessionId = preAssignedSessionId ?? randomUUID();
         const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
         const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, repoRoot, preAssignedSessionId ?? undefined);
         await this.backend.sendKeys(sessionName, launchCmd);
-        sessionId = preAssignedSessionId;
+        sessionId = provisionalSessionId;
         postCreatePromise = this.postCreate(sessionName, agentType, worktreePath, snapshot, task, preAssignedSessionId);
       }
 
