@@ -1,11 +1,16 @@
 ---
 name: release-hydra
-description: Use when releasing a new version of Hydra. Bumps version, generates changelog from commits since last release, and commits the release.
+description: Use when releasing a new version of Hydra. Bumps version, generates changelog, and creates a release PR.
 ---
 
 # Skill: release-hydra
 
-Release a new version of the Hydra VS Code extension.
+Release a new version of the Hydra VS Code extension by creating a release PR.
+
+## Prerequisites
+
+- Must be run from a branch off `main` (e.g., `release/<version>`), NOT directly on `main`.
+- If not already on a release branch, create one first: `git checkout -b release/<version>`
 
 ## Steps
 
@@ -25,7 +30,7 @@ Release a new version of the Hydra VS Code extension.
    git tag --sort=-creatordate | head -1
    ```
 
-   Then get all commits between that tag and HEAD, excluding release commits:
+   Then get all commits between that tag and HEAD on `main`, excluding release commits:
 
    ```bash
    git log --oneline <last-tag>..HEAD --no-merges | grep -v 'chore: release'
@@ -47,18 +52,25 @@ Release a new version of the Hydra VS Code extension.
    - `package.json` (`"version"` field)
    - `package-lock.json` (both root `"version"` and `packages[""].version`)
 
-5. **Commit, tag, and push**
+5. **Commit and create release PR**
 
    ```bash
    git add package.json package-lock.json CHANGELOG.md
    git commit -m "chore: release v<version>"
-   git tag v<version>
-   git push origin main v<version>
+   git push -u origin HEAD
    ```
 
-   The tag push triggers CI to package and publish the extension.
+   Then create a PR targeting `main`:
+
+   ```bash
+   gh pr create --title "chore: release v<version>" --body "Release v<version>" --base main
+   ```
+
+   When the PR is merged, the `auto-tag-release.yml` workflow detects the version bump in `package.json` and automatically creates + pushes the `v<version>` tag, which in turn triggers the publish workflow.
 
 ## Notes
 
+- **Do NOT create or push tags manually.** The `auto-tag-release.yml` workflow handles tagging automatically when the version bump lands on `main`.
 - The publish workflow (`.github/workflows/publish.yml`) triggers on `v*` tags and handles: VSIX packaging, Marketplace/Open VSX publishing, and GitHub Release creation.
+- Full release pipeline: PR merged → auto-tag detects version bump → creates `v<version>` tag → publish workflow runs.
 - Only run this skill from the repo root or a worktree of the hydra repo.
