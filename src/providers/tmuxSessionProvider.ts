@@ -613,10 +613,12 @@ function sortAndFilter(items: TmuxItem[], filter: FilterType): TmuxItem[] {
     const currentB = b instanceof WorktreeItem && b.isCurrentWorkspace;
     if (currentA !== currentB) return currentA ? -1 : 1;
 
+    const nameCompare = a.label.localeCompare(b.label);
+    if (nameCompare !== 0) return nameCompare;
+
     const scoreA = getItemScore(a);
     const scoreB = getItemScore(b);
-    if (scoreA !== scoreB) return scoreA - scoreB;
-    return a.label.localeCompare(b.label);
+    return scoreA - scoreB;
   });
 
   if (filter === 'all') return items;

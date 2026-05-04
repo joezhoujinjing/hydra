@@ -11,10 +11,28 @@ import { shellQuote } from './shell';
 const HYDRA_DIR = path.join(os.homedir(), '.hydra');
 const SESSIONS_FILE = path.join(HYDRA_DIR, 'sessions.json');
 
+/**
+ * Look up a worker's numeric ID from sessions.json.
+ * Lightweight standalone function — no SessionManager instance needed.
+ */
+export function lookupWorkerId(sessionName: string): number | undefined {
+  try {
+    if (fs.existsSync(SESSIONS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8'));
+      return parsed.workers?.[sessionName]?.workerId;
+    }
+  } catch {
+    // Best-effort
+  }
+  return undefined;
+}
+
+
 // ── Types ──
 
 export interface WorkerInfo {
   sessionName: string;
+  workerId: number;
   repo: string;
   repoRoot: string;
   branch: string;
@@ -42,6 +60,7 @@ export interface CopilotInfo {
 export interface SessionState {
   copilots: Record<string, CopilotInfo>;
   workers: Record<string, WorkerInfo>;
+  nextWorkerId: number;
   updatedAt: string;
 }
 
@@ -83,6 +102,10 @@ export class SessionManager {
 
     // Reconcile workers
     for (const [key, worker] of Object.entries(state.workers)) {
+      // Backfill workerId for workers created before this feature
+      if (worker.workerId == null) {
+        worker.workerId = state.nextWorkerId++;
+      }
       const live = liveSessionMap.get(worker.sessionName);
       if (live) {
         worker.status = 'running';
@@ -135,6 +158,7 @@ export class SessionManager {
         }
         state.workers[session.name] = {
           sessionName: session.name,
+          workerId: state.nextWorkerId++,
           repo: repoRoot ? path.basename(repoRoot) : 'unknown',
           repoRoot,
           branch: '',
@@ -260,8 +284,13 @@ export class SessionManager {
     await this.backend.sendKeys(sessionName, launchCmd);
 
     const now = new Date().toISOString();
+    const state = this.readSessionState();
+    const workerId = state.nextWorkerId;
+    state.nextWorkerId = workerId + 1;
+
     const workerInfo: WorkerInfo = {
       sessionName,
+      workerId,
       repo: coreGit.getRepoName(repoRoot),
       repoRoot,
       branch: branchName,
@@ -275,7 +304,6 @@ export class SessionManager {
       lastSeenAt: now,
     };
 
-    const state = this.readSessionState();
     state.workers[sessionName] = workerInfo;
     state.updatedAt = now;
     this.writeSessionState(state);
@@ -558,13 +586,14 @@ export class SessionManager {
         return {
           copilots: parsed.copilots || {},
           workers: parsed.workers || {},
+          nextWorkerId: parsed.nextWorkerId || 1,
           updatedAt: parsed.updatedAt || new Date().toISOString(),
         };
       }
     } catch {
       // Corrupted file — start fresh
     }
-    return { copilots: {}, workers: {}, updatedAt: new Date().toISOString() };
+    return { copilots: {}, workers: {}, nextWorkerId: 1, updatedAt: new Date().toISOString() };
   }
 
   private writeSessionState(state: SessionState): void {
@@ -644,8 +673,13 @@ export class SessionManager {
       const agent = await this.backend.getSessionAgent(sessionName) || agentType;
       const now = new Date().toISOString();
 
+      const state = this.readSessionState();
+      const existingId = state.workers[sessionName]?.workerId;
+      const workerId = existingId ?? state.nextWorkerId++;
+
       const workerInfo: WorkerInfo = {
         sessionName,
+        workerId,
         repo: coreGit.getRepoName(repoRoot),
         repoRoot,
         branch: branchName,
@@ -659,7 +693,6 @@ export class SessionManager {
         lastSeenAt: now,
       };
 
-      const state = this.readSessionState();
       state.workers[sessionName] = workerInfo;
       state.updatedAt = now;
       this.writeSessionState(state);
@@ -679,8 +712,13 @@ export class SessionManager {
       await this.backend.sendKeys(sessionName, launchCmd);
 
       const now = new Date().toISOString();
+      const state = this.readSessionState();
+      const existingId = state.workers[sessionName]?.workerId;
+      const workerId = existingId ?? state.nextWorkerId++;
+
       const workerInfo: WorkerInfo = {
         sessionName,
+        workerId,
         repo: coreGit.getRepoName(repoRoot),
         repoRoot,
         branch: branchName,
@@ -694,7 +732,6 @@ export class SessionManager {
         lastSeenAt: now,
       };
 
-      const state = this.readSessionState();
       state.workers[sessionName] = workerInfo;
       state.updatedAt = now;
       this.writeSessionState(state);

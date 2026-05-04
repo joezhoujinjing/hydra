@@ -38,24 +38,25 @@ export function getHydraEditorLocation(role?: HydraRole): vscode.TerminalEditorL
   return { viewColumn: existing ?? vscode.ViewColumn.Beside, preserveFocus: false };
 }
 
-const MAX_SHORT_NAME_LENGTH = 20;
-
-function truncateShortName(name: string): string {
-  if (name.length <= MAX_SHORT_NAME_LENGTH) return name;
-  return name.slice(0, MAX_SHORT_NAME_LENGTH - 1) + '\u2026';
-}
+const MAX_COPILOT_NAME_LENGTH = 20;
 
 /**
- * Build a terminal name with a Hydra prefix based on role.
- * Returns a plain shortName when no role is specified.
+ * Build a terminal name based on role.
+ * - Worker: just the prefix — VS Code appends the cwdFolder automatically.
+ * - Copilot: prefix + agent name (truncated), since copilots have no worktree cwd.
  */
-export function buildHydraTerminalName(shortName: string, role?: HydraRole): string {
+export function buildHydraTerminalName(shortName: string, role?: HydraRole, workerId?: number): string {
   if (role === 'copilot') {
-    const agentName = shortName.replace(/^hydra-copilot-/, '');
-    return `${HYDRA_PREFIX_COPILOT} ${truncateShortName(agentName)}`;
+    let agentName = shortName.replace(/^hydra-copilot-/, '');
+    if (agentName.length > MAX_COPILOT_NAME_LENGTH) {
+      agentName = agentName.slice(0, MAX_COPILOT_NAME_LENGTH - 1) + '\u2026';
+    }
+    return `${HYDRA_PREFIX_COPILOT} ${agentName}`;
   }
-  if (role === 'worker') return `${HYDRA_PREFIX_WORKER} ${truncateShortName(shortName)}`;
-  return truncateShortName(shortName);
+  if (role === 'worker') {
+    return workerId != null ? `${HYDRA_PREFIX_WORKER} #${workerId}` : HYDRA_PREFIX_WORKER;
+  }
+  return shortName;
 }
 
 /**
