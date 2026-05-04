@@ -19,10 +19,10 @@ After changes, always run `npm run compile` to verify the build succeeds before 
 To test the extension in a VS Code Extension Development Host:
 
 ```bash
-cd <worktree-or-repo-path>
+cd <absolute-path-to-worktree-or-repo>
 npm run compile
 mkdir -p /tmp/hydra-test
-code --extensionDevelopmentPath="$(pwd)" /tmp/hydra-test
+code --extensionDevelopmentPath="<absolute-path-to-worktree-or-repo>" /tmp/hydra-test
 ```
 
 ## Project Structure

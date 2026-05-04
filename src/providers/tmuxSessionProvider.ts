@@ -22,6 +22,8 @@ export interface SessionStatus {
   classification: Classification;
   commitsAhead: number;
   cpuUsage: number;
+  prNumber?: number;
+  prState?: 'open' | 'closed' | 'merged';
 }
 
 interface SessionWithStatus extends MultiplexerSession {
@@ -233,6 +235,34 @@ async function isGitInitialized(dirPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+interface PrInfo {
+  number: number;
+  state: 'open' | 'closed' | 'merged';
+}
+
+async function fetchRepoPrStatuses(repoRoot: string): Promise<Map<string, PrInfo>> {
+  const map = new Map<string, PrInfo>();
+  try {
+    const json = await exec(
+      'gh pr list --state all --json headRefName,number,state --limit 100',
+      { cwd: repoRoot }
+    );
+    const prs: { headRefName: string; number: number; state: string }[] = JSON.parse(json);
+    // Keep the first (most recent) PR per branch
+    for (const pr of prs) {
+      if (!map.has(pr.headRefName)) {
+        const state = pr.state === 'MERGED' ? 'merged'
+          : pr.state === 'CLOSED' ? 'closed'
+          : 'open';
+        map.set(pr.headRefName, { number: pr.number, state });
+      }
+    }
+  } catch {
+    void 0;
+  }
+  return map;
 }
 
 // ─── Tree Item Classes ────────────────────────────────────
@@ -466,12 +496,22 @@ export class GitStatusItem extends TmuxItem {
     if (status.gitModified > 0) parts.push(`M:${status.gitModified}`);
     if (newCount > 0) parts.push(`U:${newCount}`);
     if (status.gitDeleted > 0) parts.push(`D:${status.gitDeleted}`);
+    if (status.prNumber) parts.push(`PR #${status.prNumber} ${status.prState}`);
 
     const label = parts.join(' · ');
     super(label, vscode.TreeItemCollapsibleState.None, repoName, sessionName);
 
     this.contextValue = 'tmuxItem';
-    this.iconPath = new vscode.ThemeIcon('git-commit', new vscode.ThemeColor('charts.green'));
+
+    let iconColor: vscode.ThemeColor;
+    if (status.prState === 'merged') {
+      iconColor = new vscode.ThemeColor('charts.purple');
+    } else if (status.prState === 'closed') {
+      iconColor = new vscode.ThemeColor('charts.red');
+    } else {
+      iconColor = new vscode.ThemeColor('charts.green');
+    }
+    this.iconPath = new vscode.ThemeIcon('git-commit', iconColor);
     this.worktreePath = worktreePath;
   }
 }
@@ -521,7 +561,7 @@ export class TmuxSessionItem extends WorktreeItem {
 
     const hasGitChanges = session.status.commitsAhead > 0 || session.status.gitModified > 0 ||
       session.status.gitDeleted > 0 || session.status.gitAdded > 0 || session.status.gitUntracked > 0;
-    if (hasGitChanges) {
+    if (hasGitChanges || session.status.prNumber) {
       this.gitStatusItem = new GitStatusItem(session.status, repoName, session.name, session.worktreePath);
     }
   }
@@ -565,7 +605,7 @@ export class InactiveWorktreeItem extends WorktreeItem {
     if (gitStatusOverride) {
       const hasGitChanges = gitStatusOverride.commitsAhead > 0 || gitStatusOverride.gitModified > 0 ||
         (gitStatusOverride.gitAdded + gitStatusOverride.gitUntracked) > 0 || gitStatusOverride.gitDeleted > 0;
-      if (hasGitChanges) {
+      if (hasGitChanges || gitStatusOverride.prNumber) {
         this.gitStatusItem = new GitStatusItem(gitStatusOverride, repoName, targetSessionName, worktree.path);
       }
     }
@@ -779,6 +819,7 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
 
   private async buildWorkerItems(workers: WorkerInfo[], repoName: string, repoRoot: string): Promise<TmuxItem[]> {
     const activePath = getActiveWorkspacePath();
+    const prMap = await fetchRepoPrStatuses(repoRoot);
     const items: TmuxItem[] = [];
 
     for (const w of workers) {
@@ -790,8 +831,14 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
         ? await getWorktreeBranchLabel(w.workdir, w.branch || w.slug)
         : (w.branch || w.slug);
 
+      const pr = prMap.get(branchLabel);
+
       if (w.status === 'running') {
         const status = await getSessionStatus(w.sessionName, w.workdir);
+        if (pr) {
+          status.prNumber = pr.number;
+          status.prState = pr.state;
+        }
         const session: SessionWithStatus = {
           name: w.sessionName,
           windows: 1,
@@ -810,10 +857,20 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
       } else {
         const worktree: Worktree = { path: w.workdir, branch: w.branch, isMain: false };
         const gitStatus = hasGit && w.workdir ? await getWorktreeGitStatus(w.workdir) : undefined;
-        const stoppedStatus: SessionStatus | undefined = gitStatus ? {
+        let stoppedStatus: SessionStatus | undefined = gitStatus ? {
           attached: false, panes: 0, lastActive: 0, classification: 'stopped', cpuUsage: 0,
           ...gitStatus
         } : undefined;
+        if (pr) {
+          if (!stoppedStatus) {
+            stoppedStatus = {
+              attached: false, panes: 0, lastActive: 0, classification: 'stopped', cpuUsage: 0,
+              gitDirty: 0, gitModified: 0, gitAdded: 0, gitDeleted: 0, gitUntracked: 0, commitsAhead: 0,
+            };
+          }
+          stoppedStatus.prNumber = pr.number;
+          stoppedStatus.prState = pr.state;
+        }
         items.push(new InactiveWorktreeItem(
           worktree, repoName, w.sessionName, isCurrentWs, hasGit,
           this._extensionUri, branchLabel, stoppedStatus, repoRoot
