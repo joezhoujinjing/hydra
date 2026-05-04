@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.24] - 2026-05-04
+
+### Added
+- feat: show PR status alongside git changes in tree view (#53)
+
+### Commits
+1. ced03cf feat: show PR status alongside git changes in tree view (#53)
+
 ## [0.1.23] - 2026-05-04
 
 ### Added
