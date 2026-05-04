@@ -11,10 +11,10 @@
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=zhoujinjing.hydra-code">
-    <img src="https://img.shields.io/visual-studio-marketplace/v/zhoujinjing.hydra-code?label=Marketplace" alt="Marketplace" />
+    <img src="https://vsmarketplacebadges.dev/version/zhoujinjing.hydra-code.svg" alt="Marketplace" />
   </a>
   <a href="https://marketplace.visualstudio.com/items?itemName=zhoujinjing.hydra-code">
-    <img src="https://img.shields.io/visual-studio-marketplace/i/zhoujinjing.hydra-code" alt="Installs" />
+    <img src="https://vsmarketplacebadges.dev/installs/zhoujinjing.hydra-code.svg" alt="Installs" />
   </a>
   <a href="LICENSE.md">
     <img src="https://img.shields.io/github/license/joezhoujinjing/hydra" alt="License" />
