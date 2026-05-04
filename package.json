@@ -111,7 +111,7 @@
       },
       {
         "command": "tmux.removeTask",
-        "title": "Hydra: Remove Task"
+        "title": "Hydra: Remove"
       },
       {
         "command": "tmux.refresh",
@@ -120,7 +120,7 @@
       },
       {
         "command": "tmux.attach",
-        "title": "Attach in Terminal"
+        "title": "Open in Terminal"
       },
       {
         "command": "tmux.attachInEditor",
@@ -128,11 +128,11 @@
       },
       {
         "command": "tmux.openWorktree",
-        "title": "Open Worktree in New Window"
+        "title": "Open in New Window"
       },
       {
         "command": "tmux.copyPath",
-        "title": "Copy Worktree Path"
+        "title": "Copy Path"
       },
       {
         "command": "tmux.newPane",
@@ -250,43 +250,23 @@
       "view/item/context": [
         {
           "command": "tmux.attach",
-          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
-          "group": "1_attach"
-        },
-        {
-          "command": "tmux.attachInEditor",
-          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
-          "group": "1_attach"
+          "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem' || viewItem == 'copilotItem')",
+          "group": "1_open"
         },
         {
           "command": "tmux.openWorktree",
-          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
-          "group": "2_open"
+          "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem')",
+          "group": "1_open"
         },
         {
           "command": "tmux.copyPath",
-          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
-          "group": "2_open"
-        },
-        {
-          "command": "tmux.newPane",
-          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
-          "group": "3_tmux"
-        },
-        {
-          "command": "tmux.newWindow",
-          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
-          "group": "3_tmux"
-        },
-        {
-          "command": "tmux.createWorktreeFromBranch",
-          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
-          "group": "4_create"
+          "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem')",
+          "group": "2_copy"
         },
         {
           "command": "tmux.removeTask",
-          "when": "(view == hydraCopilots || view == hydraWorkers) && viewItem == tmuxItem",
-          "group": "5_danger"
+          "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem' || viewItem == 'copilotItem')",
+          "group": "9_danger"
         }
       ]
     }

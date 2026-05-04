@@ -49,7 +49,7 @@ code --extensionDevelopmentPath="<absolute-path-to-worktree-or-repo>" /tmp/hydra
 - **Slug Collision**: basename → parent dir disambiguation → short path hash. Reserve `main` for the primary worktree.
 - **Canonical Path Matching**: Normalize to absolute paths with `~` expansion for equality checks. Do not collapse symlinks via `realpath`.
 - **Unpublished Task Branches**: Don't set `branch.<name>.remote`/`.merge` before first push — VS Code SCM would try to sync against a non-existent remote. Set only `branch.<name>.vscode-merge-base`.
-- **Tree Context Menu**: Use a single `contextValue` (`tmuxItem`) for levels 2/3/4.
+- **Tree Context Menu**: Use per-type `contextValue` — `copilotItem`, `workerItem`, `inactiveWorkerItem`, `detailItem`, `gitStatusItem` — to scope right-click actions to relevant item types.
 - **No-Git Workspace**: Show one primary item labeled `current project (no git)` mapped to workspace path.
 - **Polymorphism**: Commands must handle `TmuxItem` base class and variants (`TmuxSessionItem`, `InactiveWorktreeItem`, etc.). Use `getWorktreePath(item)` helper.
 - **Legacy Compatibility**: Centralized in `src/utils/sessionCompatibility.ts`.
