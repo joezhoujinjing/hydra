@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import { exec } from "../utils/exec";
 import { getActiveBackend } from "../utils/multiplexer";
+import { SessionManager } from "../core/sessionManager";
 
 function isSessionNotFoundError(err: unknown): boolean {
   return err instanceof Error && err.message.includes("can't find session");
@@ -68,24 +69,36 @@ export async function removeTask(item: TmuxItem): Promise<void> {
     return;
   }
 
-  // Handle CopilotItem: kill session only (no worktree)
+  // Handle CopilotItem: stop or delete
   if (item instanceof CopilotItem) {
-    const confirm = await vscode.window.showWarningMessage(
-      `Kill copilot session "${item.sessionName}"?`,
-      { modal: true },
-      "Kill Session",
-    );
-    if (confirm !== "Kill Session") return;
+    const backend = getActiveBackend();
+    const sm = new SessionManager(backend);
 
-    try {
-      await getActiveBackend().killSession(item.sessionName);
-    } catch (err) {
-      if (!isSessionNotFoundError(err)) {
-        vscode.window.showErrorMessage(`Failed to kill session: ${err}`);
-        return;
+    if (item.classification === 'stopped') {
+      const confirm = await vscode.window.showWarningMessage(
+        `Delete stopped copilot "${item.sessionName}"? This cannot be undone.`,
+        { modal: true },
+        "Delete Copilot",
+      );
+      if (confirm !== "Delete Copilot") return;
+      await sm.deleteCopilot(item.sessionName);
+      vscode.window.showInformationMessage(`Deleted copilot: ${item.sessionName}`);
+    } else {
+      const action = await vscode.window.showWarningMessage(
+        `Copilot "${item.sessionName}" is running.`,
+        { modal: true },
+        "Stop (Keep for Resume)",
+        "Delete Permanently",
+      );
+      if (!action) return;
+      if (action === "Stop (Keep for Resume)") {
+        await sm.stopCopilot(item.sessionName);
+        vscode.window.showInformationMessage(`Stopped copilot: ${item.sessionName}`);
+      } else {
+        await sm.deleteCopilot(item.sessionName);
+        vscode.window.showInformationMessage(`Deleted copilot: ${item.sessionName}`);
       }
     }
-    vscode.window.showInformationMessage(`Killed copilot session: ${item.sessionName}`);
     vscode.commands.executeCommand("tmux.refresh");
     return;
   }

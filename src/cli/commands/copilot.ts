@@ -74,4 +74,62 @@ export function registerCopilotCommands(program: Command): void {
         outputError(error, globalOpts);
       }
     });
+
+  copilot
+    .command('start <session>')
+    .description('Resume a stopped copilot')
+    .action(async (sessionName: string) => {
+      const globalOpts = program.opts() as OutputOpts;
+      try {
+        const backend = new TmuxBackendCore();
+        const sm = new SessionManager(backend);
+        const { copilotInfo, postCreatePromise } = await sm.resumeCopilot(sessionName);
+        await postCreatePromise;
+        outputResult(
+          { status: 'resumed', session: copilotInfo.sessionName, agent: copilotInfo.agent },
+          globalOpts,
+          () => console.log(`Resumed copilot: ${copilotInfo.sessionName} [${copilotInfo.agent}]`),
+        );
+      } catch (error) {
+        outputError(error, globalOpts);
+      }
+    });
+
+  copilot
+    .command('stop <session>')
+    .description('Stop a running copilot (keeps for resume)')
+    .action(async (sessionName: string) => {
+      const globalOpts = program.opts() as OutputOpts;
+      try {
+        const backend = new TmuxBackendCore();
+        const sm = new SessionManager(backend);
+        await sm.stopCopilot(sessionName);
+        outputResult(
+          { status: 'stopped', session: sessionName },
+          globalOpts,
+          () => console.log(`Stopped copilot: ${sessionName}`),
+        );
+      } catch (error) {
+        outputError(error, globalOpts);
+      }
+    });
+
+  copilot
+    .command('delete <session>')
+    .description('Permanently delete a copilot')
+    .action(async (sessionName: string) => {
+      const globalOpts = program.opts() as OutputOpts;
+      try {
+        const backend = new TmuxBackendCore();
+        const sm = new SessionManager(backend);
+        await sm.deleteCopilot(sessionName);
+        outputResult(
+          { status: 'deleted', session: sessionName },
+          globalOpts,
+          () => console.log(`Deleted copilot: ${sessionName}`),
+        );
+      } catch (error) {
+        outputError(error, globalOpts);
+      }
+    });
 }

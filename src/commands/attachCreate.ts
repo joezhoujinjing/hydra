@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { getRepoRoot } from '../utils/git';
 import { getActiveBackend } from '../utils/multiplexer';
-import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem } from '../providers/tmuxSessionProvider';
+import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem, CopilotItem } from '../providers/tmuxSessionProvider';
+import { SessionManager } from '../core/sessionManager';
 import { createRepoSessionPrefixConfig, isWorkdirInRepo } from '../utils/sessionCompatibility';
 
 async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
@@ -70,6 +71,17 @@ async function handleTreeViewItem(item: TmuxItem): Promise<void> {
         return;
     }
     
+    // Handle stopped copilot — resume
+    if (item instanceof CopilotItem && item.classification === 'stopped') {
+        const sm = new SessionManager(backend);
+        const { postCreatePromise } = await sm.resumeCopilot(sessionName);
+        backend.attachSession(sessionName, item.worktreePath, undefined, 'copilot');
+        postCreatePromise.catch(() => { /* best-effort */ });
+        vscode.window.showInformationMessage(`Resumed copilot: ${sessionName}`);
+        vscode.commands.executeCommand('tmux.refresh');
+        return;
+    }
+
     vscode.window.showErrorMessage(`Session '${sessionName}' not found and cannot be created automatically.`);
 }
 

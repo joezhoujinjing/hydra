@@ -26,6 +26,7 @@ export function registerListCommand(program: Command): void {
             status: c.status,
             attached: c.attached,
             workdir: c.workdir || null,
+            agentSessionId: c.sessionId || null,
           })),
           workers: workers.map(w => ({
             session: w.sessionName || w.tmuxSession,
@@ -59,6 +60,7 @@ export function registerListCommand(program: Command): void {
               const name = c.sessionName || c.tmuxSession;
               console.log(`  ${statusIcon} ${name}  [${c.agent}]${attached}`);
               if (c.workdir) console.log(`    workdir: ${c.workdir}`);
+              if (c.sessionId) console.log(`    agent session: ${c.sessionId}`);
             }
           } else {
             console.log('\nNo copilots running.');

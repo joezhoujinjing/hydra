@@ -1,8 +1,7 @@
 import * as os from 'os';
-import { randomUUID } from 'crypto';
 import * as vscode from 'vscode';
 import { getActiveBackend, MultiplexerBackend } from '../utils/multiplexer';
-import { pickAgentType, getAgentCommand, buildAgentLaunchCommand, AgentType } from '../utils/agentConfig';
+import { pickAgentType, getAgentCommand, AgentType } from '../utils/agentConfig';
 import { TmuxBackendCore } from '../core/tmux';
 import { SessionManager } from '../core/sessionManager';
 
@@ -28,27 +27,14 @@ Before anything else, run \`hydra --version\`. If the command is not found, the 
 
 Full reference: https://github.com/joezhoujinjing/hydra/blob/main/AGENTS.md`;
 
-function sendCopilotOnboarding(
-  backend: MultiplexerBackend,
-  sessionName: string,
-  agentType?: string,
-  sm?: SessionManager,
-  preAssignedSessionId?: string,
-): void {
-  (async () => {
+function sendCopilotOnboarding(backend: MultiplexerBackend, sessionName: string): void {
+  setTimeout(async () => {
     try {
-      if (!preAssignedSessionId && agentType && sm) {
-        // Non-Claude: capture session ID first (includes readiness wait)
-        await sm.captureAndPersistSessionId(sessionName, agentType);
-      } else {
-        // Claude: wait for agent readiness before sending prompt
-        await new Promise(resolve => setTimeout(resolve, 8000));
-      }
       await backend.sendMessage(sessionName, ONBOARDING_PROMPT);
     } catch {
       // Best-effort — agent may not be ready yet
     }
-  })();
+  }, 10000);
 }
 
 export async function createCopilotWithAgent(agentType: AgentType): Promise<void> {
@@ -58,44 +44,46 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
     return;
   }
 
+  const sm = new SessionManager(new TmuxBackendCore());
+  const state = await sm.sync();
   const cwd = os.homedir();
   const sessionName = backend.sanitizeSessionName(`hydra-copilot-${agentType}`);
 
-  // If session already exists, just attach
-  const sessions = await backend.listSessions();
-  for (const session of sessions) {
-    if (session.name === sessionName) {
-      const workdir = await backend.getSessionWorkdir(session.name);
-      backend.attachSession(session.name, workdir, undefined, 'copilot');
+  // Check for existing copilot
+  const existing = state.copilots[sessionName];
+  if (existing) {
+    if (existing.status === 'running') {
+      backend.attachSession(sessionName, existing.workdir, undefined, 'copilot');
+      return;
+    }
+    // Stopped — resume
+    try {
+      const { postCreatePromise } = await sm.resumeCopilot(sessionName);
+      sendCopilotOnboarding(backend, sessionName);
+      backend.attachSession(sessionName, existing.workdir || cwd, undefined, 'copilot');
+      postCreatePromise.catch(() => { /* best-effort */ });
+      vscode.window.showInformationMessage(`Resumed copilot: ${sessionName} (${agentType})`);
+      vscode.commands.executeCommand('tmux.refresh');
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to resume copilot: ${message}`);
       return;
     }
   }
 
   try {
-    await backend.createSession(sessionName, cwd);
-    await backend.setSessionWorkdir(sessionName, cwd);
-    await backend.setSessionRole(sessionName, 'copilot');
-    await backend.setSessionAgent(sessionName, agentType);
+    const copilotInfo = await sm.createCopilot({
+      workdir: cwd,
+      agentType,
+      sessionName,
+      agentCommand: getAgentCommand(agentType),
+    });
 
-    // Prepend PATH so `hydra` CLI is available inside the session
-    await backend.sendKeys(sessionName, 'export PATH="$HOME/.hydra/bin:$PATH"');
+    sendCopilotOnboarding(backend, copilotInfo.sessionName);
+    backend.attachSession(copilotInfo.sessionName, cwd, undefined, 'copilot');
 
-    // For Claude, pre-assign session ID via --session-id flag
-    const preAssignedSessionId = agentType === 'claude' ? randomUUID() : undefined;
-    const agentBinary = getAgentCommand(agentType);
-    const launchCmd = buildAgentLaunchCommand(agentType, agentBinary, undefined, undefined, preAssignedSessionId);
-    await backend.sendKeys(sessionName, launchCmd);
-
-    // Persist copilot with session ID to sessions.json
-    const sm = new SessionManager(new TmuxBackendCore());
-    sm.persistCopilotSessionId(sessionName, agentType, cwd, preAssignedSessionId ?? null);
-
-    // Send onboarding prompt after agent boots (and capture session ID for non-Claude)
-    sendCopilotOnboarding(backend, sessionName, agentType, sm, preAssignedSessionId);
-
-    backend.attachSession(sessionName, cwd, undefined, 'copilot');
-
-    vscode.window.showInformationMessage(`Copilot created: ${sessionName} (${agentType})`);
+    vscode.window.showInformationMessage(`Copilot created: ${copilotInfo.sessionName} (${agentType})`);
     vscode.commands.executeCommand('tmux.refresh');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -110,11 +98,9 @@ export async function createCopilot(): Promise<void> {
     return;
   }
 
-  // Pick agent type
   const agentType = await pickAgentType();
   if (!agentType) return;
 
-  // Ask for session name (default: hydra-copilot-<agent>)
   const defaultName = `hydra-copilot-${agentType}`;
   const nameInput = await vscode.window.showInputBox({
     prompt: 'Copilot session name',
@@ -124,53 +110,65 @@ export async function createCopilot(): Promise<void> {
   if (!nameInput) return;
 
   const sessionName = backend.sanitizeSessionName(nameInput.trim());
+  const sm = new SessionManager(new TmuxBackendCore());
+  const state = await sm.sync();
+  const cwd = os.homedir();
 
-  // Check if session already exists
-  const sessions = await backend.listSessions();
-  for (const session of sessions) {
-    if (session.name === sessionName) {
+  // Check for existing copilot
+  const existing = state.copilots[sessionName];
+  if (existing) {
+    if (existing.status === 'running') {
       const action = await vscode.window.showInformationMessage(
-        `Session "${sessionName}" already exists.`,
+        `Session "${sessionName}" is already running.`,
         'Attach',
         'Cancel'
       );
       if (action === 'Attach') {
-        const workdir = await backend.getSessionWorkdir(session.name);
-        backend.attachSession(session.name, workdir, undefined, 'copilot');
+        backend.attachSession(sessionName, existing.workdir, undefined, 'copilot');
       }
       return;
     }
+
+    // Stopped — ask user
+    const action = await vscode.window.showInformationMessage(
+      `Copilot "${sessionName}" was stopped. Resume previous session?`,
+      'Resume',
+      'Create New',
+      'Cancel'
+    );
+    if (action === 'Cancel' || !action) return;
+
+    if (action === 'Resume') {
+      try {
+        const { postCreatePromise } = await sm.resumeCopilot(sessionName);
+        sendCopilotOnboarding(backend, sessionName);
+        backend.attachSession(sessionName, existing.workdir || cwd, undefined, 'copilot');
+        postCreatePromise.catch(() => { /* best-effort */ });
+        vscode.window.showInformationMessage(`Resumed copilot: ${sessionName} (${agentType})`);
+        vscode.commands.executeCommand('tmux.refresh');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(`Failed to resume copilot: ${message}`);
+      }
+      return;
+    }
+
+    // "Create New" — delete old and fall through
+    await sm.deleteCopilot(sessionName);
   }
 
-  const cwd = os.homedir();
-
   try {
-    // Create tmux session
-    await backend.createSession(sessionName, cwd);
-    await backend.setSessionWorkdir(sessionName, cwd);
-    await backend.setSessionRole(sessionName, 'copilot');
-    await backend.setSessionAgent(sessionName, agentType);
+    const copilotInfo = await sm.createCopilot({
+      workdir: cwd,
+      agentType,
+      sessionName,
+      agentCommand: getAgentCommand(agentType),
+    });
 
-    // Prepend PATH so `hydra` CLI is available inside the session
-    await backend.sendKeys(sessionName, 'export PATH="$HOME/.hydra/bin:$PATH"');
+    sendCopilotOnboarding(backend, copilotInfo.sessionName);
+    backend.attachSession(copilotInfo.sessionName, cwd, undefined, 'copilot');
 
-    // For Claude, pre-assign session ID via --session-id flag
-    const preAssignedSessionId = agentType === 'claude' ? randomUUID() : undefined;
-    const agentBinary = getAgentCommand(agentType);
-    const launchCmd = buildAgentLaunchCommand(agentType, agentBinary, undefined, undefined, preAssignedSessionId);
-    await backend.sendKeys(sessionName, launchCmd);
-
-    // Persist copilot with session ID to sessions.json
-    const sm = new SessionManager(new TmuxBackendCore());
-    sm.persistCopilotSessionId(sessionName, agentType, cwd, preAssignedSessionId ?? null);
-
-    // Send onboarding prompt after agent boots (and capture session ID for non-Claude)
-    sendCopilotOnboarding(backend, sessionName, agentType, sm, preAssignedSessionId);
-
-    // Attach
-    backend.attachSession(sessionName, cwd, undefined, 'copilot');
-
-    vscode.window.showInformationMessage(`Copilot created: ${sessionName} (${agentType})`);
+    vscode.window.showInformationMessage(`Copilot created: ${copilotInfo.sessionName} (${agentType})`);
     vscode.commands.executeCommand('tmux.refresh');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

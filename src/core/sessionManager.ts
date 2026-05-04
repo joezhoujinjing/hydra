@@ -125,14 +125,16 @@ export class SessionManager {
     }
 
     // Reconcile copilots
-    for (const [key, copilot] of Object.entries(state.copilots)) {
+    for (const [, copilot] of Object.entries(state.copilots)) {
       const live = liveSessionMap.get(copilot.sessionName);
       if (live) {
         copilot.status = 'running';
         copilot.attached = live.attached;
         copilot.lastSeenAt = now;
       } else {
-        delete state.copilots[key];
+        // Keep stopped copilots (persistent) instead of deleting
+        copilot.status = 'stopped';
+        copilot.attached = false;
       }
     }
 
@@ -623,6 +625,73 @@ export class SessionManager {
     delete state.copilots[sessionName];
     state.updatedAt = new Date().toISOString();
     this.writeSessionState(state);
+  }
+
+  async stopCopilot(sessionName: string): Promise<void> {
+    try {
+      await this.backend.killSession(sessionName);
+    } catch { /* Already dead */ }
+
+    const state = this.readSessionState();
+    if (state.copilots[sessionName]) {
+      state.copilots[sessionName].status = 'stopped';
+      state.copilots[sessionName].attached = false;
+      state.updatedAt = new Date().toISOString();
+      this.writeSessionState(state);
+    }
+  }
+
+  async resumeCopilot(sessionName: string): Promise<{ copilotInfo: CopilotInfo; postCreatePromise: Promise<void> }> {
+    const state = this.readSessionState();
+    const copilot = state.copilots[sessionName];
+    if (!copilot) {
+      throw new Error(`Copilot "${sessionName}" not found in sessions.json`);
+    }
+
+    const agent = copilot.agent || 'claude';
+    const agentCommand = DEFAULT_AGENT_COMMANDS[agent] || agent;
+    const workdir = copilot.workdir || process.cwd();
+
+    await this.backend.createSession(sessionName, workdir);
+    await this.backend.setSessionWorkdir(sessionName, workdir);
+    await this.backend.setSessionRole(sessionName, 'copilot');
+    await this.backend.setSessionAgent(sessionName, agent);
+
+    // Resume from stored session ID if available; otherwise fresh start
+    const storedSessionId = copilot.sessionId;
+    const resumeCmd = storedSessionId
+      ? buildAgentResumeCommand(agent, agentCommand, storedSessionId, undefined)
+      : null;
+
+    let postCreatePromise: Promise<void>;
+
+    if (resumeCmd) {
+      await this.backend.sendKeys(sessionName, resumeCmd);
+      copilot.status = 'running';
+      copilot.attached = false;
+      copilot.lastSeenAt = new Date().toISOString();
+      state.updatedAt = new Date().toISOString();
+      this.writeSessionState(state);
+      postCreatePromise = Promise.resolve();
+    } else {
+      const preAssignedSessionId = agent === 'claude' ? randomUUID() : null;
+      const snapshot = this.snapshotAgentSessions(agent, workdir);
+      const launchCmd = agent === 'claude'
+        ? buildAgentLaunchCommand(agent, agentCommand, undefined, undefined, preAssignedSessionId ?? undefined)
+        : agentCommand;
+      await this.backend.sendKeys(sessionName, launchCmd);
+
+      copilot.status = 'running';
+      copilot.attached = false;
+      copilot.sessionId = preAssignedSessionId;
+      copilot.lastSeenAt = new Date().toISOString();
+      state.updatedAt = new Date().toISOString();
+      this.writeSessionState(state);
+
+      postCreatePromise = this.postCreate(sessionName, agent, workdir, snapshot, undefined, preAssignedSessionId);
+    }
+
+    return { copilotInfo: copilot, postCreatePromise };
   }
 
   // ── Public helpers for VS Code extension ──

@@ -307,7 +307,7 @@ export class CopilotItem extends TmuxItem {
       arguments: [this]
     };
 
-    // Blue circle: filled=attached, outline=idle
+    // Blue circle: filled=attached, outline=idle, gray=stopped
     if (opts.classification === 'attached') {
       this.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.blue'));
     } else if (opts.classification === 'stopped') {
@@ -734,6 +734,28 @@ export class CopilotProvider implements vscode.TreeDataProvider<TmuxItem> {
 
   private async getCopilotDetailItems(copilot: CopilotItem): Promise<TmuxItem[]> {
     if (!copilot.sessionName) return [];
+
+    // Stopped copilots: return static "stopped" detail (avoids querying dead tmux session)
+    if (copilot.classification === 'stopped') {
+      const stoppedStatus: SessionStatus = {
+        attached: false, panes: 0, lastActive: 0,
+        gitDirty: 0, gitModified: 0, gitAdded: 0, gitDeleted: 0, gitUntracked: 0,
+        commitsAhead: 0, cpuUsage: 0, classification: 'stopped',
+      };
+      const session: SessionWithStatus = {
+        name: copilot.sessionName,
+        windows: 0,
+        attached: false,
+        workdir: copilot.worktreePath,
+        status: stoppedStatus,
+        worktreePath: copilot.worktreePath,
+        slug: 'copilot',
+        hydraRole: 'copilot',
+        hydraAgent: copilot.agentType,
+      };
+      return [new TmuxDetailItem(session, '', undefined, this._extensionUri)];
+    }
+
     const backend = getActiveBackend();
     const workdir = await backend.getSessionWorkdir(copilot.sessionName);
     const status = await getSessionStatus(copilot.sessionName, workdir);
