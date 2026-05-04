@@ -724,12 +724,18 @@ export class SessionManager {
           nextWorkerId: parsed.nextWorkerId || 1,
           updatedAt: parsed.updatedAt || new Date().toISOString(),
         };
-        // Backward compat: ensure sessionId field exists for legacy entries
+        // Migrate legacy entries: null/missing sessionId → provisional UUID
         for (const w of Object.values(state.workers)) {
-          w.sessionId ??= null;
+          if (!w.sessionId) {
+            w.sessionId = randomUUID();
+            w.sessionIdSource = 'provisional';
+          }
         }
         for (const c of Object.values(state.copilots)) {
-          c.sessionId ??= null;
+          if (!c.sessionId) {
+            c.sessionId = randomUUID();
+            c.sessionIdSource = 'provisional';
+          }
         }
         return state;
       }
@@ -929,8 +935,11 @@ export class SessionManager {
       return { sessionId: captured, sessionIdSource: 'captured' };
     }
 
-    // Could not capture — preserve whatever we had (may be provisional or null)
-    return { sessionId: currentId, sessionIdSource: currentSource };
+    // Could not capture — preserve existing provisional, or mint one if null
+    if (currentId) {
+      return { sessionId: currentId, sessionIdSource: currentSource };
+    }
+    return { sessionId: randomUUID(), sessionIdSource: 'provisional' };
   }
 
   /**
