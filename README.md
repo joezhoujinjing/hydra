@@ -4,264 +4,118 @@
 
 <h1 align="center">Hydra</h1>
 
-<p align="center"><strong>Command an army of AI coding agents — each on its own branch, in its own terminal, all visible from VS Code.</strong></p>
+<p align="center">
+  <strong>Grow heads. Ship faster.</strong><br>
+  Orchestrate an army of parallel AI agents directly from VS Code.
+</p>
+
+<p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=zhoujinjing.hydra-code">
+    <img src="https://img.shields.io/visual-studio-marketplace/v/zhoujinjing.hydra-code?label=Marketplace" alt="Marketplace" />
+  </a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=zhoujinjing.hydra-code">
+    <img src="https://img.shields.io/visual-studio-marketplace/i/zhoujinjing.hydra-code" alt="Installs" />
+  </a>
+  <a href="LICENSE.md">
+    <img src="https://img.shields.io/github/license/joezhoujinjing/hydra" alt="License" />
+  </a>
+</p>
 
 🌏 **Read this in other languages:** **English** | [中文](docs/README.zh.md)
 
+---
+
+## The Vision
+
+In Greek mythology, the Hydra was a beast that grew two heads for every one cut off. In software engineering, we face a similar "beast": a mountain of tasks that grows faster than we can code.
+
+**Hydra** turns this metaphor on its head. Instead of struggling against the growth, you embrace it. You become the central nervous system, spawning and orchestrating as many AI agent "heads" as you need. One head builds the auth, another optimizes the database, a third writes the tests — all working simultaneously, all visible from your sidebar.
+
+**Stop working sequentially. Start working in parallel.**
+
+---
+
+## A Story of Parallel Power
+
+Imagine you're porting 40 features from an old codebase. Doing it alone is a weeks-long slog. With Hydra, it looks like this:
+
+1. **Spawn a Copilot** on your `main` branch. You tell it: "Analyze these 40 features and break them into 8 logical groups."
+2. **Delegate to Workers.** With a single command, your Copilot spawns 8 Workers. Each gets its own git branch, its own isolated worktree, and its own AI agent (Claude, Gemini, or Codex).
+3. **Orchestrate.** You watch your sidebar. 8 terminals are alive. 8 agents are coding. You see their CPU usage, their git diffs, and their progress in real-time.
+4. **Review & Ship.** As Workers finish, you review their diffs, merge their branches, and move on.
+
+**What took weeks now takes hours.**
+
+```text
+[ YOU: THE ARCHITECT ]
+         │
+         ▼
+ [ COPILOT (main) ] ──────────────────┐
+ (Plans, Monitors, Reviews)           │
+         │                            │
+         ├─> [ WORKER 1 (feat/auth) ] ─┼─> "Building OAuth2 flow..."
+         ├─> [ WORKER 2 (feat/ui)   ] ─┼─> "Styling the dashboard..."
+         ├─> [ WORKER 3 (fix/perf)  ] ─┼─> "Optimizing DB queries..."
+         └─> [ WORKER 4 (docs/api)  ] ─┼─> "Generating OpenAPI docs..."
+                                      │
+                                [ THE ARMY ]
+```
+
+---
+
 ## Why Hydra?
 
-Modern AI coding agents are powerful — but one agent at a time is a bottleneck.
-Hydra turns VS Code into a **command center** where you orchestrate many agents in parallel, each isolated on its own git branch, each visible in a single sidebar.
+- **The Serial Bottleneck:** Switching between tasks is expensive. Waiting for one AI agent to finish before starting the next is a waste of your most precious resource: time.
+- **Context is King:** Hydra isolates agents in their own git worktrees. No more "agent halluncinations" because they saw unrelated code. No more git conflicts because two agents touched the same file in the same directory.
+- **Persistent Souls:** Every agent lives in a `tmux` session. Close VS Code, restart your computer, or SSH in from your phone — your agents are still there, working for you.
 
-**You are the orchestrator. Your agents are the army.**
+---
 
-```
-Your Project
-├── main            → Copilot (Claude) — orchestrating the work, reviewing PRs
-├── feat/auth       → Worker (Claude) — building OAuth from scratch
-├── feat/dashboard  → Worker (Codex) — creating the admin dashboard
-├── fix/perf        → Worker (Gemini) — profiling and fixing bottlenecks
-└── feat/api-tests  → Worker (Claude) — writing integration tests
-```
+## Quick Start (60 Seconds)
 
-Every session persists in tmux. Close VS Code, SSH from your phone, come back tomorrow — your agents are still running.
+1. **Install:** Search for **"Hydra Code"** in the VS Code Marketplace.
+2. **Prerequisites:** Ensure `tmux` and `git` are installed on your system.
+3. **Launch Copilot:** Open the Hydra sidebar (robot icon) and click **"Create Copilot"**.
+4. **Spawn your first Worker:** 
+   - Click **"Create Worker"**.
+   - Name your branch (e.g., `feat/my-new-idea`).
+   - Choose an agent (e.g., `claude`).
+   - **Watch the magic happen.**
 
-## Hero Use Case: The Parity Port
+---
 
-Imagine you need to port 40 features from one codebase to another. Doing it sequentially takes weeks. With Hydra:
+## Capabilities
 
-1. **Copilot** (on `main`) analyzes the master issue, breaks it into 8 independent tasks
-2. **Copilot** spawns 8 Workers — one per feature group — each on its own branch
-3. All 8 Workers implement their features **simultaneously**
-4. **Copilot** monitors progress, reviews diffs, sends follow-up instructions
-5. You merge PRs as they complete — what took weeks now takes hours
+### 🏛️ The Command Center (Sidebar)
+Your sidebar is no longer just a file explorer. It's a high-fidelity dashboard for your AI army.
+- **Live Vitals:** See CPU usage, terminal activity, and pane counts for every agent.
+- **Git Intelligence:** Track how many commits every worker is ahead of main, and see exactly how many files they've touched.
+- **One-Click Attach:** Jump into any agent's terminal or embed it directly as an editor tab.
 
-```
-codebase/
-├── main               → Copilot: breaking down the master issue, reviewing PRs
-├── port/auth          → Worker: porting authentication (3 features)
-├── port/billing       → Worker: porting billing flow (5 features)
-├── port/notifications → Worker: porting notification system (4 features)
-├── port/search        → Worker: porting search & filters (6 features)
-├── port/settings      → Worker: porting user settings (3 features)
-├── port/analytics     → Worker: porting analytics dashboard (5 features)
-├── port/export        → Worker: porting data export (4 features)
-└── port/onboarding    → Worker: porting onboarding flow (3 features)
-```
+### 💂 The Army (Workers & Worktrees)
+Hydra automates the heavy lifting of git management.
+- **Isolated Worktrees:** Every worker gets a dedicated directory under `.hydra/worktrees/`. They won't mess with your primary workspace.
+- **Autonomous Mode:** Workers can be launched with auto-approved permissions, letting them work while you sleep.
 
-> See the full walkthrough in [examples/parity-port.md](examples/parity-port.md).
+### 🧠 The Brain (Copilots)
+A Copilot is your tech lead. It doesn't need a worktree; it lives in your current folder and uses the `hydra` CLI to manage your workers.
 
-## Core Concepts
+### 🖇️ Smart Tools
+- **CLI-First:** The `hydra` command lets you (and your agents) control everything from the terminal.
+- **Smart Paste:** Copy an image? `Cmd+V` in the terminal saves it and inserts the path. Perfect for showing UI bugs to your agents.
 
-### The Orchestrator: Copilot
+---
 
-A persistent AI agent session in your current workspace. The Copilot acts as your **tech lead** — it plans work, spawns Workers, monitors their progress, reviews their output, and coordinates merges.
+## Reference & Documentation
 
-- One per workspace — runs on your current branch
-- No worktree needed — it works in your existing directory
-- Survives VS Code restarts via tmux
-- Can spawn and manage Workers via the [Hydra CLI](#cli-tool-hydra)
-
-### The Army: Workers
-
-Disposable AI agents that each get their own git branch, worktree, and terminal session. Give a Worker a task and it works independently — no conflicts with your code or other Workers.
-
-- One per task — isolated git worktree per branch
-- Auto-creates branch + worktree + session + launches agent in one step
-- Workers live under `<repo>/.hydra/worktrees/` to keep your repo root clean
-- Run with auto-approved permissions for autonomous operation
-
-### The Mental Model
-
-```
-┌─────────────────────────────────────────────────┐
-│                   VS Code                        │
-│  ┌─────────────┐  ┌──────────────────────────┐  │
-│  │  Hydra       │  │  Editor / Terminal Tabs   │  │
-│  │  Sidebar     │  │                          │  │
-│  │             │  │  ┌────────────────────┐  │  │
-│  │  Copilots   │  │  │ Worker: feat/auth  │  │  │
-│  │   ● Claude  │  │  │ (Claude running)   │  │  │
-│  │             │  │  └────────────────────┘  │  │
-│  │  Workers    │  │  ┌────────────────────┐  │  │
-│  │   ● auth   │  │  │ Worker: feat/api   │  │  │
-│  │   ● api    │  │  │ (Codex running)    │  │  │
-│  │   ● perf   │  │  └────────────────────┘  │  │
-│  │   ○ docs   │  │                          │  │
-│  └─────────────┘  └──────────────────────────┘  │
-└─────────────────────────────────────────────────┘
-         │                      │
-         ▼                      ▼
-   Live status:           tmux sessions
-   pane count,            persist independently
-   CPU, git diff          of VS Code
-```
-
-## Supported Agents
-
-| Agent | Command | Description |
-|-------|---------|-------------|
-| Claude | `claude` | Anthropic's Claude Code CLI |
-| Codex | `codex --full-auto` | OpenAI's Codex CLI |
-| Gemini | `gemini` | Google's Gemini CLI |
-| Custom | configurable | Any CLI agent you want |
-
-Configure default agent and commands in settings:
-
-```json
-{
-  "hydra.defaultAgent": "claude",
-  "hydra.agentCommands": {
-    "claude": "claude",
-    "codex": "codex --full-auto",
-    "gemini": "gemini"
-  }
-}
-```
-
-## Getting Started
-
-1. Install the extension from [VS Marketplace](https://marketplace.visualstudio.com/items?itemName=zhoujinjing.hydra-code)
-2. Make sure `tmux` and `git` are available in PATH
-3. Open the **Hydra** panel in the Activity Bar
-
-**Launch a Copilot:** Click the Copilot button (robot icon) → pick an agent → it starts in your workspace.
-
-**Spawn a Worker:** Click the Worker button (server icon) → enter a branch name like `feat/auth` → pick an agent → it creates the branch, worktree, session, and launches the agent automatically.
-
-## Features
-
-### Agent Visibility: Sidebar Tree View
-
-The Hydra panel is your command center — see every agent's status at a glance:
-
-- **Copilot group** — your workspace AI session
-- **Worker group** — all active workers organized by branch
-- **Status indicators** — green circle (active), outline (stopped), warning (git missing)
-- **Session details** — pane count, last activity, CPU usage
-- **Git status** — commits ahead, modified/untracked/deleted file counts
-
-### Smart Attach
-
-- **Attach in Terminal** — open a session in VS Code's integrated terminal
-- **Attach in Editor** — embed a session as an editor tab
-- **Auto-attach** — automatically reconnect when opening a worktree folder
-- **Size-stable attach** — syncs PTY size before attaching to avoid 80x24 first-paint issues
-- **Prompt-stable attach** — strips VS Code shell-integration env vars to prevent rendering corruption inside tmux
-
-### Smart Paste (Image-Aware)
-
-`Cmd+V` (macOS) / `Ctrl+Shift+V` (Linux) in the terminal does the right thing:
-- Text in clipboard → normal paste
-- Image in clipboard → saves as temp `.png` and inserts the file path
-
-Works over Remote-SSH too — clipboard images are bridged from local to remote.
-
-### Session Management
-
-- Split panes and create windows from context menu
-- Copy worktree paths to clipboard
-- Open worktrees in new VS Code windows
-- Filter sessions by name
-- Create worktree from an existing branch
-
-### Orphan Cleanup
-
-Detect and remove tmux sessions that no longer have matching worktrees. One click to keep your environment tidy.
-
-### CLI Tool (`hydra`)
-
-Create workers directly from your terminal — or let your Copilot agent spawn them programmatically:
-
-```bash
-hydra worker create --repo ~/myapp --branch feat/auth --agent claude --task "implement OAuth2 login"
-```
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--repo` | yes | Path to the git repository |
-| `--branch` | yes | Branch name to create |
-| `--agent` | no | Agent type: `claude`, `codex`, `gemini` (default: `claude`) |
-| `--base` | no | Base branch override (default: auto-detect) |
-| `--task` | no | Initial prompt to give the agent |
-
-The CLI mirrors the full `Hydra: Create Worker` flow — branch validation, slug collision resolution, worktree creation under `.hydra/`, tmux session setup, and agent launch.
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `Hydra: Create Copilot` | Launch an AI copilot in your current workspace |
-| `Hydra: Create Worker` | Create a new branch + worktree + agent session |
-| `Hydra: Attach/Create Session` | Attach to or create a session for the current worktree |
-| `Hydra: Remove Task` | Remove a worktree and its session |
-| `Hydra: Cleanup Orphans` | Remove orphaned sessions |
-| `Hydra: Smart Paste (Image Support)` | Smart paste: text or image |
-| `Hydra: Paste Image from Clipboard` | Force image paste into terminal |
-
-## Real-World Workflows
-
-### Parity Port — Parallelize a Large Migration
-
-Break a 40-feature migration into 8 parallel Workers. Your Copilot orchestrates the work while Workers implement independently. [Full example →](examples/parity-port.md)
-
-### Cross-Language Code Generation
-
-Generate TypeScript clients from Rust gRPC services. One Worker generates protobuf bindings, another builds the TS client, a third writes integration tests. [Full example →](examples/grpc-generation.md)
-
-### Reliable Subagent Lifecycle
-
-Spawn Workers from a Copilot, monitor their scrollback for completion signals, and `await` their results before proceeding. [Full example →](examples/agent-await.md)
-
-### Remote Server + Mobile Access
-
-SSH into a dev server, manage workers with Hydra, disconnect — sessions persist. Reconnect from home, a cafe, or your phone:
-
-```bash
-ssh dev-server
-tmux attach -t myapp-a1b2c3d4_feat-oauth
-```
-
-## Configuration
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `hydra.defaultAgent` | `claude` | Default agent for new copilot/worker sessions |
-| `hydra.agentCommands` | `{...}` | Map of agent type → shell command |
-| `hydra.baseBranch` | auto-detect | Override base branch for new workers |
-| `tmuxWorktree.multiplexer` | `tmux` | Backend: `tmux` |
-| `tmuxWorktree.baseBranch` | auto-detect | Override base branch (legacy) |
+- [**AGENTS.md**](AGENTS.md) — The full "Agent Operating Manual" (CLI reference, internal architecture, and advanced config).
+- [**Examples**](examples/) — Real-world scenarios like [Parity Ports](examples/parity-port.md) and [gRPC Generation](examples/grpc-generation.md).
+- [**Changelog**](CHANGELOG.md) — See what's new in the latest version.
 
 ## Requirements
-
-- **tmux** — installed and in PATH
-- **git** — installed and in PATH
-- **VS Code** 1.85.0+
-
-## How It Works
-
-```
-Repository
-├── main                → session: "project-a1b2c3d4_main"
-├── feat/auth           → session: "project-a1b2c3d4_feat-auth"    [Worker: Claude]
-└── fix/bug-123         → session: "project-a1b2c3d4_fix-bug-123"  [Worker: Codex]
-                        → session: "hydra-copilot"                  [Copilot: Claude]
-```
-
-**Workers** each get a dedicated git worktree + terminal session. Session names use a `repo-name + path-hash` namespace for collision safety across same-name repos. Worktrees are stored under `<repo>/.hydra/worktrees/` by default.
-
-**Copilot** gets a single global session (`hydra-copilot`) tied to your workspace directory — no worktree needed.
-
-Both Copilot and Worker sessions store their role and agent type as session metadata, so Hydra can display the right status in the tree view.
-
-## Security Note
-
-Worker agents run with **auto-approved permissions** (e.g., `--dangerously-skip-permissions` for Claude). This means workers can execute shell commands, read/write files, and make network requests without prompting. This is by design for autonomous operation, but you should:
-
-- Only run workers in trusted repositories
-- Review worker diffs before merging (`git diff` in the worktree)
-- Use isolated environments (containers, VMs) for untrusted workloads
+- **tmux** — The engine of persistence.
+- **git** — The foundation of isolation.
+- **VS Code 1.85.0+**
 
 ## License
-
-[MIT](LICENSE.md)
+[MIT](LICENSE.md) — Built with ❤️ for the future of AI-native development.
