@@ -2,8 +2,8 @@
 
 ## [0.1.28] - 2026-05-05
 
-### Changed
-- chore: release v0.1.28
+### Added
+- Release SOP skill (`skills/release-hydra/SKILL.md`)
 
 ## [0.1.27] - 2026-05-04
 
