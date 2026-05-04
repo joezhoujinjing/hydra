@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.26] - 2026-05-04
+
+### Added
+- feat: capture agent session ID at copilot/worker creation time (#43) (#58)
+
+### Commits
+1. c4242b9 feat: capture agent session ID at copilot/worker creation time (#43) (#58)
+
 ## [0.1.25] - 2026-05-04
 
 ### Changed
