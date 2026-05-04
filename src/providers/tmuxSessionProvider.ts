@@ -246,7 +246,8 @@ async function fetchRepoPrStatuses(repoRoot: string): Promise<Map<string, PrInfo
   const map = new Map<string, PrInfo>();
   try {
     const json = await exec(
-      `gh pr list -R "${repoRoot}" --state all --json headRefName,number,state --limit 100`
+      'gh pr list --state all --json headRefName,number,state --limit 100',
+      { cwd: repoRoot }
     );
     const prs: { headRefName: string; number: number; state: string }[] = JSON.parse(json);
     // Keep the first (most recent) PR per branch
