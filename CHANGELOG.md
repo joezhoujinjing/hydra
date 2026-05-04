@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.28] - 2026-05-05
+
+### Added
+- Release-hydra skill for automated version releases (#62)
+
+### Fixed
+- Replace retired shields.io badges with vsmarketplacebadges.dev (#63)
+
+### Changed
+- Add auto-tag CI workflow on version bump (#64)
+
 ## [0.1.27] - 2026-05-04
 
 ### Added
