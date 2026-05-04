@@ -2,24 +2,9 @@ name: Publish Extension
 
 on:
   push:
-    branches: [main]
-
-  schedule:
-    # Monthly patch release: 1st of every month at 09:00 UTC (18:00 KST)
-    - cron: '0 9 1 * *'
+    tags: ['v*']
 
   workflow_dispatch:
-    inputs:
-      version_bump:
-        description: 'Version bump type (skip = publish current version without bump)'
-        required: true
-        default: 'patch'
-        type: choice
-        options:
-          - skip
-          - patch
-          - minor
-          - major
 
 # Cancel pending runs when new commits arrive
 concurrency:
@@ -32,19 +17,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Wait 10 minutes before publishing (on push)
-        if: github.event_name == 'push'
-        run: |
-          echo "Waiting 10 minutes before auto-publishing..."
-          echo "If a new commit is pushed during this window, this run will be cancelled and a new timer starts."
-          sleep 600
-          echo "10-minute wait complete. Starting publish."
-      
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -54,77 +29,22 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Bump Version (auto on push)
+      - name: Read version from package.json
         id: version
         run: |
-          BUMP_TYPE="${{ github.event.inputs.version_bump || 'patch' }}"
-
-          if [ "$BUMP_TYPE" = "skip" ]; then
-            VERSION=$(node -p "require('./package.json').version")
-            echo "Skipping version bump, using current: $VERSION"
-            echo "bumped=false" >> $GITHUB_OUTPUT
-          else
-            CURRENT=$(node -p "require('./package.json').version")
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-
-            case "$BUMP_TYPE" in
-              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-              patch) PATCH=$((PATCH + 1)) ;;
-            esac
-
-            VERSION="${MAJOR}.${MINOR}.${PATCH}"
-
-            # Skip past any existing tags from previous failed runs
-            while git rev-parse "v${VERSION}" >/dev/null 2>&1; do
-              echo "Tag v${VERSION} already exists, incrementing..."
-              IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-              PATCH=$((PATCH + 1))
-              VERSION="${MAJOR}.${MINOR}.${PATCH}"
-            done
-
-            npm version $VERSION --no-git-tag-version
-            echo "bumped=true" >> $GITHUB_OUTPUT
-          fi
-
+          VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-          # Determine previous tag for release notes
-          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^v${VERSION}$" | head -1)
-          echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
-
-      - name: Generate Release Notes
-        if: steps.version.outputs.bumped == 'true' && steps.version.outputs.prev_tag != ''
+      - name: Extract release notes from CHANGELOG
         id: release_notes
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          PREV_TAG="${{ steps.version.outputs.prev_tag }}"
-
-          # Create the new tag locally (not pushed yet) so the script can reference it
-          if ! git rev-parse "v${VERSION}" >/dev/null 2>&1; then
-            git tag "v${VERSION}"
-          fi
-
-          # Generate release notes (also updates CHANGELOG.md)
-          NOTES=$(bash scripts/release-notes.sh "$PREV_TAG" "v${VERSION}" 2>/dev/null || true)
-
-          # Save release notes body for GitHub Release
+          # Extract the latest section from CHANGELOG.md (between first and second ## headers)
+          NOTES=$(awk '/^## \[/{if(found) exit; found=1; next} found{print}' CHANGELOG.md)
           {
             echo 'body<<RELEASE_NOTES_EOF'
             echo "$NOTES"
             echo 'RELEASE_NOTES_EOF'
           } >> $GITHUB_OUTPUT
-
-          # Commit changelog + version bump together
-          git add package.json package-lock.json CHANGELOG.md
-          git commit -m "chore: release v${VERSION}"
-          git push origin main
-          git push origin "v${VERSION}"
 
       - name: Compile
         run: npm run compile

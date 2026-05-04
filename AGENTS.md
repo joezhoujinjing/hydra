@@ -37,7 +37,7 @@ code --extensionDevelopmentPath="<absolute-path-to-worktree-or-repo>" /tmp/hydra
 │   ├── resources/          # Agent instruction templates
 │   └── utils/              # tmux, git, session utilities
 ├── out/                    # Compiled output
-├── skills/                 # Hydra skill definition
+├── skills/                 # Skill definitions (SSOT, symlinked from .claude/skills)
 └── resources/              # Icons and assets
 ```
 
@@ -83,7 +83,7 @@ Critical lessons learned — do not change without understanding the full implic
 
 ## Release Workflow
 
-Releases are automated via `.github/workflows/publish.yml` — bumps version, generates changelog via `scripts/release-notes.sh`, publishes to Marketplace + Open VSX, and creates a GitHub Release. Changelog categories: `feat:` → Added, `fix:` → Fixed, `revert:` → Removed, everything else → Changed. Manual use: `bash scripts/release-notes.sh [<prev-tag> <new-tag>]`.
+See [`skills/release-hydra/SKILL.md`](./skills/release-hydra/SKILL.md) for the full release SOP.
 
 ---
 
