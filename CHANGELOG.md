@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.27] - 2026-05-04
+
+### Added
+- feat: clean up right-click context menu in sidebar panels (#59)
+
+### Commits
+1. 2afab65 feat: clean up right-click context menu in sidebar panels (#59)
+
 ## [0.1.26] - 2026-05-04
 
 ### Added
