@@ -119,11 +119,6 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "tmux.filter",
-        "title": "Filter Sessions",
-        "icon": "$(filter)"
-      },
-      {
         "command": "tmux.attach",
         "title": "Attach in Terminal"
       },
@@ -148,11 +143,6 @@
         "title": "New Window"
       },
       {
-        "command": "tmux.cleanupOrphans",
-        "title": "Hydra: Cleanup Orphans",
-        "icon": "$(trash)"
-      },
-      {
         "command": "tmux.terminalPaste",
         "title": "Hydra: Smart Paste (Image Support)"
       },
@@ -165,11 +155,6 @@
         "title": "Create Worktree from This Branch"
       },
       {
-        "command": "tmux.switchBackend",
-        "title": "Switch Backend",
-        "icon": "$(arrow-swap)"
-      },
-      {
         "command": "hydra.createCopilot",
         "title": "Hydra: Create Copilot",
         "icon": "$(hubot)"
@@ -178,11 +163,6 @@
         "command": "hydra.createWorker",
         "title": "Hydra: Create Worker",
         "icon": "$(server-process)"
-      },
-      {
-        "command": "hydra.setupCli",
-        "title": "Hydra: Setup CLI",
-        "icon": "$(terminal)"
       },
       {
         "command": "hydra.startCopilotClaude",
@@ -252,27 +232,7 @@
     "menus": {
       "view/title": [
         {
-          "command": "tmux.switchBackend",
-          "when": "view == hydraCopilots || view == hydraWorkers",
-          "group": "navigation"
-        },
-        {
           "command": "tmux.refresh",
-          "when": "view == hydraCopilots || view == hydraWorkers",
-          "group": "navigation"
-        },
-        {
-          "command": "tmux.filter",
-          "when": "view == hydraCopilots || view == hydraWorkers",
-          "group": "navigation"
-        },
-        {
-          "command": "tmux.cleanupOrphans",
-          "when": "view == hydraCopilots || view == hydraWorkers",
-          "group": "navigation"
-        },
-        {
-          "command": "hydra.setupCli",
           "when": "view == hydraCopilots || view == hydraWorkers",
           "group": "navigation"
         },
