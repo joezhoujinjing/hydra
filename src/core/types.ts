@@ -12,6 +12,7 @@ export interface MultiplexerSession {
 export interface SessionStatusInfo {
   attached: boolean;
   lastActive: number;
+  paneLastActive?: number;
 }
 
 export interface Worktree {

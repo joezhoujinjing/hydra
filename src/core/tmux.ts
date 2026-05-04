@@ -183,11 +183,12 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
 
   async getSessionInfo(sessionName: string): Promise<SessionStatusInfo> {
     try {
-      const output = await exec(`tmux display-message -p -t ${shellQuote(sessionName)} '#{session_attached}|||#{session_activity}'`);
-      const [attachedStr, activityStr] = output.split('|||');
+      const output = await exec(`tmux display-message -p -t ${shellQuote(sessionName)} '#{session_attached}|||#{session_activity}|||#{pane_last_activity}'`);
+      const [attachedStr, activityStr, paneActivityStr] = output.split('|||');
       return {
         attached: attachedStr === '1',
         lastActive: parseInt(activityStr, 10) || 0,
+        paneLastActive: parseInt(paneActivityStr, 10) || 0,
       };
     } catch {
       return { attached: false, lastActive: 0 };
