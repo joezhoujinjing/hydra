@@ -37,7 +37,7 @@ code --extensionDevelopmentPath="<absolute-path-to-worktree-or-repo>" /tmp/hydra
 │   ├── resources/          # Agent instruction templates
 │   └── utils/              # tmux, git, session utilities
 ├── out/                    # Compiled output
-├── .claude/skills/         # Claude Code skills (hydra, release-hydra)
+├── skills/                 # Skill definitions (SSOT, symlinked from .claude/skills)
 └── resources/              # Icons and assets
 ```
 
@@ -83,7 +83,7 @@ Critical lessons learned — do not change without understanding the full implic
 
 ## Release Workflow
 
-See [`.claude/skills/release-hydra/SKILL.md`](./.claude/skills/release-hydra/SKILL.md) for the full release SOP.
+See [`skills/release-hydra/SKILL.md`](./skills/release-hydra/SKILL.md) for the full release SOP.
 
 ---
 
