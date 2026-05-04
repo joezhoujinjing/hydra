@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.23] - 2026-05-04
+
+### Added
+- feat: add release notes system with CHANGELOG.md and publish integration (#52)
+
+### Commits
+1. 38efd1a feat: add release notes system with CHANGELOG.md and publish integration (#52)
+
 ## [0.1.21] - 2026-05-04
 
 ### Changed
