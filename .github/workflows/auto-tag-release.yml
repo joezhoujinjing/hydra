@@ -1,26 +1,36 @@
 name: Auto-tag Release
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
+    paths: ['package.json']
 
 jobs:
   tag:
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'chore: release v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
-      - name: Extract version from PR title
+      - name: Detect version change
         id: version
         run: |
-          VERSION=$(echo "${{ github.event.pull_request.title }}" | grep -oP 'v\K[0-9]+\.[0-9]+\.[0-9]+')
-          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          OLD_VERSION=$(git show HEAD~1:package.json | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version")
+          if [ "$NEW_VERSION" != "$OLD_VERSION" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "tag=v${NEW_VERSION}" >> $GITHUB_OUTPUT
+            echo "Version changed: $OLD_VERSION -> $NEW_VERSION"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version unchanged: $NEW_VERSION"
+          fi
 
       - name: Create and push tag
+        if: steps.version.outputs.changed == 'true'
         run: |
           git tag ${{ steps.version.outputs.tag }}
           git push origin ${{ steps.version.outputs.tag }}
