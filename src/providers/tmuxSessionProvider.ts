@@ -300,7 +300,12 @@ export class CopilotItem extends TmuxItem {
     this.agentType = opts.agentType;
     this.classification = opts.classification;
     this.description = description;
-    this.contextValue = 'tmuxItem';
+    this.contextValue = 'copilotItem';
+    this.command = {
+      command: 'tmux.attachCreate',
+      title: 'Open Session',
+      arguments: [this]
+    };
 
     // Blue circle: filled=attached, outline=idle
     if (opts.classification === 'attached') {
@@ -368,7 +373,12 @@ export class WorktreeItem extends TmuxItem {
     this.isMainWorktree = Boolean(opts.isMainWorktree);
     this.description = description;
 
-    this.contextValue = 'tmuxItem';
+    this.contextValue = 'workerItem';
+    this.command = {
+      command: 'tmux.attachCreate',
+      title: 'Open Session',
+      arguments: [this]
+    };
 
     if (!opts.hasGit) {
       this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('charts.yellow'));
@@ -432,7 +442,7 @@ export class TmuxDetailItem extends TmuxItem {
     const label = parts.join(' · ');
     super(label, vscode.TreeItemCollapsibleState.None, repoName, session.name);
 
-    this.contextValue = 'tmuxItem';
+    this.contextValue = 'detailItem';
 
     if (extensionUri) {
       const iconPath = vscode.Uri.joinPath(
@@ -445,11 +455,6 @@ export class TmuxDetailItem extends TmuxItem {
       this.iconPath = new vscode.ThemeIcon('terminal-tmux');
     }
 
-    this.command = {
-      command: 'tmux.attachCreate',
-      title: 'Attach Session',
-      arguments: [this]
-    };
   }
 }
 
@@ -462,7 +467,7 @@ export class InactiveDetailItem extends TmuxItem {
   ) {
     super('0p · stopped', vscode.TreeItemCollapsibleState.None, repoName, targetSessionName);
 
-    this.contextValue = 'tmuxItem';
+    this.contextValue = 'detailItem';
 
     if (extensionUri) {
       const iconPath = vscode.Uri.joinPath(extensionUri, 'resources', 'tmux-inactive.svg');
@@ -471,16 +476,12 @@ export class InactiveDetailItem extends TmuxItem {
       this.iconPath = new vscode.ThemeIcon('terminal-tmux');
     }
 
-    this.command = {
-      command: 'tmux.attachCreate',
-      title: 'Launch Session',
-      arguments: [this]
-    };
   }
 }
 
 export class GitStatusItem extends TmuxItem {
   public readonly worktreePath?: string;
+  public readonly prNumber?: number;
 
   constructor(
     status: SessionStatus,
@@ -501,7 +502,7 @@ export class GitStatusItem extends TmuxItem {
     const label = parts.join(' · ');
     super(label, vscode.TreeItemCollapsibleState.None, repoName, sessionName);
 
-    this.contextValue = 'tmuxItem';
+    this.contextValue = 'gitStatusItem';
 
     let iconColor: vscode.ThemeColor;
     if (status.prState === 'merged') {
@@ -513,6 +514,15 @@ export class GitStatusItem extends TmuxItem {
     }
     this.iconPath = new vscode.ThemeIcon('git-commit', iconColor);
     this.worktreePath = worktreePath;
+    this.prNumber = status.prNumber;
+
+    if (status.prNumber && worktreePath) {
+      this.command = {
+        command: 'hydra.openPR',
+        title: 'Open PR',
+        arguments: [this]
+      };
+    }
   }
 }
 
@@ -598,6 +608,7 @@ export class InactiveWorktreeItem extends WorktreeItem {
       isMainWorktree: worktree.isMain
     });
 
+    this.contextValue = 'inactiveWorkerItem';
     this.worktree = worktree;
     this.targetSessionName = targetSessionName;
     this.detailItem = new InactiveDetailItem(worktree, repoName, targetSessionName, extensionUri);

@@ -11,6 +11,7 @@ import {
 } from '../providers/tmuxSessionProvider';
 import { getActiveBackend, HydraRole } from '../utils/multiplexer';
 import { getHydraEditorLocation } from '../utils/hydraEditorGroup';
+import { exec } from '../utils/exec';
 
 function getWorktreePath(item: TmuxItem): string | undefined {
   if (item instanceof CopilotItem) return item.worktreePath;
@@ -148,5 +149,22 @@ export async function newWindow(item: TmuxItem): Promise<void> {
     vscode.window.showInformationMessage(`New window created in ${item.sessionName}`);
   } catch (err) {
     vscode.window.showErrorMessage(`Failed to create window: ${err}`);
+  }
+}
+
+export async function openPR(item: TmuxItem): Promise<void> {
+  if (!(item instanceof GitStatusItem) || !item.prNumber || !item.worktreePath) {
+    return;
+  }
+  try {
+    const url = (await exec(
+      `gh pr view ${item.prNumber} --json url -q .url`,
+      { cwd: item.worktreePath }
+    )).trim();
+    if (url) {
+      await vscode.env.openExternal(vscode.Uri.parse(url));
+    }
+  } catch (err) {
+    vscode.window.showErrorMessage(`Failed to open PR: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
