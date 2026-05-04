@@ -47,17 +47,18 @@ Release a new version of the Hydra VS Code extension.
    - `package.json` (`"version"` field)
    - `package-lock.json` (both root `"version"` and `packages[""].version`)
 
-5. **Commit the release**
+5. **Commit, tag, and push**
 
    ```bash
    git add package.json package-lock.json CHANGELOG.md
    git commit -m "chore: release v<version>"
+   git tag v<version>
+   git push origin main v<version>
    ```
 
-   Do NOT push or create tags — the CI workflow handles that on merge to main.
+   The tag push triggers CI to package and publish the extension.
 
 ## Notes
 
-- The publish workflow (`.github/workflows/publish.yml`) triggers on push to main and handles: tagging, VSIX packaging, Marketplace/Open VSX publishing, and GitHub Release creation.
-- If the CI bumps the version again on its own (e.g., tag collision), that's fine — it will auto-increment past existing tags.
+- The publish workflow (`.github/workflows/publish.yml`) triggers on `v*` tags and handles: VSIX packaging, Marketplace/Open VSX publishing, and GitHub Release creation.
 - Only run this skill from the repo root or a worktree of the hydra repo.
