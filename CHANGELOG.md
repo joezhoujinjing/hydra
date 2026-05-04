@@ -1,17 +1,5 @@
 # Changelog
 
-## [0.1.28] - 2026-05-05
-
-### Added
-- Switch to tag-triggered releases for CI publishing
-- Add release-hydra skill with release SOP
-
-### Changed
-- Symlink `.claude/skills` → `skills/` for auto-discovery
-
-### Fixed
-- Use git tags instead of commit grep to find last release
-
 ## [0.1.27] - 2026-05-04
 
 ### Added
