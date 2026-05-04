@@ -27,7 +27,6 @@ export function lookupWorkerId(sessionName: string): number | undefined {
   return undefined;
 }
 
-
 // ── Types ──
 
 export interface WorkerInfo {
