@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { exec } from './exec';
 import { TmuxBackendCore, buildStoredTmuxEnvScrubCommand } from '../core/tmux';
 import { MultiplexerBackend, HydraRole } from './multiplexer';
-import { getHydraEditorLocation, buildHydraTerminalName, getHydraTerminalIcon, getHydraTerminalColor } from './hydraEditorGroup';
+import { getHydraEditorLocation, buildHydraTerminalName, getHydraTerminalIcon, getHydraTerminalColor, HYDRA_PREFIX_WORKER } from './hydraEditorGroup';
+import { lookupWorkerId } from '../core/sessionManager';
 
 function getShortName(sessionName: string): string {
   const parts = sessionName.split('_');
@@ -14,11 +15,14 @@ function getShortName(sessionName: string): string {
 
 function findTerminalBySession(sessionName: string): vscode.Terminal | undefined {
   const shortName = getShortName(sessionName);
-  const candidateNames = [
+  const workerId = lookupWorkerId(sessionName);
+  const candidateNames = new Set([
     buildHydraTerminalName(shortName, 'copilot'),
-    buildHydraTerminalName(shortName, 'worker'),
-  ];
-  return vscode.window.terminals.find(t => candidateNames.includes(t.name));
+    buildHydraTerminalName(shortName, 'worker', workerId),
+    HYDRA_PREFIX_WORKER, // legacy: bare prefix without ID
+    shortName, // legacy: no prefix
+  ]);
+  return vscode.window.terminals.find(t => candidateNames.has(t.name));
 }
 
 export class TmuxBackend extends TmuxBackendCore implements MultiplexerBackend {
@@ -30,7 +34,8 @@ export class TmuxBackend extends TmuxBackendCore implements MultiplexerBackend {
   ): vscode.Terminal {
     const resolvedLocation = location ?? getHydraEditorLocation(role);
     const shortName = getShortName(sessionName);
-    const terminalName = buildHydraTerminalName(shortName, role);
+    const workerId = role === 'worker' ? lookupWorkerId(sessionName) : undefined;
+    const terminalName = buildHydraTerminalName(shortName, role, workerId);
 
     const existing = findTerminalBySession(sessionName);
 

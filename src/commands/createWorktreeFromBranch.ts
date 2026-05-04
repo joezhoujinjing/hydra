@@ -148,7 +148,8 @@ export async function createWorktreeFromBranch(item: WorktreeItem | undefined): 
     const sessionName = backend.buildSessionName(repoSessionNamespace, finalSlug);
     await backend.createSession(sessionName, worktreePath);
     await backend.setSessionWorkdir(sessionName, worktreePath);
-    backend.attachSession(sessionName, worktreePath);
+    await backend.setSessionRole(sessionName, 'worker');
+    backend.attachSession(sessionName, worktreePath, undefined, 'worker');
 
     vscode.window.showInformationMessage(`Created worktree: ${branchName} (from ${sourceBranch})`);
     vscode.commands.executeCommand('tmux.refresh');
