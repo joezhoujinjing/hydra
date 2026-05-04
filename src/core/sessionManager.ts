@@ -30,6 +30,15 @@ export function lookupWorkerId(sessionName: string): number | undefined {
 
 // ── Types ──
 
+/**
+ * How the sessionId was obtained — determines whether it's safe for agent resume.
+ * - 'preassigned': Claude's --session-id flag; guaranteed correct.
+ * - 'captured': Parsed from agent output (/status, scrollback); verified real.
+ * - 'provisional': Hydra-generated placeholder; NOT a real agent session ID.
+ * Legacy entries (undefined) with non-null sessionId are treated as real.
+ */
+export type SessionIdSource = 'preassigned' | 'captured' | 'provisional';
+
 export interface WorkerInfo {
   sessionName: string;
   workerId: number;
@@ -45,6 +54,7 @@ export interface WorkerInfo {
   createdAt: string;
   lastSeenAt: string;
   sessionId: string | null;
+  sessionIdSource?: SessionIdSource;
 }
 
 export interface CopilotInfo {
@@ -57,6 +67,7 @@ export interface CopilotInfo {
   createdAt: string;
   lastSeenAt: string;
   sessionId: string | null;
+  sessionIdSource?: SessionIdSource;
 }
 
 export interface SessionState {
@@ -115,9 +126,11 @@ export class SessionManager {
         worker.status = 'running';
         worker.attached = live.attached;
         worker.lastSeenAt = now;
-        // Backfill missing sessionId for running workers
-        if (!worker.sessionId) {
-          worker.sessionId = await this.ensureSessionId(worker.sessionName, worker.agent, null);
+        // Backfill missing or provisional sessionId for running workers
+        if (!worker.sessionId || worker.sessionIdSource === 'provisional') {
+          const result = await this.ensureSessionId(worker.sessionName, worker.agent, worker.sessionId, worker.sessionIdSource);
+          worker.sessionId = result.sessionId;
+          worker.sessionIdSource = result.sessionIdSource;
         }
       } else if (worker.workdir && fs.existsSync(worker.workdir)) {
         worker.status = 'stopped';
@@ -135,9 +148,11 @@ export class SessionManager {
         copilot.status = 'running';
         copilot.attached = live.attached;
         copilot.lastSeenAt = now;
-        // Backfill missing sessionId for running copilots
-        if (!copilot.sessionId) {
-          copilot.sessionId = await this.ensureSessionId(copilot.sessionName, copilot.agent, null);
+        // Backfill missing or provisional sessionId for running copilots
+        if (!copilot.sessionId || copilot.sessionIdSource === 'provisional') {
+          const result = await this.ensureSessionId(copilot.sessionName, copilot.agent, copilot.sessionId, copilot.sessionIdSource);
+          copilot.sessionId = result.sessionId;
+          copilot.sessionIdSource = result.sessionIdSource;
         }
       } else {
         delete state.copilots[key];
@@ -169,7 +184,7 @@ export class SessionManager {
           }
         }
         // Attempt passive session ID capture for discovered live session
-        const sessionId = await this.ensureSessionId(session.name, agent, null);
+        const captured = await this.ensureSessionId(session.name, agent, null);
         state.workers[session.name] = {
           sessionName: session.name,
           workerId: state.nextWorkerId++,
@@ -184,11 +199,12 @@ export class SessionManager {
           tmuxSession: session.name,
           createdAt: now,
           lastSeenAt: now,
-          sessionId,
+          sessionId: captured.sessionId,
+          sessionIdSource: captured.sessionIdSource,
         };
       } else if (role === 'copilot') {
         // Attempt passive session ID capture for discovered live copilot
-        const sessionId = await this.ensureSessionId(session.name, agent, null);
+        const captured = await this.ensureSessionId(session.name, agent, null);
         state.copilots[session.name] = {
           sessionName: session.name,
           status: 'running',
@@ -198,7 +214,8 @@ export class SessionManager {
           tmuxSession: session.name,
           createdAt: now,
           lastSeenAt: now,
-          sessionId,
+          sessionId: captured.sessionId,
+          sessionIdSource: captured.sessionIdSource,
         };
       }
     }
@@ -299,9 +316,10 @@ export class SessionManager {
 
     // For Claude, pre-assign session ID via --session-id flag (guaranteed correct).
     // For other agents, assign a provisional UUID so the record is never null;
-    // postCreate will overwrite with the agent's real ID when captured.
+    // postCreate will overwrite with the agent's real ID (source → 'captured').
     const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
-    const provisionalSessionId = preAssignedSessionId ?? randomUUID();
+    const initialSessionId = preAssignedSessionId ?? randomUUID();
+    const initialSource: SessionIdSource = preAssignedSessionId ? 'preassigned' : 'provisional';
     const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
 
     // Launch agent without task (task sent after session ID capture)
@@ -327,7 +345,8 @@ export class SessionManager {
       tmuxSession: sessionName,
       createdAt: now,
       lastSeenAt: now,
-      sessionId: provisionalSessionId,
+      sessionId: initialSessionId,
+      sessionIdSource: initialSource,
     };
 
     state.workers[sessionName] = workerInfo;
@@ -398,10 +417,10 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'worker');
     await this.backend.setSessionAgent(sessionName, agent);
 
-    // Resume from stored session ID if available; otherwise fresh start
-    const storedSessionId = worker.sessionId;
-    const resumeCmd = storedSessionId
-      ? buildAgentResumeCommand(agent, command, storedSessionId, worker.repoRoot)
+    // Resume only if sessionId is real (preassigned/captured), not provisional
+    const resumableId = this.getResumableSessionId(worker);
+    const resumeCmd = resumableId
+      ? buildAgentResumeCommand(agent, command, resumableId, worker.repoRoot)
       : null;
 
     let postCreatePromise: Promise<void>;
@@ -419,7 +438,8 @@ export class SessionManager {
     } else {
       // Fresh start — capture new session ID
       const preAssignedSessionId = agent === 'claude' ? randomUUID() : null;
-      const provisionalSessionId = preAssignedSessionId ?? randomUUID();
+      const initialSessionId = preAssignedSessionId ?? randomUUID();
+      const initialSource: SessionIdSource = preAssignedSessionId ? 'preassigned' : 'provisional';
       const snapshot = this.snapshotAgentSessions(agent, worker.workdir);
       const launchCmd = buildAgentLaunchCommand(agent, command, undefined, worker.repoRoot, preAssignedSessionId ?? undefined);
       await this.backend.sendKeys(sessionName, launchCmd);
@@ -427,7 +447,8 @@ export class SessionManager {
       worker.status = 'running';
       worker.attached = false;
       worker.agent = agent;
-      worker.sessionId = provisionalSessionId;
+      worker.sessionId = initialSessionId;
+      worker.sessionIdSource = initialSource;
       worker.lastSeenAt = new Date().toISOString();
       state.updatedAt = new Date().toISOString();
       this.writeSessionState(state);
@@ -459,9 +480,10 @@ export class SessionManager {
 
     // Pre-assign session ID for Claude (used as --session-id flag).
     // For non-Claude, assign a provisional UUID so the record is never null;
-    // postCreate will overwrite with the agent's real ID when captured.
+    // postCreate will overwrite with the agent's real ID (source → 'captured').
     const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
-    const provisionalSessionId = preAssignedSessionId ?? randomUUID();
+    const initialSessionId = preAssignedSessionId ?? randomUUID();
+    const initialSource: SessionIdSource = preAssignedSessionId ? 'preassigned' : 'provisional';
     const snapshot = this.snapshotAgentSessions(agentType, opts.workdir);
 
     // For Claude, launch with --session-id; for others, use agentCommand as-is
@@ -480,7 +502,8 @@ export class SessionManager {
       tmuxSession: sessionName,
       createdAt: now,
       lastSeenAt: now,
-      sessionId: provisionalSessionId,
+      sessionId: initialSessionId,
+      sessionIdSource: initialSource,
     };
 
     const state = this.readSessionState();
@@ -658,6 +681,7 @@ export class SessionManager {
   ): void {
     // Never persist null — use a provisional UUID as fallback
     const durableSessionId = sessionId ?? randomUUID();
+    const source: SessionIdSource = sessionId ? 'preassigned' : 'provisional';
     const state = this.readSessionState();
     const now = new Date().toISOString();
     state.copilots[sessionName] = {
@@ -670,6 +694,7 @@ export class SessionManager {
       createdAt: now,
       lastSeenAt: now,
       sessionId: durableSessionId,
+      sessionIdSource: source,
     };
     state.updatedAt = now;
     this.writeSessionState(state);
@@ -681,7 +706,9 @@ export class SessionManager {
    */
   async captureAndPersistSessionId(sessionName: string, agentType: string): Promise<void> {
     const sessionId = await this.captureAgentSessionId(sessionName, agentType);
-    this.updateSessionId(sessionName, sessionId);
+    if (sessionId) {
+      this.updateSessionId(sessionName, sessionId, 'captured');
+    }
   }
 
   // ── Private helpers ──
@@ -769,9 +796,11 @@ export class SessionManager {
       // Session ID already known (Claude) — just wait for readiness then send task
       await this.sleep(CLAUDE_READY_DELAY_MS);
     } else {
-      // Capture session ID via slash command (/status or /stats)
+      // Capture real session ID via slash command (/status or /stats)
       const sessionId = await this.captureAgentSessionId(sessionName, agentType);
-      this.updateSessionId(sessionName, sessionId);
+      if (sessionId) {
+        this.updateSessionId(sessionName, sessionId, 'captured');
+      }
     }
     if (task) {
       await this.backend.sendMessage(sessionName, task);
@@ -835,19 +864,25 @@ export class SessionManager {
   }
 
   /**
-   * Ensure a running session has a non-null sessionId.
-   * Attempts passive capture from pane scrollback (non-disruptive).
-   * Returns the existing or newly-captured sessionId, or null only if
-   * capture is truly impossible (unknown agent, no scrollback match).
+   * Return the stored sessionId only if it represents a real agent session
+   * (preassigned or captured). Provisional IDs are NOT safe for resume.
+   * Legacy entries (no sessionIdSource) with non-null sessionId are assumed real.
    */
-  private async ensureSessionId(
+  private getResumableSessionId(entry: { sessionId: string | null; sessionIdSource?: SessionIdSource }): string | null {
+    if (!entry.sessionId) return null;
+    if (entry.sessionIdSource === 'provisional') return null;
+    return entry.sessionId;
+  }
+
+  /**
+   * Passively capture a session ID from pane scrollback (non-disruptive).
+   * Returns { id, source: 'captured' } on success, or { id: null } on failure.
+   * Does NOT persist — caller is responsible for writing state.
+   */
+  private async passiveCaptureSessionId(
     sessionName: string,
     agentType: string,
-    currentId: string | null,
   ): Promise<string | null> {
-    if (currentId) return currentId;
-
-    // Passive capture: read pane scrollback without sending any commands
     try {
       const output = await this.backend.capturePane(sessionName, 500);
 
@@ -856,20 +891,14 @@ export class SessionManager {
         const match = output.match(
           /(?:--session-id|--resume)\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/,
         );
-        if (match?.[1]) {
-          this.updateSessionId(sessionName, match[1]);
-          return match[1];
-        }
+        if (match?.[1]) return match[1];
       }
 
       // Codex / Gemini: reuse their existing sessionIdPattern against scrollback
       const config = AGENT_SESSION_CAPTURE[agentType];
       if (config) {
         const match = output.match(config.sessionIdPattern);
-        if (match?.[1]) {
-          this.updateSessionId(sessionName, match[1]);
-          return match[1];
-        }
+        if (match?.[1]) return match[1];
       }
     } catch {
       // Pane capture failed (session may have just died) — fall through
@@ -878,14 +907,46 @@ export class SessionManager {
     return null;
   }
 
-  private updateSessionId(sessionName: string, sessionId: string | null): void {
+  /**
+   * Ensure a running session has a non-null sessionId.
+   * Attempts passive capture from pane scrollback (non-disruptive).
+   * Returns { sessionId, sessionIdSource } — source is 'captured' when
+   * recovered from scrollback, or unchanged when currentId is already set.
+   * Returns null sessionId only if capture is truly impossible.
+   */
+  private async ensureSessionId(
+    sessionName: string,
+    agentType: string,
+    currentId: string | null,
+    currentSource?: SessionIdSource,
+  ): Promise<{ sessionId: string | null; sessionIdSource?: SessionIdSource }> {
+    if (currentId && currentSource !== 'provisional') {
+      return { sessionId: currentId, sessionIdSource: currentSource };
+    }
+
+    const captured = await this.passiveCaptureSessionId(sessionName, agentType);
+    if (captured) {
+      return { sessionId: captured, sessionIdSource: 'captured' };
+    }
+
+    // Could not capture — preserve whatever we had (may be provisional or null)
+    return { sessionId: currentId, sessionIdSource: currentSource };
+  }
+
+  /**
+   * Persist a sessionId + source update for a known session.
+   * Used by postCreate after active capture succeeds.
+   */
+  private updateSessionId(sessionName: string, sessionId: string | null, source?: SessionIdSource): void {
     const state = this.readSessionState();
     if (state.workers[sessionName]) {
       state.workers[sessionName].sessionId = sessionId;
+      if (source) state.workers[sessionName].sessionIdSource = source;
       state.updatedAt = new Date().toISOString();
       this.writeSessionState(state);
     } else if (state.copilots[sessionName]) {
       state.copilots[sessionName].sessionId = sessionId;
+      if (source) state.copilots[sessionName].sessionIdSource = source;
       state.updatedAt = new Date().toISOString();
       this.writeSessionState(state);
     }
@@ -928,8 +989,12 @@ export class SessionManager {
       const existingWorker = state.workers[sessionName];
       const workerId = existingWorker?.workerId ?? state.nextWorkerId++;
 
-      // Backfill sessionId if missing on a running session
-      const sessionId = await this.ensureSessionId(sessionName, agent, existingWorker?.sessionId ?? null);
+      // Backfill sessionId if missing or provisional on a running session
+      const captured = await this.ensureSessionId(
+        sessionName, agent,
+        existingWorker?.sessionId ?? null,
+        existingWorker?.sessionIdSource,
+      );
 
       const workerInfo: WorkerInfo = {
         sessionName,
@@ -945,7 +1010,8 @@ export class SessionManager {
         tmuxSession: sessionName,
         createdAt: now,
         lastSeenAt: now,
-        sessionId,
+        sessionId: captured.sessionId,
+        sessionIdSource: captured.sessionIdSource,
       };
 
       state.workers[sessionName] = workerInfo;
@@ -968,20 +1034,21 @@ export class SessionManager {
       const existingWorker = state.workers[sessionName];
       const existingId = existingWorker?.workerId;
       const workerId = existingId ?? state.nextWorkerId++;
-      const storedSessionId = existingWorker?.sessionId;
-
-      // Resume from stored session ID if available; otherwise fresh start
-      const resumeCmd = storedSessionId
-        ? buildAgentResumeCommand(agentType, agentCommand, storedSessionId, repoRoot)
+      // Resume only if sessionId is real (preassigned/captured), not provisional
+      const resumableId = existingWorker ? this.getResumableSessionId(existingWorker) : null;
+      const resumeCmd = resumableId
+        ? buildAgentResumeCommand(agentType, agentCommand, resumableId, repoRoot)
         : null;
 
       let postCreatePromise: Promise<void>;
       let sessionId: string | null;
+      let sessionIdSource: SessionIdSource | undefined;
 
       if (resumeCmd) {
-        // Resume existing session — session ID stays the same
+        // Resume existing session — session ID and source stay the same
         await this.backend.sendKeys(sessionName, resumeCmd);
-        sessionId = storedSessionId;
+        sessionId = resumableId;
+        sessionIdSource = existingWorker?.sessionIdSource;
         // Send task after agent resumes (needs readiness delay)
         postCreatePromise = (async () => {
           await this.sleep(CLAUDE_READY_DELAY_MS);
@@ -990,11 +1057,12 @@ export class SessionManager {
       } else {
         // Fresh start — capture new session ID
         const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
-        const provisionalSessionId = preAssignedSessionId ?? randomUUID();
+        const initialSessionId = preAssignedSessionId ?? randomUUID();
+        sessionIdSource = preAssignedSessionId ? 'preassigned' : 'provisional';
         const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
         const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, repoRoot, preAssignedSessionId ?? undefined);
         await this.backend.sendKeys(sessionName, launchCmd);
-        sessionId = provisionalSessionId;
+        sessionId = initialSessionId;
         postCreatePromise = this.postCreate(sessionName, agentType, worktreePath, snapshot, task, preAssignedSessionId);
       }
 
@@ -1013,6 +1081,7 @@ export class SessionManager {
         createdAt: now,
         lastSeenAt: now,
         sessionId,
+        sessionIdSource,
       };
 
       state.workers[sessionName] = workerInfo;
