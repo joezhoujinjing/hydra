@@ -10,7 +10,8 @@ import {
   openWorktree,
   copyPath,
   newPane,
-  newWindow
+  newWindow,
+  openPR
 } from './commands/contextMenu';
 import { terminalSmartPaste, pasteImageForce, cleanupTempImages } from './commands/pasteImage';
 import { createWorktreeFromBranch } from './commands/createWorktreeFromBranch';
@@ -44,6 +45,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('tmux.terminalPaste', terminalSmartPaste),
     vscode.commands.registerCommand('tmux.pasteImage', pasteImageForce),
     vscode.commands.registerCommand('tmux.createWorktreeFromBranch', (item) => createWorktreeFromBranch(item)),
+    vscode.commands.registerCommand('hydra.openPR', openPR),
     vscode.commands.registerCommand('hydra.createCopilot', createCopilot),
     vscode.commands.registerCommand('hydra.createWorker', createWorker),
     vscode.commands.registerCommand('hydra.startCopilotClaude', () => createCopilotWithAgent('claude')),

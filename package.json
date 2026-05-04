@@ -155,6 +155,10 @@
         "title": "Create Worktree from This Branch"
       },
       {
+        "command": "hydra.openPR",
+        "title": "Hydra: Open PR"
+      },
+      {
         "command": "hydra.createCopilot",
         "title": "Hydra: Create Copilot",
         "icon": "$(hubot)"
@@ -251,11 +255,6 @@
         {
           "command": "tmux.attach",
           "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem' || viewItem == 'copilotItem')",
-          "group": "1_open"
-        },
-        {
-          "command": "tmux.openWorktree",
-          "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem')",
           "group": "1_open"
         },
         {

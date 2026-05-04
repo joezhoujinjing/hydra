@@ -301,6 +301,11 @@ export class CopilotItem extends TmuxItem {
     this.classification = opts.classification;
     this.description = description;
     this.contextValue = 'copilotItem';
+    this.command = {
+      command: 'tmux.attachCreate',
+      title: 'Open Session',
+      arguments: [this]
+    };
 
     // Blue circle: filled=attached, outline=idle
     if (opts.classification === 'attached') {
@@ -369,6 +374,11 @@ export class WorktreeItem extends TmuxItem {
     this.description = description;
 
     this.contextValue = 'workerItem';
+    this.command = {
+      command: 'tmux.attachCreate',
+      title: 'Open Session',
+      arguments: [this]
+    };
 
     if (!opts.hasGit) {
       this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('charts.yellow'));
@@ -445,11 +455,6 @@ export class TmuxDetailItem extends TmuxItem {
       this.iconPath = new vscode.ThemeIcon('terminal-tmux');
     }
 
-    this.command = {
-      command: 'tmux.attachCreate',
-      title: 'Attach Session',
-      arguments: [this]
-    };
   }
 }
 
@@ -471,16 +476,12 @@ export class InactiveDetailItem extends TmuxItem {
       this.iconPath = new vscode.ThemeIcon('terminal-tmux');
     }
 
-    this.command = {
-      command: 'tmux.attachCreate',
-      title: 'Launch Session',
-      arguments: [this]
-    };
   }
 }
 
 export class GitStatusItem extends TmuxItem {
   public readonly worktreePath?: string;
+  public readonly prNumber?: number;
 
   constructor(
     status: SessionStatus,
@@ -513,6 +514,15 @@ export class GitStatusItem extends TmuxItem {
     }
     this.iconPath = new vscode.ThemeIcon('git-commit', iconColor);
     this.worktreePath = worktreePath;
+    this.prNumber = status.prNumber;
+
+    if (status.prNumber && worktreePath) {
+      this.command = {
+        command: 'hydra.openPR',
+        title: 'Open PR',
+        arguments: [this]
+      };
+    }
   }
 }
 
