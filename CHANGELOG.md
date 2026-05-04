@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.25] - 2026-05-04
+
+### Changed
+- docs: rebrand README with "Hydra" metaphor and parallel workflow vision (#54)
+
+### Commits
+1. 2d2d577 docs: rebrand README with "Hydra" metaphor and parallel workflow vision (#54)
+
 ## [0.1.24] - 2026-05-04
 
 ### Added
