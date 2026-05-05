@@ -52,7 +52,7 @@ export function registerWorkerCommands(program: Command): void {
           baseBranchOverride: opts.base,
           task: opts.task,
           taskFile: opts.taskFile,
-          copilotSessionId: opts.copilot,
+          copilotSessionName: opts.copilot,
         });
 
         const status = branchExisted ? 'exists' : 'created';
