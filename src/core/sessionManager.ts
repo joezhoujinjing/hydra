@@ -12,6 +12,7 @@ import { shellQuote } from './shell';
 const HYDRA_DIR = path.join(os.homedir(), '.hydra');
 const SESSIONS_FILE = path.join(HYDRA_DIR, 'sessions.json');
 const ARCHIVE_FILE = path.join(HYDRA_DIR, 'archive.json');
+const POST_CREATE_TIMEOUT_MS = AGENT_READY_TIMEOUT_MS + 15000;
 
 /**
  * Look up a worker's numeric ID from sessions.json.
@@ -113,6 +114,12 @@ export interface CreateCopilotOpts {
 export interface CreateWorkerResult {
   workerInfo: WorkerInfo;
   /** Resolves after the delayed Enter is sent (for Claude trust prompt). CLI should await this. */
+  postCreatePromise: Promise<void>;
+}
+
+export interface CreateCopilotResult {
+  copilotInfo: CopilotInfo;
+  /** Resolves after the agent is ready and any deferred session ID capture has completed. */
   postCreatePromise: Promise<void>;
 }
 
@@ -377,7 +384,7 @@ export class SessionManager {
     this.writeSessionState(state);
 
     // Async post-create
-    const postCreatePromise = (async () => {
+    const postCreatePromise = this.withPostCreateTimeout((async () => {
       if (isResume) {
         // Resume: skip Phase 1 (sessionId already known), just wait for readiness
         await this.waitForAgentReady(sessionName, agentType);
@@ -387,7 +394,7 @@ export class SessionManager {
       }
       // Phase 2: Send task prompt (only after sessions.json is up to date)
       await this.sendInitialPrompt(sessionName, task);
-    })();
+    })(), sessionName, 'worker startup');
 
     return { workerInfo, postCreatePromise };
   }
@@ -493,12 +500,15 @@ export class SessionManager {
       postCreatePromise = this.waitForReadyAndCaptureSessionId(sessionName, agent, preAssignedSessionId);
     }
 
-    return { workerInfo: worker, postCreatePromise };
+    return {
+      workerInfo: worker,
+      postCreatePromise: this.withPostCreateTimeout(postCreatePromise, sessionName, 'worker startup'),
+    };
   }
 
   // ── Copilot Lifecycle ──
 
-  async createCopilot(opts: CreateCopilotOpts): Promise<CopilotInfo> {
+  async createCopilot(opts: CreateCopilotOpts): Promise<CreateCopilotResult> {
     ensureHydraGlobalConfig();
 
     const agentType = opts.agentType || 'claude';
@@ -521,6 +531,8 @@ export class SessionManager {
     const isResume = !!opts.resumeSessionId;
     let sessionId: string | null;
 
+    let postCreatePromise = Promise.resolve();
+
     if (isResume) {
       sessionId = opts.resumeSessionId!;
       const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, sessionId);
@@ -530,9 +542,7 @@ export class SessionManager {
       await this.backend.sendKeys(sessionName, resumeCmd);
     } else {
       sessionId = agentType === 'claude' ? randomUUID() : null;
-      const launchCmd = agentType === 'claude'
-        ? buildAgentLaunchCommand(agentType, agentCommand, undefined, sessionId ?? undefined)
-        : agentCommand;
+      const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, sessionId ?? undefined);
       await this.backend.sendKeys(sessionName, launchCmd);
     }
 
@@ -556,13 +566,23 @@ export class SessionManager {
     state.updatedAt = now;
     this.writeSessionState(state);
 
-    // Phase 1 (background): capture session ID for non-Claude fresh sessions
-    // Phase 2 (onboarding prompt) is handled by the VS Code extension caller
-    if (!isResume && !sessionId) {
-      this.waitForReadyAndCaptureSessionId(sessionName, agentType, null).catch(() => {});
-    }
+    // Match worker lifecycle semantics: wait for readiness and persist any deferred
+    // session ID capture before the CLI treats creation as complete.
+    postCreatePromise = this.withPostCreateTimeout(
+      this.waitForReadyAndCaptureSessionId(sessionName, agentType, sessionId),
+      sessionName,
+      'copilot startup',
+    );
 
-    return copilotInfo;
+    return { copilotInfo, postCreatePromise };
+  }
+
+  async createCopilotAndFinalize(opts: CreateCopilotOpts): Promise<CopilotInfo> {
+    return this.finalizeCopilotResult(await this.createCopilot(opts));
+  }
+
+  async restoreCopilotAndFinalize(sessionName: string): Promise<CopilotInfo> {
+    return this.finalizeCopilotResult(await this.restoreCopilot(sessionName));
   }
 
   async renameWorker(oldSessionName: string, newBranchName: string): Promise<WorkerInfo> {
@@ -804,7 +824,7 @@ export class SessionManager {
     });
   }
 
-  async restoreCopilot(sessionName: string): Promise<CopilotInfo> {
+  async restoreCopilot(sessionName: string): Promise<CreateCopilotResult> {
     const entry = this.getArchived(sessionName);
     if (!entry) {
       throw new Error(`Archived session "${sessionName}" not found`);
@@ -817,12 +837,42 @@ export class SessionManager {
     return this.createCopilot({
       workdir: copilot.workdir,
       agentType: copilot.agent,
+      name: copilot.displayName,
       sessionName: copilot.sessionName,
       resumeSessionId: entry.agentSessionId || undefined,
     });
   }
 
   // ── Private helpers ──
+
+  private async finalizeCopilotResult(result: CreateCopilotResult): Promise<CopilotInfo> {
+    await result.postCreatePromise;
+    const state = await this.sync();
+    return state.copilots[result.copilotInfo.sessionName] || result.copilotInfo;
+  }
+
+  private withPostCreateTimeout(
+    promise: Promise<void>,
+    sessionName: string,
+    operation: string,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`Timed out waiting for ${operation} for "${sessionName}" after ${POST_CREATE_TIMEOUT_MS}ms`));
+      }, POST_CREATE_TIMEOUT_MS);
+
+      promise.then(
+        () => {
+          clearTimeout(timeoutId);
+          resolve();
+        },
+        (error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        },
+      );
+    });
+  }
 
   private archiveEntry(
     type: 'worker' | 'copilot',
@@ -1138,7 +1188,10 @@ export class SessionManager {
       state.workers[sessionName] = workerInfo;
       state.updatedAt = now;
       this.writeSessionState(state);
-      return { workerInfo, postCreatePromise: Promise.resolve() };
+      return {
+        workerInfo,
+        postCreatePromise: this.withPostCreateTimeout(Promise.resolve(), sessionName, 'worker startup'),
+      };
     }
 
     // Worktree exists but tmux is dead — check new and legacy locations
@@ -1218,7 +1271,10 @@ export class SessionManager {
       state.updatedAt = now;
       this.writeSessionState(state);
 
-      return { workerInfo, postCreatePromise };
+      return {
+        workerInfo,
+        postCreatePromise: this.withPostCreateTimeout(postCreatePromise, sessionName, 'worker startup'),
+      };
     }
 
     throw new Error(`Branch "${branchName}" exists but has no managed worktree. Delete the branch first or use a different name.`);

@@ -1,12 +1,132 @@
+import * as path from 'path';
 import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
+import { toCanonicalPath } from '../../core/path';
 import { outputResult, outputError, type OutputOpts } from '../output';
+
+function expandPath(p: string): string {
+  const canonical = toCanonicalPath(p);
+  if (canonical) {
+    return canonical;
+  }
+
+  const trimmed = p.trim();
+  if (trimmed.startsWith('~')) {
+    throw new Error(`Could not resolve home-relative path: ${p}`);
+  }
+
+  return path.resolve(trimmed);
+}
+
+function requireSessionName(sessionName: string): string {
+  const trimmed = sessionName.trim();
+  if (!trimmed) {
+    throw new Error('Session name is required');
+  }
+  return trimmed;
+}
 
 export function registerCopilotCommands(program: Command): void {
   const copilot = program
     .command('copilot')
     .description('Manage Hydra copilots');
+
+  copilot
+    .command('create')
+    .description('Create a new copilot')
+    .option('--workdir <path>', 'Working directory for the copilot', process.cwd())
+    .option('--agent <type>', 'Agent type (claude, codex, gemini)', 'claude')
+    .option('--name <name>', 'Display name for the copilot session')
+    .option('--session <name>', 'Explicit tmux session name')
+    .action(async (opts: { workdir: string; agent: string; name?: string; session?: string }) => {
+      const globalOpts = program.opts() as OutputOpts;
+      try {
+        const backend = new TmuxBackendCore();
+        const sm = new SessionManager(backend);
+        const requestedSession = opts.session || opts.name || `hydra-copilot-${opts.agent}`;
+        const sessionName = backend.sanitizeSessionName(requestedSession);
+        const finalCopilot = await sm.createCopilotAndFinalize({
+          workdir: expandPath(opts.workdir),
+          agentType: opts.agent,
+          name: opts.name,
+          sessionName,
+        });
+
+        outputResult(
+          {
+            status: 'created',
+            session: finalCopilot.sessionName,
+            agent: finalCopilot.agent,
+            workdir: finalCopilot.workdir,
+            agentSessionId: finalCopilot.sessionId,
+          },
+          globalOpts,
+          () => {
+            console.log(`Created copilot: ${finalCopilot.sessionName}`);
+            console.log(`  Agent:      ${finalCopilot.agent}`);
+            console.log(`  Workdir:    ${finalCopilot.workdir}`);
+            console.log(`  Session ID: ${finalCopilot.sessionId || 'none'}`);
+          },
+        );
+      } catch (error) {
+        outputError(error, globalOpts);
+      }
+    });
+
+  copilot
+    .command('delete <session>')
+    .description('Delete a copilot (kill session + archive metadata)')
+    .action(async (sessionName: string) => {
+      const globalOpts = program.opts() as OutputOpts;
+      try {
+        const validatedSessionName = requireSessionName(sessionName);
+        const backend = new TmuxBackendCore();
+        const sm = new SessionManager(backend);
+        await sm.deleteCopilot(validatedSessionName);
+
+        outputResult(
+          { status: 'deleted', session: validatedSessionName },
+          globalOpts,
+          () => console.log(`Deleted copilot: ${validatedSessionName}`),
+        );
+      } catch (error) {
+        outputError(error, globalOpts);
+      }
+    });
+
+  copilot
+    .command('restore <session>')
+    .description('Restore an archived copilot by session name')
+    .action(async (sessionName: string) => {
+      const globalOpts = program.opts() as OutputOpts;
+      try {
+        const validatedSessionName = requireSessionName(sessionName);
+        const backend = new TmuxBackendCore();
+        const sm = new SessionManager(backend);
+        const finalCopilot = await sm.restoreCopilotAndFinalize(validatedSessionName);
+
+        outputResult(
+          {
+            status: 'restored',
+            type: 'copilot',
+            session: finalCopilot.sessionName,
+            agent: finalCopilot.agent,
+            workdir: finalCopilot.workdir,
+            agentSessionId: finalCopilot.sessionId,
+          },
+          globalOpts,
+          () => {
+            console.log(`Restored copilot: ${finalCopilot.sessionName}`);
+            console.log(`  Agent:      ${finalCopilot.agent}`);
+            console.log(`  Workdir:    ${finalCopilot.workdir}`);
+            console.log(`  Session ID: ${finalCopilot.sessionId || 'none'}`);
+          },
+        );
+      } catch (error) {
+        outputError(error, globalOpts);
+      }
+    });
 
   copilot
     .command('rename <session> <new-name>')

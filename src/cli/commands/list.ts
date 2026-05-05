@@ -27,6 +27,7 @@ export function registerListCommand(program: Command): void {
             status: c.status,
             attached: c.attached,
             workdir: c.workdir || null,
+            agentSessionId: c.sessionId,
           })),
           workers: workers.map(w => ({
             number: w.workerId,
@@ -39,6 +40,7 @@ export function registerListCommand(program: Command): void {
             attached: w.attached,
             workdir: w.workdir || null,
             copilotSessionName: w.copilotSessionName || null,
+            agentSessionId: w.sessionId,
           })),
           count: copilots.length + workers.length,
         };
