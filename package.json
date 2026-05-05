@@ -106,10 +106,6 @@
         "title": "Hydra: Attach/Create Session"
       },
       {
-        "command": "tmux.newTask",
-        "title": "Hydra: Create Worker"
-      },
-      {
         "command": "tmux.removeTask",
         "title": "Hydra: Remove"
       },
@@ -162,11 +158,6 @@
         "command": "hydra.createCopilot",
         "title": "Hydra: Create Copilot",
         "icon": "$(hubot)"
-      },
-      {
-        "command": "hydra.createWorker",
-        "title": "Hydra: Create Worker",
-        "icon": "$(server-process)"
       },
       {
         "command": "hydra.startCopilotClaude",
@@ -243,11 +234,6 @@
         {
           "command": "hydra.createCopilot",
           "when": "view == hydraCopilots",
-          "group": "navigation"
-        },
-        {
-          "command": "hydra.createWorker",
-          "when": "view == hydraWorkers",
           "group": "navigation"
         }
       ],

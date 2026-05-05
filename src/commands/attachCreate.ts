@@ -86,13 +86,9 @@ async function handleCommandExecution(): Promise<void> {
         }
         vscode.window.showInformationMessage(`Attached to ${matchingSessions.length} session(s)`);
     } else {
-        const choice = await vscode.window.showInformationMessage(
-            `No existing ${backend.displayName} session found for this workspace. Create a new task?`,
-            'Create New Task', 'Cancel'
+        vscode.window.showInformationMessage(
+            `No existing ${backend.displayName} session found for this workspace. Use \`hydra worker create\` via the CLI to create workers.`
         );
-        if (choice === 'Create New Task') {
-            vscode.commands.executeCommand('tmux.newTask');
-        }
     }
 }
 
