@@ -106,6 +106,10 @@
         "title": "Hydra: Attach/Create Session"
       },
       {
+        "command": "hydra.createWorker",
+        "title": "Hydra: Create Worker"
+      },
+      {
         "command": "tmux.removeTask",
         "title": "Hydra: Remove"
       },
