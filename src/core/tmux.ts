@@ -3,6 +3,11 @@ import { toCanonicalPath } from './path';
 import { shellQuote } from './shell';
 import { MultiplexerBackendCore, MultiplexerSession, SessionStatusInfo, HydraRole } from './types';
 
+interface ExecFailure extends Error {
+  stderr?: string;
+  stdout?: string;
+}
+
 const TMUX_ENV_KEYS_TO_STRIP = [
   'ELECTRON_RUN_AS_NODE',
   'TERM_PROGRAM',
@@ -58,6 +63,30 @@ async function scrubStoredTmuxEnvironment(sessionName?: string): Promise<void> {
   }
 }
 
+function getExecFailureText(error: unknown): string {
+  if (error instanceof Error) {
+    const failure = error as ExecFailure;
+    return [failure.message, failure.stderr, failure.stdout]
+      .filter((part): part is string => Boolean(part?.trim()))
+      .join('\n')
+      .trim();
+  }
+  return String(error);
+}
+
+function isTmuxNoServerError(error: unknown): boolean {
+  const text = getExecFailureText(error).toLowerCase();
+  return text.includes('no server running')
+    || (text.includes('error connecting to') && text.includes('no such file or directory'));
+}
+
+export class TmuxUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TmuxUnavailableError';
+  }
+}
+
 export class TmuxBackendCore implements MultiplexerBackendCore {
   readonly type = 'tmux' as const;
   readonly displayName = 'tmux';
@@ -83,8 +112,11 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
           attached: attached === '1'
         };
       });
-    } catch {
-      return [];
+    } catch (error) {
+      if (isTmuxNoServerError(error)) {
+        return [];
+      }
+      throw new TmuxUnavailableError(`Unable to access tmux sessions: ${getExecFailureText(error)}`);
     }
   }
 
