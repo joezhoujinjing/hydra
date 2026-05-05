@@ -104,31 +104,60 @@ export async function localBranchExists(repoRoot: string, branchName: string): P
 }
 
 export function getManagedWorktreesRoot(): string {
-  return path.join(os.homedir(), '.tmux-worktrees');
+  return path.join(os.homedir(), '.hydra', 'worktrees');
+}
+
+/**
+ * Derive a filesystem-safe repo identifier: <basename>-<sha1(canonicalPath)[0:8]>
+ */
+export function getRepoIdentifier(repoRoot: string): string {
+  const canonicalRoot = toCanonicalPath(repoRoot) || path.resolve(repoRoot);
+  const basename = path.basename(canonicalRoot) || 'repo';
+  // Sanitize basename for filesystem safety (keep alphanumeric, hyphens, underscores)
+  const safeName = basename.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-');
+  const rootHash = createHash('sha1').update(canonicalRoot).digest('hex').slice(0, 8);
+  return `${safeName}-${rootHash}`;
 }
 
 export function getManagedRepoWorktreesDir(repoRoot: string): string {
+  return path.join(getManagedWorktreesRoot(), getRepoIdentifier(repoRoot));
+}
+
+/** Legacy location inside the repo: <repo>/.hydra/worktrees/ */
+export function getInRepoWorktreesDir(repoRoot: string): string {
   return path.join(repoRoot, '.hydra', 'worktrees');
 }
 
+/** Legacy location under ~/.tmux-worktrees/<namespace>/ */
+export function getLegacyTmuxWorktreesDir(repoRoot: string, backend: MultiplexerBackendCore): string {
+  return path.join(os.homedir(), '.tmux-worktrees', getRepoSessionNamespace(repoRoot, backend));
+}
+
+/** @deprecated Use getLegacyTmuxWorktreesDir instead */
 export function getLegacyManagedRepoWorktreesDir(repoRoot: string, backend: MultiplexerBackendCore): string {
-  return path.join(getManagedWorktreesRoot(), getRepoSessionNamespace(repoRoot, backend));
+  return getLegacyTmuxWorktreesDir(repoRoot, backend);
 }
 
 export function isManagedWorktreePath(repoRoot: string, worktreePath: string, backend?: MultiplexerBackendCore): boolean {
   const candidatePath = toCanonicalPath(worktreePath);
   if (!candidatePath) return false;
 
-  // Check new location: <repo>/.hydra/worktrees/
-  const hydraDir = toCanonicalPath(getManagedRepoWorktreesDir(repoRoot));
-  if (hydraDir && (candidatePath === hydraDir || candidatePath.startsWith(`${hydraDir}${path.sep}`))) {
+  const isUnder = (dir: string | undefined) =>
+    dir && (candidatePath === dir || candidatePath.startsWith(`${dir}${path.sep}`));
+
+  // Check current location: ~/.hydra/worktrees/<repo-identifier>/
+  if (isUnder(toCanonicalPath(getManagedRepoWorktreesDir(repoRoot)))) {
     return true;
   }
 
-  // Check legacy location: ~/.tmux-worktrees/<namespace>/
+  // Check legacy in-repo location: <repo>/.hydra/worktrees/
+  if (isUnder(toCanonicalPath(getInRepoWorktreesDir(repoRoot)))) {
+    return true;
+  }
+
+  // Check legacy ~/.tmux-worktrees/<namespace>/
   if (backend) {
-    const legacyDir = toCanonicalPath(getLegacyManagedRepoWorktreesDir(repoRoot, backend));
-    if (legacyDir && (candidatePath === legacyDir || candidatePath.startsWith(`${legacyDir}${path.sep}`))) {
+    if (isUnder(toCanonicalPath(getLegacyTmuxWorktreesDir(repoRoot, backend)))) {
       return true;
     }
   }
@@ -142,21 +171,42 @@ export async function ensureWorktreesDir(repoRoot: string): Promise<string> {
     await fs.promises.mkdir(worktreesDir, { recursive: true });
   }
 
-  // Add .hydra to .gitignore if not already there
-  const gitignorePath = path.join(repoRoot, '.gitignore');
+  // Write .repo-root marker so we can discover the repo root from a worktree path
+  const markerPath = path.join(worktreesDir, '.repo-root');
+  const canonicalRoot = toCanonicalPath(repoRoot) || path.resolve(repoRoot);
   try {
-    const content = fs.existsSync(gitignorePath)
-      ? fs.readFileSync(gitignorePath, 'utf-8')
-      : '';
-    if (!content.split('\n').some(line => line.trim() === '.hydra' || line.trim() === '.hydra/')) {
-      const newline = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
-      fs.writeFileSync(gitignorePath, `${content}${newline}.hydra\n`, 'utf-8');
-    }
+    fs.writeFileSync(markerPath, canonicalRoot, 'utf-8');
   } catch {
-    // ignore gitignore errors
+    // ignore marker write errors
   }
 
   return worktreesDir;
+}
+
+/**
+ * Resolve repo root from a worktree path by reading the .repo-root marker.
+ * Works for worktrees at ~/.hydra/worktrees/<repo-id>/<slug>.
+ * Returns undefined if not resolvable.
+ */
+export function resolveRepoRootFromWorktreePath(worktreePath: string): string | undefined {
+  // New location: ~/.hydra/worktrees/<repo-id>/<slug> → parent has .repo-root
+  const parent = path.dirname(worktreePath);
+  const markerPath = path.join(parent, '.repo-root');
+  try {
+    if (fs.existsSync(markerPath)) {
+      return fs.readFileSync(markerPath, 'utf-8').trim();
+    }
+  } catch {
+    // fall through
+  }
+
+  // Legacy in-repo location: <repo>/.hydra/worktrees/<slug>
+  const hydraIdx = worktreePath.indexOf(`${path.sep}.hydra${path.sep}worktrees${path.sep}`);
+  if (hydraIdx >= 0) {
+    return worktreePath.substring(0, hydraIdx);
+  }
+
+  return undefined;
 }
 
 async function getMainWorktreePath(repoRoot: string): Promise<string> {

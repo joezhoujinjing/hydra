@@ -94,7 +94,7 @@ Your sidebar is no longer just a file explorer. It's a high-fidelity dashboard f
 
 ### 💂 The Army (Workers & Worktrees)
 Hydra automates the heavy lifting of git management.
-- **Isolated Worktrees:** Every worker gets a dedicated directory under `.hydra/worktrees/`. They won't mess with your primary workspace.
+- **Isolated Worktrees:** Every worker gets a dedicated directory under `~/.hydra/worktrees/` (outside the repo). They won't mess with your primary workspace.
 - **Autonomous Mode:** Workers can be launched with auto-approved permissions, letting them work while you sleep.
 
 ### 🧠 The Brain (Copilots)

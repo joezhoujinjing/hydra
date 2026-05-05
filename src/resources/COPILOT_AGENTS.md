@@ -46,7 +46,7 @@ tmux capture-pane -t <session_name> -p -S -200 | tail -200
 
 ## Reviewing Changes
 
-Worker worktrees live at `<repo>/.hydra/worktrees/<slug>/`.
+Worker worktrees live at `~/.hydra/worktrees/<repo-identifier>/<slug>/`.
 
 ```bash
 git -C <worktree_path> diff --stat

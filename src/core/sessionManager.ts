@@ -152,13 +152,10 @@ export class SessionManager {
       const workdir = await this.backend.getSessionWorkdir(session.name) || '';
 
       if (role === 'worker') {
-        // Derive repoRoot from workdir path: workdir is <repoRoot>/.hydra/worktrees/<slug>
+        // Derive repoRoot from workdir path via .repo-root marker or legacy path pattern
         let repoRoot = '';
         if (workdir) {
-          const hydraIdx = workdir.indexOf('/.hydra/worktrees/');
-          if (hydraIdx >= 0) {
-            repoRoot = workdir.substring(0, hydraIdx);
-          }
+          repoRoot = coreGit.resolveRepoRootFromWorktreePath(workdir) || '';
         }
         state.workers[session.name] = {
           sessionName: session.name,
@@ -886,9 +883,17 @@ export class SessionManager {
       return { workerInfo, postCreatePromise: Promise.resolve() };
     }
 
-    // Worktree exists but tmux is dead
+    // Worktree exists but tmux is dead — check new and legacy locations
     const worktreesDir = coreGit.getManagedRepoWorktreesDir(repoRoot);
-    const worktreePath = path.join(worktreesDir, slug);
+    let worktreePath = path.join(worktreesDir, slug);
+    if (!fs.existsSync(worktreePath)) {
+      // Fallback: check legacy in-repo location
+      const legacyDir = coreGit.getInRepoWorktreesDir(repoRoot);
+      const legacyPath = path.join(legacyDir, slug);
+      if (fs.existsSync(legacyPath)) {
+        worktreePath = legacyPath;
+      }
+    }
     if (fs.existsSync(worktreePath)) {
       await this.backend.createSession(sessionName, worktreePath);
       await this.backend.setSessionWorkdir(sessionName, worktreePath);
