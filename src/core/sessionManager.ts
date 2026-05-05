@@ -11,6 +11,7 @@ import { shellQuote } from './shell';
 
 const HYDRA_DIR = path.join(os.homedir(), '.hydra');
 const SESSIONS_FILE = path.join(HYDRA_DIR, 'sessions.json');
+const ARCHIVE_FILE = path.join(HYDRA_DIR, 'archive.json');
 
 /**
  * Look up a worker's numeric ID from sessions.json.
@@ -70,6 +71,18 @@ export interface SessionState {
   updatedAt: string;
 }
 
+export interface ArchivedSessionInfo {
+  type: 'worker' | 'copilot';
+  sessionName: string;
+  agentSessionId: string | null;
+  archivedAt: string;
+  data: WorkerInfo | CopilotInfo;
+}
+
+export interface ArchiveState {
+  entries: ArchivedSessionInfo[];
+}
+
 type SessionSnapshot = Record<string, never>;
 
 export interface CreateWorkerOpts {
@@ -80,6 +93,8 @@ export interface CreateWorkerOpts {
   task?: string;
   taskFile?: string;
   agentCommand?: string;
+  /** When set, launch the agent with --resume instead of a fresh session. */
+  resumeSessionId?: string;
 }
 
 export interface CreateCopilotOpts {
@@ -89,6 +104,8 @@ export interface CreateCopilotOpts {
   name?: string;
   sessionName?: string;
   agentCommand?: string;
+  /** When set, launch the agent with --resume instead of a fresh session. */
+  resumeSessionId?: string;
 }
 
 export interface CreateWorkerResult {
@@ -288,14 +305,22 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'worker');
     await this.backend.setSessionAgent(sessionName, agentType);
 
-    // For Claude, pre-assign session ID via --session-id flag (guaranteed correct).
-    // For other agents, capture from filesystem after launch.
-    const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+    // If resuming an archived session, use --resume; otherwise fresh launch.
+    let preAssignedSessionId: string | null;
     const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
 
-    // Launch agent without task (task sent after session ID capture)
-    const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
-    await this.backend.sendKeys(sessionName, launchCmd);
+    if (opts.resumeSessionId) {
+      preAssignedSessionId = opts.resumeSessionId;
+      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, opts.resumeSessionId);
+      const launchCmd = resumeCmd || buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
+      await this.backend.sendKeys(sessionName, launchCmd);
+    } else {
+      // For Claude, pre-assign session ID via --session-id flag (guaranteed correct).
+      // For other agents, capture from filesystem after launch.
+      preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+      const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
+      await this.backend.sendKeys(sessionName, launchCmd);
+    }
 
     const now = new Date().toISOString();
     const state = this.readSessionState();
@@ -337,6 +362,11 @@ export class SessionManager {
 
     const state = this.readSessionState();
     const worker = state.workers[sessionName];
+
+    // Archive before removing
+    if (worker) {
+      this.archiveEntry('worker', worker.sessionName, worker.sessionId, worker);
+    }
 
     if (worker && worker.workdir && worker.repoRoot && fs.existsSync(worker.workdir)) {
       try {
@@ -447,14 +477,22 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'copilot');
     await this.backend.setSessionAgent(sessionName, agentType);
 
-    const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+    let preAssignedSessionId: string | null;
     const snapshot = this.snapshotAgentSessions(agentType, opts.workdir);
 
-    // For Claude, launch with --session-id; for others, use agentCommand as-is
-    const launchCmd = agentType === 'claude'
-      ? buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined)
-      : agentCommand;
-    await this.backend.sendKeys(sessionName, launchCmd);
+    if (opts.resumeSessionId) {
+      preAssignedSessionId = opts.resumeSessionId;
+      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, opts.resumeSessionId);
+      const launchCmd = resumeCmd || buildAgentLaunchCommand(agentType, agentCommand);
+      await this.backend.sendKeys(sessionName, launchCmd);
+    } else {
+      // For Claude, launch with --session-id; for others, use agentCommand as-is
+      preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+      const launchCmd = agentType === 'claude'
+        ? buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined)
+        : agentCommand;
+      await this.backend.sendKeys(sessionName, launchCmd);
+    }
 
     const now = new Date().toISOString();
     const copilotInfo: CopilotInfo = {
@@ -628,6 +666,13 @@ export class SessionManager {
     } catch { /* Already dead */ }
 
     const state = this.readSessionState();
+    const copilot = state.copilots[sessionName];
+
+    // Archive before removing
+    if (copilot) {
+      this.archiveEntry('copilot', copilot.sessionName, copilot.sessionId, copilot);
+    }
+
     delete state.copilots[sessionName];
     state.updatedAt = new Date().toISOString();
     this.writeSessionState(state);
@@ -673,7 +718,104 @@ export class SessionManager {
     this.updateSessionId(sessionName, sessionId);
   }
 
+  // ── Archive ──
+
+  listArchived(): ArchivedSessionInfo[] {
+    return this.readArchiveState().entries;
+  }
+
+  getArchivedAll(sessionName: string): ArchivedSessionInfo[] {
+    return this.readArchiveState().entries.filter(e => e.sessionName === sessionName);
+  }
+
+  getArchived(sessionName: string): ArchivedSessionInfo | undefined {
+    const all = this.getArchivedAll(sessionName);
+    return all.length > 0 ? all[all.length - 1] : undefined;
+  }
+
+  listArchivedLatest(): ArchivedSessionInfo[] {
+    const entries = this.readArchiveState().entries;
+    const latest = new Map<string, ArchivedSessionInfo>();
+    for (const entry of entries) {
+      latest.set(entry.sessionName, entry);
+    }
+    return [...latest.values()];
+  }
+
+  async restoreWorker(sessionName: string): Promise<CreateWorkerResult> {
+    const entry = this.getArchived(sessionName);
+    if (!entry) {
+      throw new Error(`Archived session "${sessionName}" not found`);
+    }
+    if (entry.type !== 'worker') {
+      throw new Error(`Archived session "${sessionName}" is a copilot, not a worker`);
+    }
+
+    const worker = entry.data as WorkerInfo;
+    return this.createWorker({
+      repoRoot: worker.repoRoot,
+      branchName: worker.branch,
+      agentType: worker.agent,
+      resumeSessionId: entry.agentSessionId || undefined,
+    });
+  }
+
+  async restoreCopilot(sessionName: string): Promise<CopilotInfo> {
+    const entry = this.getArchived(sessionName);
+    if (!entry) {
+      throw new Error(`Archived session "${sessionName}" not found`);
+    }
+    if (entry.type !== 'copilot') {
+      throw new Error(`Archived session "${sessionName}" is a worker, not a copilot`);
+    }
+
+    const copilot = entry.data as CopilotInfo;
+    return this.createCopilot({
+      workdir: copilot.workdir,
+      agentType: copilot.agent,
+      sessionName: copilot.sessionName,
+      resumeSessionId: entry.agentSessionId || undefined,
+    });
+  }
+
   // ── Private helpers ──
+
+  private archiveEntry(
+    type: 'worker' | 'copilot',
+    sessionName: string,
+    agentSessionId: string | null,
+    data: WorkerInfo | CopilotInfo,
+  ): void {
+    const archive = this.readArchiveState();
+    archive.entries.push({
+      type,
+      sessionName,
+      agentSessionId,
+      archivedAt: new Date().toISOString(),
+      data: { ...data },
+    });
+    this.writeArchiveState(archive);
+  }
+
+  private readArchiveState(): ArchiveState {
+    try {
+      if (fs.existsSync(ARCHIVE_FILE)) {
+        const raw = fs.readFileSync(ARCHIVE_FILE, 'utf-8');
+        const parsed = JSON.parse(raw);
+        return { entries: parsed.entries || [] };
+      }
+    } catch {
+      // Corrupted file — start fresh
+    }
+    return { entries: [] };
+  }
+
+  private writeArchiveState(archive: ArchiveState): void {
+    if (!fs.existsSync(HYDRA_DIR)) {
+      fs.mkdirSync(HYDRA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(archive, null, 2), 'utf-8');
+  }
 
   private readSessionState(): SessionState {
     try {
