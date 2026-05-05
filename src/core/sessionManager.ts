@@ -93,6 +93,8 @@ export interface CreateWorkerOpts {
   task?: string;
   taskFile?: string;
   agentCommand?: string;
+  /** When set, launch the agent with --resume instead of a fresh session. */
+  resumeSessionId?: string;
 }
 
 export interface CreateCopilotOpts {
@@ -102,6 +104,8 @@ export interface CreateCopilotOpts {
   name?: string;
   sessionName?: string;
   agentCommand?: string;
+  /** When set, launch the agent with --resume instead of a fresh session. */
+  resumeSessionId?: string;
 }
 
 export interface CreateWorkerResult {
@@ -301,14 +305,22 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'worker');
     await this.backend.setSessionAgent(sessionName, agentType);
 
-    // For Claude, pre-assign session ID via --session-id flag (guaranteed correct).
-    // For other agents, capture from filesystem after launch.
-    const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+    // If resuming an archived session, use --resume; otherwise fresh launch.
+    let preAssignedSessionId: string | null;
     const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
 
-    // Launch agent without task (task sent after session ID capture)
-    const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
-    await this.backend.sendKeys(sessionName, launchCmd);
+    if (opts.resumeSessionId) {
+      preAssignedSessionId = opts.resumeSessionId;
+      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, opts.resumeSessionId);
+      const launchCmd = resumeCmd || buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
+      await this.backend.sendKeys(sessionName, launchCmd);
+    } else {
+      // For Claude, pre-assign session ID via --session-id flag (guaranteed correct).
+      // For other agents, capture from filesystem after launch.
+      preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+      const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
+      await this.backend.sendKeys(sessionName, launchCmd);
+    }
 
     const now = new Date().toISOString();
     const state = this.readSessionState();
@@ -465,14 +477,22 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'copilot');
     await this.backend.setSessionAgent(sessionName, agentType);
 
-    const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+    let preAssignedSessionId: string | null;
     const snapshot = this.snapshotAgentSessions(agentType, opts.workdir);
 
-    // For Claude, launch with --session-id; for others, use agentCommand as-is
-    const launchCmd = agentType === 'claude'
-      ? buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined)
-      : agentCommand;
-    await this.backend.sendKeys(sessionName, launchCmd);
+    if (opts.resumeSessionId) {
+      preAssignedSessionId = opts.resumeSessionId;
+      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, opts.resumeSessionId);
+      const launchCmd = resumeCmd || buildAgentLaunchCommand(agentType, agentCommand);
+      await this.backend.sendKeys(sessionName, launchCmd);
+    } else {
+      // For Claude, launch with --session-id; for others, use agentCommand as-is
+      preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+      const launchCmd = agentType === 'claude'
+        ? buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined)
+        : agentCommand;
+      await this.backend.sendKeys(sessionName, launchCmd);
+    }
 
     const now = new Date().toISOString();
     const copilotInfo: CopilotInfo = {
@@ -731,72 +751,13 @@ export class SessionManager {
       throw new Error(`Archived session "${sessionName}" is a copilot, not a worker`);
     }
 
-    ensureHydraGlobalConfig();
-
     const worker = entry.data as WorkerInfo;
-    const agentSessionId = entry.agentSessionId;
-    const agentType = worker.agent || 'claude';
-    const repoRoot = worker.repoRoot;
-    const branchName = worker.branch;
-
-    const validationError = coreGit.validateBranchName(branchName);
-    if (validationError) {
-      throw new Error(validationError);
-    }
-
-    const repoSessionNamespace = coreGit.getRepoSessionNamespace(repoRoot, this.backend);
-    const slug = coreGit.branchNameToSlug(branchName, this.backend);
-    let finalSlug = slug;
-    let suffix = 1;
-    while (await coreGit.isSlugTaken(finalSlug, repoSessionNamespace, repoRoot, this.backend)) {
-      suffix++;
-      finalSlug = `${slug}-${suffix}`;
-    }
-
-    // Create worktree if branch doesn't exist yet
-    const branchExists = await coreGit.localBranchExists(repoRoot, branchName);
-    let worktreePath: string;
-    if (!branchExists) {
-      const baseBranch = await coreGit.getBaseBranchFromRepo(repoRoot);
-      worktreePath = await coreGit.addWorktree(repoRoot, branchName, finalSlug, baseBranch);
-      this.resolveImports(path.join(worktreePath, 'CLAUDE.md'), repoRoot);
-      this.resolveImports(path.join(worktreePath, 'AGENTS.md'), repoRoot);
-      this.resolveImports(path.join(worktreePath, 'GEMINI.md'), repoRoot);
-      injectWorkerInstructions(worktreePath, agentType);
-    } else {
-      const worktreesDir = coreGit.getManagedRepoWorktreesDir(repoRoot);
-      worktreePath = path.join(worktreesDir, finalSlug);
-    }
-
-    // Register session entry with the archived agentSessionId
-    const newSessionName = this.backend.buildSessionName(repoSessionNamespace, finalSlug);
-    const state = this.readSessionState();
-    const workerId = state.nextWorkerId++;
-    const now = new Date().toISOString();
-
-    const workerInfo: WorkerInfo = {
-      sessionName: newSessionName,
-      workerId,
-      repo: coreGit.getRepoName(repoRoot),
-      repoRoot,
-      branch: branchName,
-      slug: finalSlug,
-      status: 'stopped',
-      attached: false,
-      agent: agentType,
-      workdir: worktreePath,
-      tmuxSession: newSessionName,
-      createdAt: now,
-      lastSeenAt: now,
-      sessionId: agentSessionId, // Archived session ID for --resume
-    };
-
-    state.workers[newSessionName] = workerInfo;
-    state.updatedAt = now;
-    this.writeSessionState(state);
-
-    // startWorker sees the stored sessionId and uses buildAgentResumeCommand (--resume)
-    return this.startWorker(newSessionName);
+    return this.createWorker({
+      repoRoot: worker.repoRoot,
+      branchName: worker.branch,
+      agentType: worker.agent,
+      resumeSessionId: entry.agentSessionId || undefined,
+    });
   }
 
   async restoreCopilot(sessionName: string): Promise<CopilotInfo> {
@@ -808,53 +769,13 @@ export class SessionManager {
       throw new Error(`Archived session "${sessionName}" is a worker, not a copilot`);
     }
 
-    ensureHydraGlobalConfig();
-
     const copilot = entry.data as CopilotInfo;
-    const agentSessionId = entry.agentSessionId;
-    const agentType = copilot.agent || 'claude';
-    const agentCommand = DEFAULT_AGENT_COMMANDS[agentType] || agentType;
-    const copilotSessionName = copilot.sessionName;
-
-    const exists = await this.backend.hasSession(copilotSessionName);
-    if (exists) {
-      throw new Error(`Session "${copilotSessionName}" already exists`);
-    }
-
-    await this.backend.createSession(copilotSessionName, copilot.workdir);
-    await this.backend.setSessionWorkdir(copilotSessionName, copilot.workdir);
-    await this.backend.setSessionRole(copilotSessionName, 'copilot');
-    await this.backend.setSessionAgent(copilotSessionName, agentType);
-
-    // Use --resume with the archived agentSessionId if available
-    let launchCmd: string;
-    if (agentSessionId) {
-      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, agentSessionId);
-      launchCmd = resumeCmd || buildAgentLaunchCommand(agentType, agentCommand);
-    } else {
-      launchCmd = buildAgentLaunchCommand(agentType, agentCommand);
-    }
-    await this.backend.sendKeys(copilotSessionName, launchCmd);
-
-    const now = new Date().toISOString();
-    const copilotInfo: CopilotInfo = {
-      sessionName: copilotSessionName,
-      status: 'running',
-      attached: false,
-      agent: agentType,
+    return this.createCopilot({
       workdir: copilot.workdir,
-      tmuxSession: copilotSessionName,
-      createdAt: now,
-      lastSeenAt: now,
-      sessionId: agentSessionId,
-    };
-
-    const state = this.readSessionState();
-    state.copilots[copilotSessionName] = copilotInfo;
-    state.updatedAt = now;
-    this.writeSessionState(state);
-
-    return copilotInfo;
+      agentType: copilot.agent,
+      sessionName: copilot.sessionName,
+      resumeSessionId: entry.agentSessionId || undefined,
+    });
   }
 
   // ── Private helpers ──
