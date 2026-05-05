@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 import { MultiplexerBackendCore } from './types';
 import * as coreGit from './git';
 import { ensureHydraGlobalConfig } from './hydraGlobalConfig';
-import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS, AGENT_READY_PATTERNS, AGENT_READY_TIMEOUT_MS, AGENT_READY_POLL_INTERVAL_MS } from './agentConfig';
+import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS, AGENT_READY_PATTERNS, AGENT_READY_TIMEOUT_MS, AGENT_READY_POLL_INTERVAL_MS, CLAUDE_TRUST_PROMPT_PATTERN } from './agentConfig';
 import { exec } from './exec';
 import { shellQuote } from './shell';
 
@@ -914,6 +914,9 @@ export class SessionManager {
   /**
    * Poll the tmux pane output until the agent's ready indicator appears,
    * or fall back to the fixed delay on timeout.
+   *
+   * Handles the Claude trust prompt: if detected, sends Enter to accept it
+   * before continuing to poll for the actual input prompt.
    */
   private async waitForAgentReady(sessionName: string, agentType: string): Promise<void> {
     const pattern = AGENT_READY_PATTERNS[agentType];
@@ -924,14 +927,25 @@ export class SessionManager {
     }
 
     const deadline = Date.now() + AGENT_READY_TIMEOUT_MS;
+    let trustPromptHandled = false;
+
     // Initial delay before first poll (agent needs time to start the process)
     await this.sleep(AGENT_READY_POLL_INTERVAL_MS);
 
     while (Date.now() < deadline) {
       try {
         const output = await this.backend.capturePane(sessionName, 50);
+
         if (pattern.test(output)) {
+          // Brief settle delay — TUI input handler may not be fully interactive yet
+          await this.sleep(AGENT_READY_POLL_INTERVAL_MS);
           return;
+        }
+
+        // Handle trust prompt: send Enter to accept "Yes, I trust this folder"
+        if (!trustPromptHandled && CLAUDE_TRUST_PROMPT_PATTERN.test(output)) {
+          await this.backend.sendKeys(sessionName, '');
+          trustPromptHandled = true;
         }
       } catch {
         // Session may not be ready yet — keep polling
