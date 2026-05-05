@@ -383,10 +383,10 @@ export class SessionManager {
         await this.waitForAgentReady(sessionName, agentType);
       } else {
         // Phase 1: Wait for readiness & capture session ID into sessions.json
-        await this.phase1CaptureSessionId(sessionName, agentType, sessionId);
+        await this.waitForReadyAndCaptureSessionId(sessionName, agentType, sessionId);
       }
       // Phase 2: Send task prompt (only after sessions.json is up to date)
-      await this.phase2SendPrompt(sessionName, task);
+      await this.sendInitialPrompt(sessionName, task);
     })();
 
     return { workerInfo, postCreatePromise };
@@ -490,7 +490,7 @@ export class SessionManager {
       this.writeSessionState(state);
 
       // Phase 1 only — startWorker is a restart, no task to send (Phase 2 skipped)
-      postCreatePromise = this.phase1CaptureSessionId(sessionName, agent, preAssignedSessionId);
+      postCreatePromise = this.waitForReadyAndCaptureSessionId(sessionName, agent, preAssignedSessionId);
     }
 
     return { workerInfo: worker, postCreatePromise };
@@ -559,7 +559,7 @@ export class SessionManager {
     // Phase 1 (background): capture session ID for non-Claude fresh sessions
     // Phase 2 (onboarding prompt) is handled by the VS Code extension caller
     if (!isResume && !sessionId) {
-      this.phase1CaptureSessionId(sessionName, agentType, null).catch(() => {});
+      this.waitForReadyAndCaptureSessionId(sessionName, agentType, null).catch(() => {});
     }
 
     return copilotInfo;
@@ -940,7 +940,7 @@ export class SessionManager {
    * After this method completes, sessions.json has the definitive sessionId.
    * Skipped entirely on resume (sessionId already stored from the original create).
    */
-  private async phase1CaptureSessionId(
+  private async waitForReadyAndCaptureSessionId(
     sessionName: string,
     agentType: string,
     preAssignedSessionId: string | null,
@@ -956,15 +956,14 @@ export class SessionManager {
   }
 
   /**
-   * ── Phase 2: Send prompt ──
-   *
-   * Send the task prompt to the agent. Only called after Phase 1 completes
+   * Send the initial task prompt to the agent.
+   * Only called after waitForReadyAndCaptureSessionId completes
    * (i.e., sessions.json has the definitive sessionId).
    *
    * - Workers: send the task prompt (provided by copilot or --task flag)
    * - Copilots: VS Code extension sends onboarding prompt separately
    */
-  private async phase2SendPrompt(
+  private async sendInitialPrompt(
     sessionName: string,
     task?: string,
   ): Promise<void> {
@@ -1182,7 +1181,7 @@ export class SessionManager {
         // Skip Phase 1 (sessionId already known). Phase 2 only: send task if provided.
         postCreatePromise = (async () => {
           await this.waitForAgentReady(sessionName, agentType);
-          await this.phase2SendPrompt(sessionName, task);
+          await this.sendInitialPrompt(sessionName, task);
         })();
       } else {
         // ── Fresh start: Phase 1 (capture sessionId) → Phase 2 (send task) ──
@@ -1191,8 +1190,8 @@ export class SessionManager {
         await this.backend.sendKeys(sessionName, launchCmd);
         sessionId = preAssignedSessionId;
         postCreatePromise = (async () => {
-          await this.phase1CaptureSessionId(sessionName, agentType, preAssignedSessionId);
-          await this.phase2SendPrompt(sessionName, task);
+          await this.waitForReadyAndCaptureSessionId(sessionName, agentType, preAssignedSessionId);
+          await this.sendInitialPrompt(sessionName, task);
         })();
       }
 
