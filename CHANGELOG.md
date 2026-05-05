@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.30] - 2026-05-05
+
+### Added
+- Auto-reveal sidebar item when terminal tab is focused (#93)
+- Store copilotSessionId in worker metadata (#83)
+- `hydra whoami` CLI subcommand (#86)
+- `hydra doctor` CLI subcommand (#82)
+- Fetch latest from remote before creating worker/copilot (#70)
+
+### Changed
+- Route all session lifecycle through SessionManager (#91)
+- Split session creation into Phase 1 and Phase 2 (#87)
+- Use PAT for auto-tag to trigger publish workflow (#81)
+
+### Fixed
+- Use displayName for worker labels in sidebar (#89)
+- Ensure consistent Hydra icon on all worker/copilot terminal tabs (#85)
+- Poll for agent readiness before sending task prompt (#80)
+
 ## [0.1.29] - 2026-05-05
 
 ### Added
