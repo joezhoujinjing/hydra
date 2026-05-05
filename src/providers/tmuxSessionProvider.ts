@@ -353,6 +353,7 @@ export class WorktreeItem extends TmuxItem {
 
   constructor(opts: {
     branchLabel: string;
+    displayName?: string;
     repoName: string;
     sessionName: string;
     worktreePath?: string;
@@ -362,7 +363,7 @@ export class WorktreeItem extends TmuxItem {
     hasTmux: boolean;
     isMainWorktree?: boolean;
   }) {
-    const displayLabel = opts.branchLabel;
+    const displayLabel = opts.displayName || opts.branchLabel;
     const description = opts.isCurrentWorkspace ? 'This project' : undefined;
     super(displayLabel, vscode.TreeItemCollapsibleState.Expanded, opts.repoName, opts.sessionName);
 
@@ -544,13 +545,15 @@ export class TmuxSessionItem extends WorktreeItem {
     branchLabelOverride?: string,
     agentType?: string,
     repoRoot?: string,
-    workerId?: number
+    workerId?: number,
+    displayName?: string
   ) {
     const isRoot = Boolean(worktree?.isMain);
     const branchLabel = branchLabelOverride || worktree?.branch || (isRoot ? 'main' : session.slug);
 
     super({
       branchLabel,
+      displayName,
       repoName,
       sessionName: session.name,
       worktreePath: session.worktreePath,
@@ -593,12 +596,14 @@ export class InactiveWorktreeItem extends WorktreeItem {
     extensionUri?: vscode.Uri,
     branchLabelOverride?: string,
     gitStatusOverride?: SessionStatus,
-    repoRoot?: string
+    repoRoot?: string,
+    displayName?: string
   ) {
     const branchLabel = branchLabelOverride || worktree.branch || (worktree.isMain ? 'main' : path.basename(worktree.path));
 
     super({
       branchLabel,
+      displayName,
       repoName,
       sessionName: targetSessionName,
       worktreePath: worktree.path,
@@ -865,7 +870,7 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
         const worktree: Worktree = { path: w.workdir, branch: w.branch, isMain: false };
         items.push(new TmuxSessionItem(
           session, repoName, worktree, isCurrentWs, hasGit,
-          this._extensionUri, branchLabel, w.agent, repoRoot, w.workerId
+          this._extensionUri, branchLabel, w.agent, repoRoot, w.workerId, w.displayName
         ));
       } else {
         const worktree: Worktree = { path: w.workdir, branch: w.branch, isMain: false };
@@ -886,7 +891,7 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
         }
         items.push(new InactiveWorktreeItem(
           worktree, repoName, w.sessionName, isCurrentWs, hasGit,
-          this._extensionUri, branchLabel, stoppedStatus, repoRoot
+          this._extensionUri, branchLabel, stoppedStatus, repoRoot, w.displayName
         ));
       }
     }
