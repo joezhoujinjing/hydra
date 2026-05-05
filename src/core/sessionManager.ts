@@ -116,6 +116,12 @@ export interface CreateWorkerResult {
   postCreatePromise: Promise<void>;
 }
 
+export interface CreateCopilotResult {
+  copilotInfo: CopilotInfo;
+  /** Resolves after the agent is ready and any deferred session ID capture has completed. */
+  postCreatePromise: Promise<void>;
+}
+
 // ── SessionManager Class ──
 
 export class SessionManager {
@@ -498,7 +504,7 @@ export class SessionManager {
 
   // ── Copilot Lifecycle ──
 
-  async createCopilot(opts: CreateCopilotOpts): Promise<CopilotInfo> {
+  async createCopilot(opts: CreateCopilotOpts): Promise<CreateCopilotResult> {
     ensureHydraGlobalConfig();
 
     const agentType = opts.agentType || 'claude';
@@ -521,6 +527,8 @@ export class SessionManager {
     const isResume = !!opts.resumeSessionId;
     let sessionId: string | null;
 
+    let postCreatePromise = Promise.resolve();
+
     if (isResume) {
       sessionId = opts.resumeSessionId!;
       const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, sessionId);
@@ -530,9 +538,7 @@ export class SessionManager {
       await this.backend.sendKeys(sessionName, resumeCmd);
     } else {
       sessionId = agentType === 'claude' ? randomUUID() : null;
-      const launchCmd = agentType === 'claude'
-        ? buildAgentLaunchCommand(agentType, agentCommand, undefined, sessionId ?? undefined)
-        : agentCommand;
+      const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, sessionId ?? undefined);
       await this.backend.sendKeys(sessionName, launchCmd);
     }
 
@@ -556,13 +562,11 @@ export class SessionManager {
     state.updatedAt = now;
     this.writeSessionState(state);
 
-    // Phase 1 (background): capture session ID for non-Claude fresh sessions
-    // Phase 2 (onboarding prompt) is handled by the VS Code extension caller
-    if (!isResume && !sessionId) {
-      this.waitForReadyAndCaptureSessionId(sessionName, agentType, null).catch(() => {});
-    }
+    // Match worker lifecycle semantics: wait for readiness and persist any deferred
+    // session ID capture before the CLI treats creation as complete.
+    postCreatePromise = this.waitForReadyAndCaptureSessionId(sessionName, agentType, sessionId);
 
-    return copilotInfo;
+    return { copilotInfo, postCreatePromise };
   }
 
   async renameWorker(oldSessionName: string, newBranchName: string): Promise<WorkerInfo> {
@@ -804,7 +808,7 @@ export class SessionManager {
     });
   }
 
-  async restoreCopilot(sessionName: string): Promise<CopilotInfo> {
+  async restoreCopilot(sessionName: string): Promise<CreateCopilotResult> {
     const entry = this.getArchived(sessionName);
     if (!entry) {
       throw new Error(`Archived session "${sessionName}" not found`);
@@ -817,6 +821,7 @@ export class SessionManager {
     return this.createCopilot({
       workdir: copilot.workdir,
       agentType: copilot.agent,
+      name: copilot.displayName,
       sessionName: copilot.sessionName,
       resumeSessionId: entry.agentSessionId || undefined,
     });

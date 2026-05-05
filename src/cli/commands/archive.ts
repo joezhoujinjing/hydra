@@ -144,22 +144,25 @@ export function registerArchiveCommands(program: Command): void {
           );
           await postCreatePromise;
         } else {
-          const copilotInfo = await sm.restoreCopilot(sessionName);
+          const { copilotInfo, postCreatePromise } = await sm.restoreCopilot(sessionName);
+          await postCreatePromise;
+          const state = await sm.sync();
+          const finalCopilot = state.copilots[copilotInfo.sessionName] || copilotInfo;
           outputResult(
             {
               status: 'restored',
               type: 'copilot',
-              session: copilotInfo.sessionName,
-              agent: copilotInfo.agent,
-              workdir: copilotInfo.workdir,
-              agentSessionId: copilotInfo.sessionId,
+              session: finalCopilot.sessionName,
+              agent: finalCopilot.agent,
+              workdir: finalCopilot.workdir,
+              agentSessionId: finalCopilot.sessionId,
             },
             globalOpts,
             () => {
-              console.log(`Restored copilot: ${copilotInfo.sessionName}`);
-              console.log(`  Agent:      ${copilotInfo.agent}`);
-              console.log(`  Workdir:    ${copilotInfo.workdir}`);
-              console.log(`  Session ID: ${copilotInfo.sessionId || 'none'}`);
+              console.log(`Restored copilot: ${finalCopilot.sessionName}`);
+              console.log(`  Agent:      ${finalCopilot.agent}`);
+              console.log(`  Workdir:    ${finalCopilot.workdir}`);
+              console.log(`  Session ID: ${finalCopilot.sessionId || 'none'}`);
             },
           );
         }

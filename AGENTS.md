@@ -98,9 +98,11 @@ The CLI is a thin wrapper that delegates to the extension's bundled Node.js code
 
 ```bash
 hydra list --json                                    # What's running?
+hydra copilot create --agent codex --workdir .      # Launch a copilot in the current directory
 hydra worker create --repo . --branch feat/foo       # Spawn a worker
 hydra worker logs <session> --lines 30               # Read its output
 hydra worker send <session> "fix the failing test"   # Send instructions
+hydra copilot restore                                # Restore the most recent archived copilot
 hydra worker delete <session>                        # Clean up
 ```
 
@@ -119,10 +121,10 @@ hydra list --json
 ```json
 {
   "copilots": [
-    { "session": "hydra-copilot-claude", "agent": "claude", "status": "running", "attached": false, "workdir": "/path" }
+    { "session": "hydra-copilot-claude", "agent": "claude", "status": "running", "attached": false, "workdir": "/path", "agentSessionId": "30a66510-bdf7-4942-8125-527005870bc9" }
   ],
   "workers": [
-    { "session": "hydra-ab12_feat-auth", "repo": "myapp", "branch": "feat/auth", "agent": "claude", "status": "running", "attached": false, "workdir": "~/.hydra/worktrees/myapp-ab12cd34/feat-auth" }
+    { "session": "hydra-ab12_feat-auth", "repo": "myapp", "branch": "feat/auth", "agent": "claude", "status": "running", "attached": false, "workdir": "~/.hydra/worktrees/myapp-ab12cd34/feat-auth", "agentSessionId": "019df6bd-8773-72a1-a0f1-eb5fc3ae6dbf" }
   ],
   "count": 2
 }
@@ -205,6 +207,34 @@ Kill session + remove worktree + delete branch. Irreversible.
 
 ```json
 { "status": "deleted", "session": "hydra-ab12_feat-auth" }
+```
+
+### `hydra copilot create`
+
+Create a new copilot.
+
+```bash
+hydra copilot create [--workdir <path>] [--agent claude|codex|gemini] [--name <display-name>] [--session <name>]
+```
+
+```json
+{ "status": "created", "session": "hydra-copilot-codex", "agent": "codex", "workdir": "/path", "agentSessionId": "019df6bd-8773-72a1-a0f1-eb5fc3ae6dbf" }
+```
+
+### `hydra copilot delete <session>`
+
+Delete a copilot (kill the tmux session and archive its metadata).
+
+```json
+{ "status": "deleted", "session": "hydra-copilot-codex" }
+```
+
+### `hydra copilot restore`
+
+Restore the most recent archived copilot.
+
+```json
+{ "status": "restored", "type": "copilot", "session": "hydra-copilot-codex", "agent": "codex", "workdir": "/path", "agentSessionId": "019df6bd-8773-72a1-a0f1-eb5fc3ae6dbf" }
 ```
 
 ### `hydra copilot logs <session>`
