@@ -87,7 +87,7 @@ async function handleCommandExecution(): Promise<void> {
         vscode.window.showInformationMessage(`Attached to ${matchingSessions.length} session(s)`);
     } else {
         vscode.window.showInformationMessage(
-            `No existing ${backend.displayName} session found for this workspace. Use \`hydra worker create\` via the CLI to create workers.`
+            `No existing ${backend.displayName} session found for this workspace. Ask your copilot to create a worker.`
         );
     }
 }

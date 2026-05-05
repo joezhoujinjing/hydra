@@ -788,7 +788,7 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
       if (workers.length === 0) {
         const hint = new TmuxItem('No workers', vscode.TreeItemCollapsibleState.None);
         hint.iconPath = new vscode.ThemeIcon('info');
-        hint.description = 'Use `hydra worker create` via CLI';
+        hint.description = 'Ask your copilot to create a worker';
         return [hint];
       }
 
