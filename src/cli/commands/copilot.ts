@@ -6,7 +6,25 @@ import { toCanonicalPath } from '../../core/path';
 import { outputResult, outputError, type OutputOpts } from '../output';
 
 function expandPath(p: string): string {
-  return toCanonicalPath(p) || path.resolve(p);
+  const canonical = toCanonicalPath(p);
+  if (canonical) {
+    return canonical;
+  }
+
+  const trimmed = p.trim();
+  if (trimmed.startsWith('~')) {
+    throw new Error(`Could not resolve home-relative path: ${p}`);
+  }
+
+  return path.resolve(trimmed);
+}
+
+function requireSessionName(sessionName: string): string {
+  const trimmed = sessionName.trim();
+  if (!trimmed) {
+    throw new Error('Session name is required');
+  }
+  return trimmed;
 }
 
 export function registerCopilotCommands(program: Command): void {
@@ -62,14 +80,15 @@ export function registerCopilotCommands(program: Command): void {
     .action(async (sessionName: string) => {
       const globalOpts = program.opts() as OutputOpts;
       try {
+        const validatedSessionName = requireSessionName(sessionName);
         const backend = new TmuxBackendCore();
         const sm = new SessionManager(backend);
-        await sm.deleteCopilot(sessionName);
+        await sm.deleteCopilot(validatedSessionName);
 
         outputResult(
-          { status: 'deleted', session: sessionName },
+          { status: 'deleted', session: validatedSessionName },
           globalOpts,
-          () => console.log(`Deleted copilot: ${sessionName}`),
+          () => console.log(`Deleted copilot: ${validatedSessionName}`),
         );
       } catch (error) {
         outputError(error, globalOpts);
@@ -82,12 +101,10 @@ export function registerCopilotCommands(program: Command): void {
     .action(async (sessionName: string) => {
       const globalOpts = program.opts() as OutputOpts;
       try {
+        const validatedSessionName = requireSessionName(sessionName);
         const backend = new TmuxBackendCore();
         const sm = new SessionManager(backend);
-        const { copilotInfo, postCreatePromise } = await sm.restoreCopilot(sessionName);
-        await postCreatePromise;
-        const state = await sm.sync();
-        const finalCopilot = state.copilots[copilotInfo.sessionName] || copilotInfo;
+        const finalCopilot = await sm.restoreCopilotAndFinalize(validatedSessionName);
 
         outputResult(
           {

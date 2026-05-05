@@ -12,6 +12,7 @@ import { shellQuote } from './shell';
 const HYDRA_DIR = path.join(os.homedir(), '.hydra');
 const SESSIONS_FILE = path.join(HYDRA_DIR, 'sessions.json');
 const ARCHIVE_FILE = path.join(HYDRA_DIR, 'archive.json');
+const POST_CREATE_TIMEOUT_MS = AGENT_READY_TIMEOUT_MS + 15000;
 
 /**
  * Look up a worker's numeric ID from sessions.json.
@@ -383,7 +384,7 @@ export class SessionManager {
     this.writeSessionState(state);
 
     // Async post-create
-    const postCreatePromise = (async () => {
+    const postCreatePromise = this.withPostCreateTimeout((async () => {
       if (isResume) {
         // Resume: skip Phase 1 (sessionId already known), just wait for readiness
         await this.waitForAgentReady(sessionName, agentType);
@@ -393,7 +394,7 @@ export class SessionManager {
       }
       // Phase 2: Send task prompt (only after sessions.json is up to date)
       await this.sendInitialPrompt(sessionName, task);
-    })();
+    })(), sessionName, 'worker startup');
 
     return { workerInfo, postCreatePromise };
   }
@@ -499,7 +500,10 @@ export class SessionManager {
       postCreatePromise = this.waitForReadyAndCaptureSessionId(sessionName, agent, preAssignedSessionId);
     }
 
-    return { workerInfo: worker, postCreatePromise };
+    return {
+      workerInfo: worker,
+      postCreatePromise: this.withPostCreateTimeout(postCreatePromise, sessionName, 'worker startup'),
+    };
   }
 
   // ── Copilot Lifecycle ──
@@ -564,13 +568,21 @@ export class SessionManager {
 
     // Match worker lifecycle semantics: wait for readiness and persist any deferred
     // session ID capture before the CLI treats creation as complete.
-    postCreatePromise = this.waitForReadyAndCaptureSessionId(sessionName, agentType, sessionId);
+    postCreatePromise = this.withPostCreateTimeout(
+      this.waitForReadyAndCaptureSessionId(sessionName, agentType, sessionId),
+      sessionName,
+      'copilot startup',
+    );
 
     return { copilotInfo, postCreatePromise };
   }
 
   async createCopilotAndFinalize(opts: CreateCopilotOpts): Promise<CopilotInfo> {
     return this.finalizeCopilotResult(await this.createCopilot(opts));
+  }
+
+  async restoreCopilotAndFinalize(sessionName: string): Promise<CopilotInfo> {
+    return this.finalizeCopilotResult(await this.restoreCopilot(sessionName));
   }
 
   async renameWorker(oldSessionName: string, newBranchName: string): Promise<WorkerInfo> {
@@ -837,6 +849,29 @@ export class SessionManager {
     await result.postCreatePromise;
     const state = await this.sync();
     return state.copilots[result.copilotInfo.sessionName] || result.copilotInfo;
+  }
+
+  private withPostCreateTimeout(
+    promise: Promise<void>,
+    sessionName: string,
+    operation: string,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`Timed out waiting for ${operation} for "${sessionName}" after ${POST_CREATE_TIMEOUT_MS}ms`));
+      }, POST_CREATE_TIMEOUT_MS);
+
+      promise.then(
+        () => {
+          clearTimeout(timeoutId);
+          resolve();
+        },
+        (error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        },
+      );
+    });
   }
 
   private archiveEntry(
@@ -1153,7 +1188,10 @@ export class SessionManager {
       state.workers[sessionName] = workerInfo;
       state.updatedAt = now;
       this.writeSessionState(state);
-      return { workerInfo, postCreatePromise: Promise.resolve() };
+      return {
+        workerInfo,
+        postCreatePromise: this.withPostCreateTimeout(Promise.resolve(), sessionName, 'worker startup'),
+      };
     }
 
     // Worktree exists but tmux is dead — check new and legacy locations
@@ -1233,7 +1271,10 @@ export class SessionManager {
       state.updatedAt = now;
       this.writeSessionState(state);
 
-      return { workerInfo, postCreatePromise };
+      return {
+        workerInfo,
+        postCreatePromise: this.withPostCreateTimeout(postCreatePromise, sessionName, 'worker startup'),
+      };
     }
 
     throw new Error(`Branch "${branchName}" exists but has no managed worktree. Delete the branch first or use a different name.`);
