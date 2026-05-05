@@ -718,11 +718,23 @@ export class SessionManager {
     }
 
     const worker = entry.data as WorkerInfo;
-    return this.createWorker({
+    const agentSessionId = entry.agentSessionId;
+
+    // Create worktree and branch (createWorker handles "branch exists" via resume path)
+    const { workerInfo, postCreatePromise } = await this.createWorker({
       repoRoot: worker.repoRoot,
       branchName: worker.branch,
       agentType: worker.agent,
     });
+
+    // Overwrite the freshly assigned sessionId with the archived one so that
+    // future startWorker/resume calls use --resume with the original conversation
+    if (agentSessionId) {
+      this.updateSessionId(workerInfo.sessionName, agentSessionId);
+      workerInfo.sessionId = agentSessionId;
+    }
+
+    return { workerInfo, postCreatePromise };
   }
 
   async restoreCopilot(sessionName: string): Promise<CopilotInfo> {
@@ -735,11 +747,21 @@ export class SessionManager {
     }
 
     const copilot = entry.data as CopilotInfo;
-    return this.createCopilot({
+    const agentSessionId = entry.agentSessionId;
+
+    const copilotInfo = await this.createCopilot({
       workdir: copilot.workdir,
       agentType: copilot.agent,
       sessionName: copilot.sessionName,
     });
+
+    // Overwrite freshly assigned sessionId with the archived one
+    if (agentSessionId) {
+      this.updateSessionId(copilotInfo.sessionName, agentSessionId);
+      copilotInfo.sessionId = agentSessionId;
+    }
+
+    return copilotInfo;
   }
 
   // ── Private helpers ──
