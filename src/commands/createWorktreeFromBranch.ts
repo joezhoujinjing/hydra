@@ -34,6 +34,17 @@ function formatFileStatusCounts(nameStatusOutput: string): string {
   return parts.length > 0 ? `(${parts.join(', ')})` : '';
 }
 
+/**
+ * Creates a bare worktree (no AI agent) from an existing branch.
+ *
+ * This is intentionally NOT routed through SessionManager.createWorker() because
+ * it serves a different purpose: manual development in a new worktree, optionally
+ * carrying over staged/unstaged changes. The tmux session created here is a plain
+ * shell — no coding agent is launched and no sessions.json entry is written.
+ *
+ * The session will be discovered by SessionManager.sync() via its @hydra-role
+ * metadata, but with agent='unknown' and sessionId=null.
+ */
 export async function createWorktreeFromBranch(item: WorktreeItem | undefined): Promise<void> {
   if (!item) {
     // Called from Command Palette without tree context — no source branch available

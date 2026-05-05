@@ -3,6 +3,8 @@ import { getRepoRoot } from '../utils/git';
 import { getActiveBackend } from '../utils/multiplexer';
 import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem } from '../providers/tmuxSessionProvider';
 import { createRepoSessionPrefixConfig, isWorkdirInRepo } from '../utils/sessionCompatibility';
+import { SessionManager } from '../core/sessionManager';
+import { TmuxBackendCore } from '../core/tmux';
 
 async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
   const backend = getActiveBackend();
@@ -31,7 +33,7 @@ async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
 async function handleTreeViewItem(item: TmuxItem): Promise<void> {
     const backend = getActiveBackend();
     const sessionName = item.sessionName || item.label;
-    
+
     const sessions = await backend.listSessions();
     const exists = sessions.some(s => s.name === sessionName);
 
@@ -42,34 +44,29 @@ async function handleTreeViewItem(item: TmuxItem): Promise<void> {
         return;
     }
 
-    if (item instanceof InactiveWorktreeItem) {
-        const worktreePath = item.worktree.path;
+    // Inactive worktree: resume the agent via SessionManager
+    if (item instanceof InactiveWorktreeItem || item instanceof InactiveDetailItem) {
+        const worktreePath = item instanceof InactiveWorktreeItem
+            ? item.worktree.path
+            : item.worktree!.path;
 
-        await backend.createSession(sessionName, worktreePath);
-        await backend.setSessionWorkdir(sessionName, worktreePath);
-        await backend.setSessionRole(sessionName, 'worker');
+        try {
+            const sm = new SessionManager(new TmuxBackendCore());
+            const result = await sm.startWorker(sessionName);
+            result.postCreatePromise.catch(() => {});
+        } catch {
+            // Fallback for worktrees without sessions.json entries (legacy)
+            await backend.createSession(sessionName, worktreePath);
+            await backend.setSessionWorkdir(sessionName, worktreePath);
+            await backend.setSessionRole(sessionName, 'worker');
+        }
 
         backend.attachSession(sessionName, worktreePath, undefined, 'worker');
-
         vscode.window.showInformationMessage(`Launched session: ${sessionName}`);
         vscode.commands.executeCommand('tmux.refresh');
         return;
     }
 
-    if (item instanceof InactiveDetailItem) {
-        const worktreePath = item.worktree.path;
-
-        await backend.createSession(sessionName, worktreePath);
-        await backend.setSessionWorkdir(sessionName, worktreePath);
-        await backend.setSessionRole(sessionName, 'worker');
-
-        backend.attachSession(sessionName, worktreePath, undefined, 'worker');
-
-        vscode.window.showInformationMessage(`Launched session: ${sessionName}`);
-        vscode.commands.executeCommand('tmux.refresh');
-        return;
-    }
-    
     vscode.window.showErrorMessage(`Session '${sessionName}' not found and cannot be created automatically.`);
 }
 
