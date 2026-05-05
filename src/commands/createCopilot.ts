@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { getActiveBackend, MultiplexerBackend } from '../utils/multiplexer';
 import { pickAgentType, AgentType } from '../utils/agentConfig';
 import { TmuxBackendCore } from '../core/tmux';
-import { SessionManager } from '../core/sessionManager';
+import { CopilotInfo, SessionManager } from '../core/sessionManager';
 
 const ONBOARDING_PROMPT = `You are a Hydra copilot — an AI orchestrator that manages parallel AI workers to complete complex tasks.
 
@@ -38,6 +38,27 @@ function sendCopilotOnboarding(backend: MultiplexerBackend, sessionName: string)
   })();
 }
 
+async function createAndAttachCopilot(
+  backend: MultiplexerBackend,
+  agentType: AgentType,
+  sessionName: string,
+  name?: string,
+): Promise<void> {
+  const sm = new SessionManager(new TmuxBackendCore());
+  const copilotInfo: CopilotInfo = await sm.createCopilotAndFinalize({
+    workdir: os.homedir(),
+    agentType,
+    sessionName,
+    name,
+  });
+
+  sendCopilotOnboarding(backend, copilotInfo.sessionName);
+  backend.attachSession(copilotInfo.sessionName, copilotInfo.workdir, undefined, 'copilot');
+
+  vscode.window.showInformationMessage(`Copilot created: ${copilotInfo.sessionName} (${copilotInfo.agent})`);
+  vscode.commands.executeCommand('tmux.refresh');
+}
+
 export async function createCopilotWithAgent(agentType: AgentType): Promise<void> {
   const backend = getActiveBackend();
   if (!await backend.isInstalled()) {
@@ -55,19 +76,7 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
   }
 
   try {
-    const sm = new SessionManager(new TmuxBackendCore());
-    const { copilotInfo, postCreatePromise } = await sm.createCopilot({
-      workdir: os.homedir(),
-      agentType,
-      sessionName,
-    });
-    void postCreatePromise;
-
-    sendCopilotOnboarding(backend, sessionName);
-    backend.attachSession(sessionName, copilotInfo.workdir, undefined, 'copilot');
-
-    vscode.window.showInformationMessage(`Copilot created: ${sessionName} (${agentType})`);
-    vscode.commands.executeCommand('tmux.refresh');
+    await createAndAttachCopilot(backend, agentType, sessionName);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     vscode.window.showErrorMessage(`Failed to create copilot: ${message}`);
@@ -111,20 +120,7 @@ export async function createCopilot(): Promise<void> {
   }
 
   try {
-    const sm = new SessionManager(new TmuxBackendCore());
-    const { copilotInfo, postCreatePromise } = await sm.createCopilot({
-      workdir: os.homedir(),
-      agentType,
-      sessionName,
-      name: nameInput.trim(),
-    });
-    void postCreatePromise;
-
-    sendCopilotOnboarding(backend, sessionName);
-    backend.attachSession(sessionName, copilotInfo.workdir, undefined, 'copilot');
-
-    vscode.window.showInformationMessage(`Copilot created: ${sessionName} (${agentType})`);
-    vscode.commands.executeCommand('tmux.refresh');
+    await createAndAttachCopilot(backend, agentType, sessionName, nameInput.trim());
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     vscode.window.showErrorMessage(`Failed to create copilot: ${message}`);

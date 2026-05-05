@@ -569,6 +569,11 @@ export class SessionManager {
     return { copilotInfo, postCreatePromise };
   }
 
+  async createCopilotAndFinalize(opts: CreateCopilotOpts): Promise<CopilotInfo> {
+    const result = await this.createCopilot(opts);
+    return this.finalizeCopilotCreate(result);
+  }
+
   async renameWorker(oldSessionName: string, newBranchName: string): Promise<WorkerInfo> {
     const state = this.readSessionState();
     const worker = state.workers[oldSessionName];
@@ -844,6 +849,12 @@ export class SessionManager {
       data: { ...data },
     });
     this.writeArchiveState(archive);
+  }
+
+  private async finalizeCopilotCreate(result: CreateCopilotResult): Promise<CopilotInfo> {
+    await result.postCreatePromise;
+    const state = await this.sync();
+    return state.copilots[result.copilotInfo.sessionName] || result.copilotInfo;
   }
 
   private readArchiveState(): ArchiveState {

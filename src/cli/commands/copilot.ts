@@ -28,16 +28,12 @@ export function registerCopilotCommands(program: Command): void {
         const sm = new SessionManager(backend);
         const requestedSession = opts.session || opts.name || `hydra-copilot-${opts.agent}`;
         const sessionName = backend.sanitizeSessionName(requestedSession);
-        const { copilotInfo, postCreatePromise } = await sm.createCopilot({
+        const finalCopilot = await sm.createCopilotAndFinalize({
           workdir: expandPath(opts.workdir),
           agentType: opts.agent,
           name: opts.name,
           sessionName,
         });
-
-        await postCreatePromise;
-        const state = await sm.sync();
-        const finalCopilot = state.copilots[copilotInfo.sessionName] || copilotInfo;
 
         outputResult(
           {
