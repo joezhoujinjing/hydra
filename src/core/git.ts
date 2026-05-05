@@ -338,6 +338,48 @@ export async function removeWorktree(repoRoot: string, worktreePath: string): Pr
   await exec(`git worktree remove ${shellQuote(worktreePath)} --force`, { cwd: repoRoot });
 }
 
+/** Fetch latest refs from origin. Best-effort — returns silently on failure. */
+export async function fetchOrigin(repoRoot: string): Promise<void> {
+  try {
+    await exec('git fetch origin', { cwd: repoRoot });
+  } catch {
+    // Network unavailable or no remote — proceed with local state
+  }
+}
+
+/**
+ * Check if the local base branch has commits ahead of its remote counterpart.
+ * Returns the count of local-only commits, or 0 if not applicable.
+ */
+export async function getLocalAheadCount(repoRoot: string, baseBranch: string): Promise<number> {
+  // Determine local and remote refs to compare
+  let localRef: string;
+  let remoteRef: string;
+
+  if (baseBranch.startsWith('origin/')) {
+    // baseBranch is already a remote ref — compare against local equivalent
+    localRef = baseBranch.replace(/^origin\//, '');
+    remoteRef = baseBranch;
+  } else {
+    localRef = baseBranch;
+    remoteRef = `origin/${baseBranch}`;
+  }
+
+  try {
+    // Verify both refs exist
+    await exec(`git rev-parse --verify ${shellQuote(localRef)}`, { cwd: repoRoot });
+    await exec(`git rev-parse --verify ${shellQuote(remoteRef)}`, { cwd: repoRoot });
+
+    const count = await exec(
+      `git rev-list --count ${shellQuote(remoteRef)}..${shellQuote(localRef)}`,
+      { cwd: repoRoot },
+    );
+    return parseInt(count, 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 /** Determine base branch without vscode config — tries common candidates. */
 export async function getBaseBranchFromRepo(repoRoot: string, override?: string): Promise<string> {
   if (override) {

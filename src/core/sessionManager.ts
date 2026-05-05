@@ -263,8 +263,21 @@ export class SessionManager {
       return this.resumeWorker(repoRoot, branchName, repoSessionNamespace, agentType, agentCommand, task);
     }
 
+    // Fetch latest from remote before creating worktree
+    await coreGit.fetchOrigin(repoRoot);
+
     // Detect base branch
     const baseBranch = await coreGit.getBaseBranchFromRepo(repoRoot, opts.baseBranchOverride);
+
+    // Warn if local base branch has commits ahead of remote
+    const aheadCount = await coreGit.getLocalAheadCount(repoRoot, baseBranch);
+    if (aheadCount > 0) {
+      const localRef = baseBranch.startsWith('origin/') ? baseBranch.replace(/^origin\//, '') : baseBranch;
+      console.warn(
+        `[hydra] Warning: local "${localRef}" is ${aheadCount} commit(s) ahead of remote. ` +
+        `Worktree will be based on the remote ref to ensure up-to-date code.`,
+      );
+    }
 
     // Slug collision resolution
     const slug = coreGit.branchNameToSlug(branchName, this.backend);
