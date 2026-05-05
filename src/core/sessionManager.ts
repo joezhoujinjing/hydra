@@ -731,24 +731,72 @@ export class SessionManager {
       throw new Error(`Archived session "${sessionName}" is a copilot, not a worker`);
     }
 
+    ensureHydraGlobalConfig();
+
     const worker = entry.data as WorkerInfo;
     const agentSessionId = entry.agentSessionId;
+    const agentType = worker.agent || 'claude';
+    const repoRoot = worker.repoRoot;
+    const branchName = worker.branch;
 
-    // Create worktree and branch (createWorker handles "branch exists" via resume path)
-    const { workerInfo, postCreatePromise } = await this.createWorker({
-      repoRoot: worker.repoRoot,
-      branchName: worker.branch,
-      agentType: worker.agent,
-    });
-
-    // Overwrite the freshly assigned sessionId with the archived one so that
-    // future startWorker/resume calls use --resume with the original conversation
-    if (agentSessionId) {
-      this.updateSessionId(workerInfo.sessionName, agentSessionId);
-      workerInfo.sessionId = agentSessionId;
+    const validationError = coreGit.validateBranchName(branchName);
+    if (validationError) {
+      throw new Error(validationError);
     }
 
-    return { workerInfo, postCreatePromise };
+    const repoSessionNamespace = coreGit.getRepoSessionNamespace(repoRoot, this.backend);
+    const slug = coreGit.branchNameToSlug(branchName, this.backend);
+    let finalSlug = slug;
+    let suffix = 1;
+    while (await coreGit.isSlugTaken(finalSlug, repoSessionNamespace, repoRoot, this.backend)) {
+      suffix++;
+      finalSlug = `${slug}-${suffix}`;
+    }
+
+    // Create worktree if branch doesn't exist yet
+    const branchExists = await coreGit.localBranchExists(repoRoot, branchName);
+    let worktreePath: string;
+    if (!branchExists) {
+      const baseBranch = await coreGit.getBaseBranchFromRepo(repoRoot);
+      worktreePath = await coreGit.addWorktree(repoRoot, branchName, finalSlug, baseBranch);
+      this.resolveImports(path.join(worktreePath, 'CLAUDE.md'), repoRoot);
+      this.resolveImports(path.join(worktreePath, 'AGENTS.md'), repoRoot);
+      this.resolveImports(path.join(worktreePath, 'GEMINI.md'), repoRoot);
+      injectWorkerInstructions(worktreePath, agentType);
+    } else {
+      const worktreesDir = coreGit.getManagedRepoWorktreesDir(repoRoot);
+      worktreePath = path.join(worktreesDir, finalSlug);
+    }
+
+    // Register session entry with the archived agentSessionId
+    const newSessionName = this.backend.buildSessionName(repoSessionNamespace, finalSlug);
+    const state = this.readSessionState();
+    const workerId = state.nextWorkerId++;
+    const now = new Date().toISOString();
+
+    const workerInfo: WorkerInfo = {
+      sessionName: newSessionName,
+      workerId,
+      repo: coreGit.getRepoName(repoRoot),
+      repoRoot,
+      branch: branchName,
+      slug: finalSlug,
+      status: 'stopped',
+      attached: false,
+      agent: agentType,
+      workdir: worktreePath,
+      tmuxSession: newSessionName,
+      createdAt: now,
+      lastSeenAt: now,
+      sessionId: agentSessionId, // Archived session ID for --resume
+    };
+
+    state.workers[newSessionName] = workerInfo;
+    state.updatedAt = now;
+    this.writeSessionState(state);
+
+    // startWorker sees the stored sessionId and uses buildAgentResumeCommand (--resume)
+    return this.startWorker(newSessionName);
   }
 
   async restoreCopilot(sessionName: string): Promise<CopilotInfo> {
@@ -760,20 +808,51 @@ export class SessionManager {
       throw new Error(`Archived session "${sessionName}" is a worker, not a copilot`);
     }
 
+    ensureHydraGlobalConfig();
+
     const copilot = entry.data as CopilotInfo;
     const agentSessionId = entry.agentSessionId;
+    const agentType = copilot.agent || 'claude';
+    const agentCommand = DEFAULT_AGENT_COMMANDS[agentType] || agentType;
+    const copilotSessionName = copilot.sessionName;
 
-    const copilotInfo = await this.createCopilot({
-      workdir: copilot.workdir,
-      agentType: copilot.agent,
-      sessionName: copilot.sessionName,
-    });
-
-    // Overwrite freshly assigned sessionId with the archived one
-    if (agentSessionId) {
-      this.updateSessionId(copilotInfo.sessionName, agentSessionId);
-      copilotInfo.sessionId = agentSessionId;
+    const exists = await this.backend.hasSession(copilotSessionName);
+    if (exists) {
+      throw new Error(`Session "${copilotSessionName}" already exists`);
     }
+
+    await this.backend.createSession(copilotSessionName, copilot.workdir);
+    await this.backend.setSessionWorkdir(copilotSessionName, copilot.workdir);
+    await this.backend.setSessionRole(copilotSessionName, 'copilot');
+    await this.backend.setSessionAgent(copilotSessionName, agentType);
+
+    // Use --resume with the archived agentSessionId if available
+    let launchCmd: string;
+    if (agentSessionId) {
+      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, agentSessionId);
+      launchCmd = resumeCmd || buildAgentLaunchCommand(agentType, agentCommand);
+    } else {
+      launchCmd = buildAgentLaunchCommand(agentType, agentCommand);
+    }
+    await this.backend.sendKeys(copilotSessionName, launchCmd);
+
+    const now = new Date().toISOString();
+    const copilotInfo: CopilotInfo = {
+      sessionName: copilotSessionName,
+      status: 'running',
+      attached: false,
+      agent: agentType,
+      workdir: copilot.workdir,
+      tmuxSession: copilotSessionName,
+      createdAt: now,
+      lastSeenAt: now,
+      sessionId: agentSessionId,
+    };
+
+    const state = this.readSessionState();
+    state.copilots[copilotSessionName] = copilotInfo;
+    state.updatedAt = now;
+    this.writeSessionState(state);
 
     return copilotInfo;
   }
