@@ -24,6 +24,7 @@ export function registerWorkerCommands(program: Command): void {
     .option('--base <branch>', 'Base branch override')
     .option('--task <prompt>', 'Task prompt for the agent')
     .option('--task-file <path>', 'Path to a file containing the task description')
+    .option('--copilot <session>', 'Session ID of the parent copilot')
     .action(async (opts: {
       repo: string;
       branch: string;
@@ -31,6 +32,7 @@ export function registerWorkerCommands(program: Command): void {
       base?: string;
       task?: string;
       taskFile?: string;
+      copilot?: string;
     }) => {
       const globalOpts = program.opts() as OutputOpts;
       try {
@@ -50,6 +52,7 @@ export function registerWorkerCommands(program: Command): void {
           baseBranchOverride: opts.base,
           task: opts.task,
           taskFile: opts.taskFile,
+          copilotSessionId: opts.copilot,
         });
 
         const status = branchExisted ? 'exists' : 'created';

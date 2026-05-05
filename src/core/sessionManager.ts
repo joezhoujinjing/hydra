@@ -48,6 +48,8 @@ export interface WorkerInfo {
   createdAt: string;
   lastSeenAt: string;
   sessionId: string | null;
+  /** Session ID of the copilot that spawned this worker, if any. */
+  copilotSessionId: string | null;
 }
 
 export interface CopilotInfo {
@@ -95,6 +97,8 @@ export interface CreateWorkerOpts {
   agentCommand?: string;
   /** When set, launch the agent with --resume instead of a fresh session. */
   resumeSessionId?: string;
+  /** Session ID of the copilot that spawned this worker. */
+  copilotSessionId?: string;
 }
 
 export interface CreateCopilotOpts {
@@ -197,6 +201,7 @@ export class SessionManager {
           createdAt: now,
           lastSeenAt: now,
           sessionId: null,
+          copilotSessionId: null,
         };
       } else if (role === 'copilot') {
         state.copilots[session.name] = {
@@ -356,6 +361,7 @@ export class SessionManager {
       createdAt: now,
       lastSeenAt: now,
       sessionId: preAssignedSessionId,
+      copilotSessionId: opts.copilotSessionId || null,
     };
 
     state.workers[sessionName] = workerInfo;
@@ -1091,6 +1097,7 @@ export class SessionManager {
         createdAt: now,
         lastSeenAt: now,
         sessionId: existingWorker?.sessionId ?? null,
+        copilotSessionId: existingWorker?.copilotSessionId ?? null,
       };
 
       state.workers[sessionName] = workerInfo;
@@ -1166,6 +1173,7 @@ export class SessionManager {
         createdAt: now,
         lastSeenAt: now,
         sessionId,
+        copilotSessionId: existingWorker?.copilotSessionId ?? null,
       };
 
       state.workers[sessionName] = workerInfo;
