@@ -59,11 +59,11 @@ export async function attach(item: TmuxItem): Promise<void> {
     const worktreePath = getWorktreePath(item);
     await ensureSessionExists(item.sessionName, worktreePath);
 
-    const workdir = worktreePath || await backend.getSessionWorkdir(item.sessionName);
-    const role = getRoleFromItem(item);
-    backend.attachSession(item.sessionName, workdir, vscode.TerminalLocation.Panel, role);
+    const cwd = worktreePath || await backend.getSessionWorkdir(item.sessionName);
+    await backend.splitPane(item.sessionName, cwd);
+    vscode.window.showInformationMessage(`Opened terminal pane in ${item.sessionName}`);
   } catch (err) {
-    vscode.window.showErrorMessage(`Failed to attach: ${err instanceof Error ? err.message : String(err)}`);
+    vscode.window.showErrorMessage(`Failed to open terminal: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
