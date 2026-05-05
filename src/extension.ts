@@ -149,10 +149,12 @@ function silentInstallCli(context: vscode.ExtensionContext): void {
     const version = (context.extension.packageJSON as { version: string }).version;
     const result = installCli(context.extensionPath, version);
     if (result.installed) {
-      ensurePathInShellProfile();
-      vscode.window.showInformationMessage(
-        'Hydra CLI installed. PATH configured automatically — restart your shell or open a new terminal to use `hydra`.'
-      );
+      const shellProfileStatus = ensurePathInShellProfile();
+      if (shellProfileStatus !== 'skipped_custom_home') {
+        vscode.window.showInformationMessage(
+          'Hydra CLI installed. PATH configured automatically — restart your shell or open a new terminal to use `hydra`.'
+        );
+      }
     }
   } catch (err) {
     // CLI install is best-effort — don't block activation

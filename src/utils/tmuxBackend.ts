@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { exec } from './exec';
 import { TmuxBackendCore, buildStoredTmuxEnvScrubCommand } from '../core/tmux';
+import { getIsolatedEnv, getTmuxCommand } from '../core/path';
 import { MultiplexerBackend, HydraRole } from './multiplexer';
 import { getHydraEditorLocation, buildHydraTerminalName, getHydraTerminalIcon, getHydraTerminalColor, HYDRA_PREFIX_WORKER } from './hydraEditorGroup';
 import { lookupWorkerId } from '../core/sessionManager';
@@ -40,7 +41,8 @@ export class TmuxBackend extends TmuxBackendCore implements MultiplexerBackend {
     const existing = findTerminalBySession(sessionName);
 
     if (existing) {
-      void exec(`tmux set-window-option -t "${sessionName}":. window-size latest`).catch(() => {});
+      const tmuxCommand = getTmuxCommand();
+      void exec(`${tmuxCommand} set-window-option -t "${sessionName}":. window-size latest`).catch(() => {});
       const options = existing.creationOptions as vscode.TerminalOptions;
       // For editor locations, reuse if both are editor-area targets
       const existingIsEditor = options?.location !== vscode.TerminalLocation.Panel;
@@ -58,12 +60,13 @@ export class TmuxBackend extends TmuxBackendCore implements MultiplexerBackend {
     }
 
     const escapedName = sessionName.replace(/'/g, "'\\''");
+    const tmuxCommand = getTmuxCommand();
     const attachCommand = [
       buildStoredTmuxEnvScrubCommand(sessionName),
-      "tmux set-option -gq set-clipboard on >/dev/null 2>&1 || true",
-      "tmux set-option -agq terminal-features ',xterm-256color:clipboard' >/dev/null 2>&1 || true",
-      "tmux set-option -agq terminal-overrides ',*:clipboard' >/dev/null 2>&1 || true",
-      "tmux set-option -gwq allow-passthrough on >/dev/null 2>&1 || true",
+      `${tmuxCommand} set-option -gq set-clipboard on >/dev/null 2>&1 || true`,
+      `${tmuxCommand} set-option -agq terminal-features ',xterm-256color:clipboard' >/dev/null 2>&1 || true`,
+      `${tmuxCommand} set-option -agq terminal-overrides ',*:clipboard' >/dev/null 2>&1 || true`,
+      `${tmuxCommand} set-window-option -gwq allow-passthrough on >/dev/null 2>&1 || true`,
       "rows=''; cols=''",
       "for _ in 1 2 3 4 5; do",
       "size=$(stty size 2>/dev/null || true)",
@@ -73,11 +76,11 @@ export class TmuxBackend extends TmuxBackendCore implements MultiplexerBackend {
       "if [ -n \"$rows\" ] && [ \"$rows\" -ge 30 ] && [ \"$cols\" -ge 100 ]; then break; fi",
       "sleep 0.04",
       "done",
-      "if [ -n \"$rows\" ] && [ -n \"$cols\" ]; then tmux set-option -t '" + escapedName + "' default-size \"${cols}x${rows}\" >/dev/null 2>&1 || true; fi",
-      "if [ -n \"$rows\" ] && [ -n \"$cols\" ]; then tmux resize-window -t '" + escapedName + "':. -x \"$cols\" -y \"$rows\" >/dev/null 2>&1 || true; fi",
-      "tmux set-window-option -t '" + escapedName + "':. window-size latest >/dev/null 2>&1 || true",
+      "if [ -n \"$rows\" ] && [ \"$rows\" -ge 1 ] && [ \"$cols\" -ge 1 ]; then " + tmuxCommand + " set-option -t '" + escapedName + "' default-size \"${cols}x${rows}\" >/dev/null 2>&1 || true; fi",
+      "if [ -n \"$rows\" ] && [ \"$rows\" -ge 1 ] && [ \"$cols\" -ge 1 ]; then " + tmuxCommand + " resize-window -t '" + escapedName + "':. -x \"$cols\" -y \"$rows\" >/dev/null 2>&1 || true; fi",
+      `${tmuxCommand} set-window-option -t '${escapedName}':. window-size latest >/dev/null 2>&1 || true`,
       "sleep 0.08",
-      `exec tmux attach -t '${escapedName}'`
+      `exec ${tmuxCommand} attach -t '${escapedName}'`
     ].join('\n');
 
     const terminal = vscode.window.createTerminal({
@@ -91,6 +94,7 @@ export class TmuxBackend extends TmuxBackendCore implements MultiplexerBackend {
         'TERM_PROGRAM_VERSION': null,
         'VSCODE_SHELL_INTEGRATION': null,
         'VSCODE_INJECTION': null,
+        ...getIsolatedEnv(),
       },
       location: resolvedLocation,
       iconPath: getHydraTerminalIcon(),

@@ -1,5 +1,5 @@
 import { exec } from './exec';
-import { toCanonicalPath } from './path';
+import { getHydraConfigPath, getHydraHome, getTmuxCommand, toCanonicalPath } from './path';
 import { shellQuote } from './shell';
 import { MultiplexerBackendCore, MultiplexerSession, SessionStatusInfo, HydraRole } from './types';
 
@@ -29,26 +29,40 @@ function getTmuxSanitizedEnvKeys(): string[] {
 
 export function buildSanitizedTmuxCommand(command: string): string {
   const envKeys = getTmuxSanitizedEnvKeys();
+  const tmuxCommand = getTmuxCommand();
   if (envKeys.length === 0) {
-    return `tmux ${command}`;
+    return `${tmuxCommand} ${command}`;
   }
   const unsetArgs = envKeys.map((key) => `-u ${shellQuote(key)}`).join(' ');
-  return `env ${unsetArgs} tmux ${command}`;
+  return `env ${unsetArgs} ${tmuxCommand} ${command}`;
 }
 
 export function buildStoredTmuxEnvScrubCommand(sessionName?: string): string {
+  const tmuxCommand = getTmuxCommand();
   const sessionTarget = sessionName ? ` -t ${shellQuote(sessionName)}` : '';
+  const varsToSet = [
+    `${tmuxCommand} set-environment -g HYDRA_HOME ${shellQuote(getHydraHome())} >/dev/null 2>&1 || true`,
+    `${tmuxCommand} set-environment -g HYDRA_CONFIG_PATH ${shellQuote(getHydraConfigPath())} >/dev/null 2>&1 || true`,
+  ];
+
+  if (process.env.HYDRA_TMUX_SOCKET) {
+    varsToSet.push(
+      `${tmuxCommand} set-environment -g HYDRA_TMUX_SOCKET ${shellQuote(process.env.HYDRA_TMUX_SOCKET)} >/dev/null 2>&1 || true`,
+    );
+  }
+
   return [
+    ...varsToSet,
     'for name in ELECTRON_RUN_AS_NODE TERM_PROGRAM TERM_PROGRAM_VERSION VSCODE_INJECTION VSCODE_SHELL_INTEGRATION; do',
-    'tmux set-environment -gu "$name" >/dev/null 2>&1 || true',
-    `tmux set-environment${sessionTarget} -u "$name" >/dev/null 2>&1 || true`,
+    `${tmuxCommand} set-environment -gu "$name" >/dev/null 2>&1 || true`,
+    `${tmuxCommand} set-environment${sessionTarget} -u "$name" >/dev/null 2>&1 || true`,
     'done',
-    'tmux show-environment -g 2>/dev/null | while IFS= read -r line; do',
+    `${tmuxCommand} show-environment -g 2>/dev/null | while IFS= read -r line; do`,
     'name=${line%%=*}',
     'case "$name" in',
     'VSCODE_*)',
-    'tmux set-environment -gu "$name" >/dev/null 2>&1 || true',
-    `tmux set-environment${sessionTarget} -u "$name" >/dev/null 2>&1 || true`,
+    `${tmuxCommand} set-environment -gu "$name" >/dev/null 2>&1 || true`,
+    `${tmuxCommand} set-environment${sessionTarget} -u "$name" >/dev/null 2>&1 || true`,
     ';;',
     'esac',
     'done'
@@ -103,7 +117,8 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
 
   async listSessions(): Promise<MultiplexerSession[]> {
     try {
-      const output = await exec("tmux list-sessions -F '#{session_name}|||#{session_windows}|||#{session_attached}'");
+      const tmuxCommand = getTmuxCommand();
+      const output = await exec(`${tmuxCommand} list-sessions -F '#{session_name}|||#{session_windows}|||#{session_attached}'`);
       return output.split('\n').filter(l => l.trim()).map(line => {
         const [name, windows, attached] = line.split('|||');
         return {
@@ -126,16 +141,19 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
   }
 
   async killSession(sessionName: string): Promise<void> {
-    await exec(`tmux kill-session -t ${shellQuote(sessionName)}`);
+    const tmuxCommand = getTmuxCommand();
+    await exec(`${tmuxCommand} kill-session -t ${shellQuote(sessionName)}`);
   }
 
   async renameSession(oldName: string, newName: string): Promise<void> {
-    await exec(`tmux rename-session -t ${shellQuote(oldName)} ${shellQuote(newName)}`);
+    const tmuxCommand = getTmuxCommand();
+    await exec(`${tmuxCommand} rename-session -t ${shellQuote(oldName)} ${shellQuote(newName)}`);
   }
 
   async hasSession(sessionName: string): Promise<boolean> {
     try {
-      await exec(`tmux has-session -t ${shellQuote(sessionName)}`);
+      const tmuxCommand = getTmuxCommand();
+      await exec(`${tmuxCommand} has-session -t ${shellQuote(sessionName)}`);
       return true;
     } catch {
       return false;
@@ -144,7 +162,8 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
 
   async getSessionWorkdir(sessionName: string): Promise<string | undefined> {
     try {
-      const output = await exec(`tmux show-options -t ${shellQuote(sessionName)} @workdir`);
+      const tmuxCommand = getTmuxCommand();
+      const output = await exec(`${tmuxCommand} show-options -t ${shellQuote(sessionName)} @workdir`);
       const parts = output.split(' ');
       if (parts.length >= 2) {
         const rawPath = parts.slice(1).join(' ').trim();
@@ -157,12 +176,14 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
   }
 
   async setSessionWorkdir(sessionName: string, workdir: string): Promise<void> {
-    await exec(`tmux set-option -t ${shellQuote(sessionName)} @workdir ${shellQuote(workdir)}`);
+    const tmuxCommand = getTmuxCommand();
+    await exec(`${tmuxCommand} set-option -t ${shellQuote(sessionName)} @workdir ${shellQuote(workdir)}`);
   }
 
   async getSessionRole(sessionName: string): Promise<HydraRole | undefined> {
     try {
-      const output = await exec(`tmux show-options -t ${shellQuote(sessionName)} @hydra-role`);
+      const tmuxCommand = getTmuxCommand();
+      const output = await exec(`${tmuxCommand} show-options -t ${shellQuote(sessionName)} @hydra-role`);
       const parts = output.split(' ');
       if (parts.length >= 2) {
         const value = parts.slice(1).join(' ').trim() as HydraRole;
@@ -175,12 +196,14 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
   }
 
   async setSessionRole(sessionName: string, role: HydraRole): Promise<void> {
-    await exec(`tmux set-option -t ${shellQuote(sessionName)} @hydra-role ${shellQuote(role)}`);
+    const tmuxCommand = getTmuxCommand();
+    await exec(`${tmuxCommand} set-option -t ${shellQuote(sessionName)} @hydra-role ${shellQuote(role)}`);
   }
 
   async getSessionAgent(sessionName: string): Promise<string | undefined> {
     try {
-      const output = await exec(`tmux show-options -t ${shellQuote(sessionName)} @hydra-agent`);
+      const tmuxCommand = getTmuxCommand();
+      const output = await exec(`${tmuxCommand} show-options -t ${shellQuote(sessionName)} @hydra-agent`);
       const parts = output.split(' ');
       if (parts.length >= 2) {
         const value = parts.slice(1).join(' ').trim();
@@ -193,29 +216,34 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
   }
 
   async setSessionAgent(sessionName: string, agent: string): Promise<void> {
-    await exec(`tmux set-option -t ${shellQuote(sessionName)} @hydra-agent ${shellQuote(agent)}`);
+    const tmuxCommand = getTmuxCommand();
+    await exec(`${tmuxCommand} set-option -t ${shellQuote(sessionName)} @hydra-agent ${shellQuote(agent)}`);
   }
 
   async sendKeys(sessionName: string, keys: string): Promise<void> {
-    await exec(`tmux send-keys -t ${shellQuote(sessionName)} ${shellQuote(keys)} Enter`);
+    const tmuxCommand = getTmuxCommand();
+    await exec(`${tmuxCommand} send-keys -t ${shellQuote(sessionName)} ${shellQuote(keys)} Enter`);
   }
 
   async capturePane(sessionName: string, lines?: number): Promise<string> {
+    const tmuxCommand = getTmuxCommand();
     const startArg = lines ? `-S -${lines}` : '';
-    return exec(`tmux capture-pane -t ${shellQuote(sessionName)} -p ${startArg}`.trim());
+    return exec(`${tmuxCommand} capture-pane -t ${shellQuote(sessionName)} -p ${startArg}`.trim());
   }
 
   async sendMessage(sessionName: string, message: string): Promise<void> {
+    const tmuxCommand = getTmuxCommand();
     // Send message text literally (without Enter) to avoid it being absorbed in bracketed paste
-    await exec(`tmux send-keys -l -t ${shellQuote(sessionName)} ${shellQuote(message)}`);
+    await exec(`${tmuxCommand} send-keys -l -t ${shellQuote(sessionName)} ${shellQuote(message)}`);
     await new Promise(resolve => setTimeout(resolve, 100));
     // Send Enter separately to submit
-    await exec(`tmux send-keys -t ${shellQuote(sessionName)} Enter`);
+    await exec(`${tmuxCommand} send-keys -t ${shellQuote(sessionName)} Enter`);
   }
 
   async getSessionInfo(sessionName: string): Promise<SessionStatusInfo> {
     try {
-      const output = await exec(`tmux display-message -p -t ${shellQuote(sessionName)} '#{session_attached}|||#{session_activity}'`);
+      const tmuxCommand = getTmuxCommand();
+      const output = await exec(`${tmuxCommand} display-message -p -t ${shellQuote(sessionName)} '#{session_attached}|||#{session_activity}'`);
       const [attachedStr, activityStr] = output.split('|||');
       return {
         attached: attachedStr === '1',
@@ -228,7 +256,8 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
 
   async getSessionPaneCount(sessionName: string): Promise<number> {
     try {
-      const output = await exec(`tmux list-panes -t ${shellQuote(sessionName)}`);
+      const tmuxCommand = getTmuxCommand();
+      const output = await exec(`${tmuxCommand} list-panes -t ${shellQuote(sessionName)}`);
       return output.split('\n').filter(l => l.trim()).length || 1;
     } catch {
       return 1;
@@ -237,7 +266,8 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
 
   async getSessionPanePids(sessionName: string): Promise<string[]> {
     try {
-      const output = await exec(`tmux list-panes -t ${shellQuote(sessionName)} -F '#{pane_pid}'`);
+      const tmuxCommand = getTmuxCommand();
+      const output = await exec(`${tmuxCommand} list-panes -t ${shellQuote(sessionName)} -F '#{pane_pid}'`);
       return output.split('\n').filter(l => l.trim());
     } catch {
       return [];
@@ -245,13 +275,15 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
   }
 
   async splitPane(sessionName: string, cwd?: string): Promise<void> {
+    const tmuxCommand = getTmuxCommand();
     const cwdArg = cwd ? `-c ${shellQuote(cwd)}` : '';
-    await exec(`tmux split-window -v -t ${shellQuote(sessionName)} ${cwdArg}`);
+    await exec(`${tmuxCommand} split-window -v -t ${shellQuote(sessionName)} ${cwdArg}`);
   }
 
   async newWindow(sessionName: string, cwd?: string): Promise<void> {
+    const tmuxCommand = getTmuxCommand();
     const cwdArg = cwd ? `-c ${shellQuote(cwd)}` : '';
-    await exec(`tmux new-window -t ${shellQuote(sessionName)} ${cwdArg}`);
+    await exec(`${tmuxCommand} new-window -t ${shellQuote(sessionName)} ${cwdArg}`);
   }
 
   buildSessionName(repoName: string, slug: string): string {

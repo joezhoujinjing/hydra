@@ -1,5 +1,6 @@
 import { exec as execCallback } from 'child_process';
 import { promisify } from 'util';
+import { getIsolatedEnv } from './path';
 
 const execPromise = promisify(execCallback);
 
@@ -30,7 +31,7 @@ export async function exec(command: string, options?: ExecOptions): Promise<stri
   const { stdout } = await execPromise(command, {
     cwd: options?.cwd,
     env: {
-      ...process.env,
+      ...getIsolatedEnv(),
       PATH: getEnhancedPath(),
     }
   });

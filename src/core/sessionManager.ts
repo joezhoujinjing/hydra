@@ -1,17 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { MultiplexerBackendCore } from './types';
 import * as coreGit from './git';
 import { ensureHydraGlobalConfig } from './hydraGlobalConfig';
 import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS, AGENT_READY_PATTERNS, AGENT_READY_TIMEOUT_MS, AGENT_READY_POLL_INTERVAL_MS, CLAUDE_TRUST_PROMPT_PATTERN } from './agentConfig';
 import { exec } from './exec';
+import { getHydraArchiveFile, getHydraHome, getHydraSessionsFile } from './path';
 import { shellQuote } from './shell';
 
-const HYDRA_DIR = path.join(os.homedir(), '.hydra');
-const SESSIONS_FILE = path.join(HYDRA_DIR, 'sessions.json');
-const ARCHIVE_FILE = path.join(HYDRA_DIR, 'archive.json');
 const POST_CREATE_TIMEOUT_MS = AGENT_READY_TIMEOUT_MS + 15000;
 
 /**
@@ -20,8 +17,9 @@ const POST_CREATE_TIMEOUT_MS = AGENT_READY_TIMEOUT_MS + 15000;
  */
 export function lookupWorkerId(sessionName: string): number | undefined {
   try {
-    if (fs.existsSync(SESSIONS_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8'));
+    const sessionsFile = getHydraSessionsFile();
+    if (fs.existsSync(sessionsFile)) {
+      const parsed = JSON.parse(fs.readFileSync(sessionsFile, 'utf-8'));
       return parsed.workers?.[sessionName]?.workerId;
     }
   } catch {
@@ -892,9 +890,10 @@ export class SessionManager {
   }
 
   private readArchiveState(): ArchiveState {
+    const archiveFile = getHydraArchiveFile();
     try {
-      if (fs.existsSync(ARCHIVE_FILE)) {
-        const raw = fs.readFileSync(ARCHIVE_FILE, 'utf-8');
+      if (fs.existsSync(archiveFile)) {
+        const raw = fs.readFileSync(archiveFile, 'utf-8');
         const parsed = JSON.parse(raw);
         return { entries: parsed.entries || [] };
       }
@@ -905,16 +904,19 @@ export class SessionManager {
   }
 
   private writeArchiveState(archive: ArchiveState): void {
-    if (!fs.existsSync(HYDRA_DIR)) {
-      fs.mkdirSync(HYDRA_DIR, { recursive: true });
+    const archiveFile = getHydraArchiveFile();
+    const hydraHome = getHydraHome();
+    if (!fs.existsSync(hydraHome)) {
+      fs.mkdirSync(hydraHome, { recursive: true });
     }
-    fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(archive, null, 2), 'utf-8');
+    fs.writeFileSync(archiveFile, JSON.stringify(archive, null, 2), 'utf-8');
   }
 
   private readSessionState(): SessionState {
+    const sessionsFile = getHydraSessionsFile();
     try {
-      if (fs.existsSync(SESSIONS_FILE)) {
-        const raw = fs.readFileSync(SESSIONS_FILE, 'utf-8');
+      if (fs.existsSync(sessionsFile)) {
+        const raw = fs.readFileSync(sessionsFile, 'utf-8');
         const parsed = JSON.parse(raw);
         const state: SessionState = {
           copilots: parsed.copilots || {},
@@ -940,10 +942,12 @@ export class SessionManager {
   }
 
   private writeSessionState(state: SessionState): void {
-    if (!fs.existsSync(HYDRA_DIR)) {
-      fs.mkdirSync(HYDRA_DIR, { recursive: true });
+    const sessionsFile = getHydraSessionsFile();
+    const hydraHome = getHydraHome();
+    if (!fs.existsSync(hydraHome)) {
+      fs.mkdirSync(hydraHome, { recursive: true });
     }
-    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(state, null, 2), 'utf-8');
+    fs.writeFileSync(sessionsFile, JSON.stringify(state, null, 2), 'utf-8');
   }
 
   /**
