@@ -13,13 +13,13 @@ A zero-setup, fully autonomous demo that showcases Hydra's parallel agent orches
 | **gh CLI** (authenticated) | Repo creation + PR management |
 | **AI agent CLI** (claude, codex, or gemini) | At least one agent runtime |
 
-## Step 1: Run Preflight Check
+## Step 1: Run Doctor Check
 
 ```bash
-./quickstart/preflight.sh
+hydra doctor
 ```
 
-This verifies every prerequisite is installed and authenticated. Fix any red items before continuing.
+This verifies every prerequisite is installed and authenticated. Fix any issues before continuing.
 
 ## Step 2: Open VS Code
 

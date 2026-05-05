@@ -90,7 +90,7 @@ Want to see Hydra in action with zero manual setup? The **[Quickstart Demo](quic
 
 ```bash
 # 1. Verify prerequisites
-./quickstart/preflight.sh
+hydra doctor
 
 # 2. Open VS Code, create a Copilot, and paste the demo prompt
 #    See quickstart/README.md for full instructions
