@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { CopilotProvider, WorkerProvider } from './providers/tmuxSessionProvider';
 import { attachCreate } from './commands/attachCreate';
-// newTask is now an alias for createWorker
 import { removeTask } from './commands/removeTask';
 import { autoAttachOnStartup } from './commands/autoAttach';
 import {
@@ -16,7 +15,6 @@ import {
 import { terminalSmartPaste, pasteImageForce, cleanupTempImages } from './commands/pasteImage';
 import { createWorktreeFromBranch } from './commands/createWorktreeFromBranch';
 import { createCopilot, createCopilotWithAgent } from './commands/createCopilot';
-import { createWorker } from './commands/createWorker';
 import { ensureHydraGlobalConfig } from './utils/hydraGlobalConfig';
 import { installCli, ensurePathInShellProfile } from './core/cliInstaller';
 import { detectAvailableAgents } from './utils/agentConfig';
@@ -33,7 +31,6 @@ export function activate(context: vscode.ExtensionContext) {
     copilotView,
     workerView,
     vscode.commands.registerCommand('tmux.attachCreate', attachCreate),
-    vscode.commands.registerCommand('tmux.newTask', createWorker),
     vscode.commands.registerCommand('tmux.removeTask', (item) => removeTask(item)),
     vscode.commands.registerCommand('tmux.refresh', () => { copilotProvider.refresh(); workerProvider.refresh(); }),
     vscode.commands.registerCommand('tmux.attach', attach),
@@ -47,7 +44,6 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('tmux.createWorktreeFromBranch', (item) => createWorktreeFromBranch(item)),
     vscode.commands.registerCommand('hydra.openPR', openPR),
     vscode.commands.registerCommand('hydra.createCopilot', createCopilot),
-    vscode.commands.registerCommand('hydra.createWorker', createWorker),
     vscode.commands.registerCommand('hydra.startCopilotClaude', () => createCopilotWithAgent('claude')),
     vscode.commands.registerCommand('hydra.startCopilotCodex', () => createCopilotWithAgent('codex')),
     vscode.commands.registerCommand('hydra.startCopilotGemini', () => createCopilotWithAgent('gemini')),
