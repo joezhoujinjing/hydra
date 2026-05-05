@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 import { MultiplexerBackendCore } from './types';
 import * as coreGit from './git';
 import { ensureHydraGlobalConfig } from './hydraGlobalConfig';
-import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS } from './agentConfig';
+import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS, AGENT_READY_PATTERNS, AGENT_READY_TIMEOUT_MS, AGENT_READY_POLL_INTERVAL_MS } from './agentConfig';
 import { exec } from './exec';
 import { shellQuote } from './shell';
 
@@ -899,8 +899,8 @@ export class SessionManager {
     preAssignedSessionId?: string | null,
   ): Promise<void> {
     if (preAssignedSessionId) {
-      // Session ID already known (Claude) — just wait for readiness then send task
-      await this.sleep(CLAUDE_READY_DELAY_MS);
+      // Session ID already known (Claude) — poll for TUI readiness instead of fixed sleep
+      await this.waitForAgentReady(sessionName, agentType);
     } else {
       // Capture session ID via slash command (/status or /stats)
       const sessionId = await this.captureAgentSessionId(sessionName, agentType);
@@ -909,6 +909,37 @@ export class SessionManager {
     if (task) {
       await this.backend.sendMessage(sessionName, task);
     }
+  }
+
+  /**
+   * Poll the tmux pane output until the agent's ready indicator appears,
+   * or fall back to the fixed delay on timeout.
+   */
+  private async waitForAgentReady(sessionName: string, agentType: string): Promise<void> {
+    const pattern = AGENT_READY_PATTERNS[agentType];
+    if (!pattern) {
+      // No known ready pattern — fall back to fixed delay
+      await this.sleep(CLAUDE_READY_DELAY_MS);
+      return;
+    }
+
+    const deadline = Date.now() + AGENT_READY_TIMEOUT_MS;
+    // Initial delay before first poll (agent needs time to start the process)
+    await this.sleep(AGENT_READY_POLL_INTERVAL_MS);
+
+    while (Date.now() < deadline) {
+      try {
+        const output = await this.backend.capturePane(sessionName, 50);
+        if (pattern.test(output)) {
+          return;
+        }
+      } catch {
+        // Session may not be ready yet — keep polling
+      }
+      await this.sleep(AGENT_READY_POLL_INTERVAL_MS);
+    }
+
+    // Timeout reached — proceed anyway (best-effort, matches old behavior)
   }
 
   /**
@@ -1077,9 +1108,9 @@ export class SessionManager {
         // Resume existing session — session ID stays the same
         await this.backend.sendKeys(sessionName, resumeCmd);
         sessionId = storedSessionId;
-        // Send task after agent resumes (needs readiness delay)
+        // Send task after agent resumes (poll for readiness)
         postCreatePromise = (async () => {
-          await this.sleep(CLAUDE_READY_DELAY_MS);
+          await this.waitForAgentReady(sessionName, agentType);
           if (task) await this.backend.sendMessage(sessionName, task);
         })();
       } else {

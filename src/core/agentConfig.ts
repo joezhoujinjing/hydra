@@ -48,8 +48,24 @@ export const AGENT_SESSION_CAPTURE: Partial<Record<string, SessionCaptureConfig>
   },
 };
 
-/** Delay (ms) for Claude before sending task (agent needs time to start) */
+/** Delay (ms) for Claude before sending task (agent needs time to start) — used as fallback timeout */
 export const CLAUDE_READY_DELAY_MS = 5000;
+
+/**
+ * Ready indicator patterns per agent type.
+ * Poll tmux pane output for these patterns to detect when the agent TUI is ready.
+ */
+export const AGENT_READY_PATTERNS: Record<string, RegExp> = {
+  claude: /[❯>]\s*$/m,
+  codex: /[❯>]\s*$/m,
+  gemini: /[❯>]\s*$/m,
+};
+
+/** Maximum time (ms) to wait for agent readiness before giving up */
+export const AGENT_READY_TIMEOUT_MS = 30000;
+
+/** Polling interval (ms) when waiting for agent readiness */
+export const AGENT_READY_POLL_INTERVAL_MS = 500;
 
 /**
  * Build the shell command to RESUME an existing agent session.
