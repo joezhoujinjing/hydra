@@ -12,6 +12,7 @@ export interface ExecOptions {
 function getEnhancedPath(): string {
   const currentPath = process.env.PATH || '';
   const additionalPaths = [
+    '/Applications/Codex.app/Contents/Resources',
     '/opt/homebrew/bin',      // Apple Silicon Homebrew
     '/usr/local/bin',         // Intel Mac Homebrew / common location
     '/opt/homebrew/sbin',

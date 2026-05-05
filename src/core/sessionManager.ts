@@ -251,7 +251,7 @@ export class SessionManager {
     const { repoRoot, branchName } = opts;
     let { task, taskFile } = opts;
     const agentType = opts.agentType || 'claude';
-    const agentCommand = opts.agentCommand || DEFAULT_AGENT_COMMANDS[agentType] || agentType;
+    const agentCommand = await this.resolveAgentCommand(opts.agentCommand || DEFAULT_AGENT_COMMANDS[agentType] || agentType);
 
     const validationError = coreGit.validateBranchName(branchName);
     if (validationError) {
@@ -448,7 +448,7 @@ export class SessionManager {
     }
 
     const agent = agentType || worker.agent || 'claude';
-    const command = agentCommand || DEFAULT_AGENT_COMMANDS[agent] || agent;
+    const command = await this.resolveAgentCommand(agentCommand || DEFAULT_AGENT_COMMANDS[agent] || agent);
 
     await this.backend.createSession(sessionName, worker.workdir);
     await this.backend.setSessionWorkdir(sessionName, worker.workdir);
@@ -502,7 +502,7 @@ export class SessionManager {
     ensureHydraGlobalConfig();
 
     const agentType = opts.agentType || 'claude';
-    const agentCommand = opts.agentCommand || DEFAULT_AGENT_COMMANDS[agentType] || agentType;
+    const agentCommand = await this.resolveAgentCommand(opts.agentCommand || DEFAULT_AGENT_COMMANDS[agentType] || agentType);
     const displayName = opts.name || opts.sessionName || `hydra-copilot-${agentType}`;
     const sessionName = opts.sessionName || this.backend.sanitizeSessionName(`hydra-copilot-${agentType}`);
 
@@ -530,9 +530,7 @@ export class SessionManager {
       await this.backend.sendKeys(sessionName, resumeCmd);
     } else {
       sessionId = agentType === 'claude' ? randomUUID() : null;
-      const launchCmd = agentType === 'claude'
-        ? buildAgentLaunchCommand(agentType, agentCommand, undefined, sessionId ?? undefined)
-        : agentCommand;
+      const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, sessionId ?? undefined);
       await this.backend.sendKeys(sessionName, launchCmd);
     }
 
@@ -1089,6 +1087,22 @@ export class SessionManager {
       return sessionName.substring(underscoreIdx + 1);
     }
     return sessionName;
+  }
+
+  private async resolveAgentCommand(agentCommand: string): Promise<string> {
+    const trimmed = agentCommand.trim();
+    if (!trimmed) return agentCommand;
+
+    const [binary, ...rest] = trimmed.split(/\s+/);
+    if (!binary || binary.includes('/')) return trimmed;
+
+    try {
+      const resolved = await exec(`command -v ${shellQuote(binary)}`);
+      if (!resolved) return trimmed;
+      return [shellQuote(resolved.split('\n')[0]), ...rest].join(' ');
+    } catch {
+      return trimmed;
+    }
   }
 
   private async resumeWorker(
