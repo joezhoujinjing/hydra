@@ -1,57 +1,48 @@
 ---
 name: test-hydra
-description: Use when you need to build and validate the Hydra extension. Compiles TypeScript, runs linting, and reports a pass/fail summary.
+description: Use when you need to test the Hydra extension. Compiles and launches a VS Code Extension Development Host so the user can manually test the extension.
 ---
 
 # Skill: test-hydra
 
-Build and validate the Hydra VS Code extension by compiling and linting the codebase.
+Launch the Hydra VS Code extension in a Development Host for manual testing.
 
 ## Prerequisites
 
 - Must be run from the repo root or a worktree of the hydra repo.
-- Requires **Node.js 18+** and dependencies installed (`npm install`).
+- Requires **Node.js 18+**, **VS Code** (`code` CLI on PATH), and dependencies installed (`npm install`).
 
 ## Steps
 
-1. **Compile the TypeScript source**
+1. **Compile the extension**
 
    ```bash
    npm run compile
    ```
 
-   This runs `tsc -p ./` and the post-compile script. If compilation fails, report the TypeScript errors and stop.
+   If compilation fails, report the errors and stop.
 
-2. **Run the linter**
+2. **Ensure a test workspace exists**
 
    ```bash
-   npm run lint
+   mkdir -p /tmp/hydra-test
    ```
 
-   This runs `eslint src --ext ts`. If linting fails, report the lint errors and stop.
+3. **Launch the Extension Development Host**
 
-3. **Report summary**
+   Resolve the absolute path to the repo or worktree, then open VS Code in extension development mode:
 
-   Print a clear pass/fail summary:
+   ```bash
+   code --extensionDevelopmentPath="<absolute-path-to-repo-or-worktree>" /tmp/hydra-test
+   ```
 
-   - If both steps succeed:
-     ```
-     --- Hydra Test Summary ---
-     Compile: PASS
-     Lint:    PASS
-     Result:  ALL CHECKS PASSED
-     ```
+   This opens a new VS Code window with the locally-compiled Hydra extension loaded.
 
-   - If any step fails, report which step failed and include the error output:
-     ```
-     --- Hydra Test Summary ---
-     Compile: FAIL
-     Lint:    SKIPPED
-     Result:  CHECKS FAILED
-     ```
+4. **Inform the user**
+
+   Tell the user the Extension Development Host is running and they can test the extension in the new VS Code window.
 
 ## Notes
 
-- There is currently no unit test suite configured in this project. When tests are added (e.g., `npm test`), this skill should be updated to include them.
-- Fix any errors found before committing code.
+- The test workspace (`/tmp/hydra-test`) is a throwaway directory — safe to reuse or delete.
 - Only run this skill from the repo root or a worktree of the hydra repo.
