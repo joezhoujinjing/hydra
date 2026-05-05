@@ -478,7 +478,9 @@ export class SessionManager {
       worker.lastSeenAt = new Date().toISOString();
       state.updatedAt = new Date().toISOString();
       this.writeSessionState(state);
-      postCreatePromise = Promise.resolve();
+      // Wait for the resumed TUI to reach its idle prompt so follow-up CLI
+      // commands can run immediately without racing the agent startup.
+      postCreatePromise = this.waitForAgentReady(sessionName, agent);
     } else {
       // ── Fresh start: Phase 1 (capture sessionId) ──
       // No stored session ID — launch fresh agent and capture new session ID.

@@ -77,6 +77,18 @@ export const AGENT_READY_TIMEOUT_MS = 30000;
 /** Polling interval (ms) when waiting for agent readiness */
 export const AGENT_READY_POLL_INTERVAL_MS = 500;
 
+function appendCommandArgs(command: string, ...args: string[]): string {
+  return [command.trim(), ...args.map(arg => arg.trim()).filter(Boolean)].join(' ');
+}
+
+function ensureCommandFlag(command: string, flag: string): string {
+  const trimmed = command.trim();
+  if (!flag || trimmed.includes(flag)) {
+    return trimmed;
+  }
+  return appendCommandArgs(trimmed, flag);
+}
+
 /**
  * Build the shell command to RESUME an existing agent session.
  * Returns null if the agent type doesn't support resume.
@@ -86,15 +98,17 @@ export function buildAgentResumeCommand(
   agentBinary: string,
   sessionId: string,
 ): string | null {
-  const binary = agentBinary.split(/\s+/)[0]; // strip flags from default command
+  const quotedSessionId = shellQuoteForDisplay(sessionId);
   switch (agentType) {
     case 'claude': {
-      return `${binary} --resume ${sessionId}`;
+      return appendCommandArgs(agentBinary, `--resume ${quotedSessionId}`);
     }
-    case 'codex':
-      return `${binary} resume ${sessionId}`;
+    case 'codex': {
+      const command = ensureCommandFlag(agentBinary, AGENT_YOLO_FLAGS.codex);
+      return appendCommandArgs(command, 'resume', quotedSessionId);
+    }
     case 'gemini':
-      return `${binary} --resume ${sessionId}`;
+      return appendCommandArgs(agentBinary, `--resume ${quotedSessionId}`);
     default:
       return null;
   }
@@ -108,21 +122,27 @@ export function buildAgentLaunchCommand(
   sessionId?: string,
 ): string {
   const yolo = AGENT_YOLO_FLAGS[agentType] || '';
+  const command = ensureCommandFlag(agentBinary, yolo);
 
   switch (agentType) {
     case 'claude': {
-      let flags = yolo;
-      if (sessionId) flags += ` --session-id ${sessionId}`;
-      return task ? `${agentBinary} ${flags} -- ${shellQuoteForDisplay(task)}` : `${agentBinary} ${flags}`;
+      let launchCommand = command;
+      if (sessionId) {
+        launchCommand = appendCommandArgs(
+          launchCommand,
+          `--session-id ${shellQuoteForDisplay(sessionId)}`,
+        );
+      }
+      return task ? `${launchCommand} -- ${shellQuoteForDisplay(task)}` : launchCommand;
     }
     case 'codex':
       return task
-        ? `${agentBinary} ${yolo} ${shellQuoteForDisplay(task)}`
-        : `${agentBinary} ${yolo}`;
+        ? appendCommandArgs(command, shellQuoteForDisplay(task))
+        : command;
     case 'gemini':
       return task
-        ? `${agentBinary} ${yolo} ${shellQuoteForDisplay(task)}`
-        : `${agentBinary} ${yolo}`;
+        ? appendCommandArgs(command, shellQuoteForDisplay(task))
+        : command;
     default:
       return agentBinary;
   }
