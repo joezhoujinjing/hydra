@@ -45,7 +45,12 @@ export class TmuxBackend extends TmuxBackendCore implements MultiplexerBackend {
       // For editor locations, reuse if both are editor-area targets
       const existingIsEditor = options?.location !== vscode.TerminalLocation.Panel;
       const requestedIsEditor = resolvedLocation !== vscode.TerminalLocation.Panel;
-      if (options && existingIsEditor === requestedIsEditor) {
+      // Also verify the terminal has the Hydra icon and the expected name.
+      // Legacy terminals (created before icons were added, or restored by VS Code
+      // persistence) may lack the icon or use an outdated name format.
+      const hasCorrectIcon = Boolean(options?.iconPath);
+      const hasCorrectName = existing.name === terminalName;
+      if (options && existingIsEditor === requestedIsEditor && hasCorrectIcon && hasCorrectName) {
         existing.show();
         return existing;
       }
