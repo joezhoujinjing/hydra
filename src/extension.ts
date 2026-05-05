@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CopilotProvider, WorkerProvider } from './providers/tmuxSessionProvider';
+import { CopilotProvider, WorkerProvider, TmuxItem } from './providers/tmuxSessionProvider';
 import { attachCreate } from './commands/attachCreate';
 import { removeTask } from './commands/removeTask';
 import { autoAttachOnStartup } from './commands/autoAttach';
@@ -18,6 +18,8 @@ import { createCopilot, createCopilotWithAgent } from './commands/createCopilot'
 import { ensureHydraGlobalConfig } from './utils/hydraGlobalConfig';
 import { installCli, ensurePathInShellProfile } from './core/cliInstaller';
 import { detectAvailableAgents } from './utils/agentConfig';
+import { HYDRA_PREFIX_COPILOT, HYDRA_PREFIX_WORKER, buildHydraTerminalName } from './utils/hydraEditorGroup';
+import { lookupWorkerId } from './core/sessionManager';
 
 export function activate(context: vscode.ExtensionContext) {
   const copilotProvider = new CopilotProvider();
@@ -73,6 +75,10 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.window.onDidChangeWindowState((e) => {
         if (e.focused) refreshAll();
+    }),
+    vscode.window.onDidChangeActiveTerminal((terminal) => {
+      if (!terminal) return;
+      revealSidebarItem(terminal, copilotProvider, workerProvider, copilotView, workerView);
     })
   );
 
@@ -83,6 +89,47 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push({
       dispose: () => clearInterval(intervalId)
   });
+}
+
+function getShortName(sessionName: string): string {
+  const parts = sessionName.split('_');
+  return parts.length > 1 ? parts.slice(1).join('_') : sessionName;
+}
+
+function revealSidebarItem(
+  terminal: vscode.Terminal,
+  copilotProvider: CopilotProvider,
+  workerProvider: WorkerProvider,
+  copilotView: vscode.TreeView<TmuxItem>,
+  workerView: vscode.TreeView<TmuxItem>
+): void {
+  const name = terminal.name;
+
+  if (name.startsWith(HYDRA_PREFIX_COPILOT)) {
+    const items = copilotProvider.getRootItemsCached();
+    const found = items.find(item => {
+      if (!item.sessionName) return false;
+      const shortName = getShortName(item.sessionName);
+      return name === buildHydraTerminalName(shortName, 'copilot');
+    });
+    if (found) {
+      copilotView.reveal(found, { select: true, focus: false }).then(undefined, () => {});
+    }
+    return;
+  }
+
+  if (name.startsWith(HYDRA_PREFIX_WORKER)) {
+    const items = workerProvider.getWorkerItems();
+    const found = items.find(item => {
+      if (!item.sessionName) return false;
+      const shortName = getShortName(item.sessionName);
+      const workerId = lookupWorkerId(item.sessionName);
+      return name === buildHydraTerminalName(shortName, 'worker', workerId);
+    });
+    if (found) {
+      workerView.reveal(found, { select: true, focus: false }).then(undefined, () => {});
+    }
+  }
 }
 
 async function detectAndSetAgentContext(): Promise<void> {
