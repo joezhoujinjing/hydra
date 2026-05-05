@@ -11,6 +11,7 @@ import { shellQuote } from './shell';
 
 const HYDRA_DIR = path.join(os.homedir(), '.hydra');
 const SESSIONS_FILE = path.join(HYDRA_DIR, 'sessions.json');
+const ARCHIVE_FILE = path.join(HYDRA_DIR, 'archive.json');
 
 /**
  * Look up a worker's numeric ID from sessions.json.
@@ -68,6 +69,18 @@ export interface SessionState {
   workers: Record<string, WorkerInfo>;
   nextWorkerId: number;
   updatedAt: string;
+}
+
+export interface ArchivedSessionInfo {
+  type: 'worker' | 'copilot';
+  sessionName: string;
+  agentSessionId: string | null;
+  archivedAt: string;
+  data: WorkerInfo | CopilotInfo;
+}
+
+export interface ArchiveState {
+  entries: ArchivedSessionInfo[];
 }
 
 type SessionSnapshot = Record<string, never>;
@@ -337,6 +350,11 @@ export class SessionManager {
 
     const state = this.readSessionState();
     const worker = state.workers[sessionName];
+
+    // Archive before removing
+    if (worker) {
+      this.archiveEntry('worker', worker.sessionName, worker.sessionId, worker);
+    }
 
     if (worker && worker.workdir && worker.repoRoot && fs.existsSync(worker.workdir)) {
       try {
@@ -628,6 +646,13 @@ export class SessionManager {
     } catch { /* Already dead */ }
 
     const state = this.readSessionState();
+    const copilot = state.copilots[sessionName];
+
+    // Archive before removing
+    if (copilot) {
+      this.archiveEntry('copilot', copilot.sessionName, copilot.sessionId, copilot);
+    }
+
     delete state.copilots[sessionName];
     state.updatedAt = new Date().toISOString();
     this.writeSessionState(state);
@@ -673,7 +698,88 @@ export class SessionManager {
     this.updateSessionId(sessionName, sessionId);
   }
 
+  // ── Archive ──
+
+  listArchived(): ArchivedSessionInfo[] {
+    return this.readArchiveState().entries;
+  }
+
+  getArchived(sessionName: string): ArchivedSessionInfo | undefined {
+    return this.readArchiveState().entries.find(e => e.sessionName === sessionName);
+  }
+
+  async restoreWorker(sessionName: string): Promise<CreateWorkerResult> {
+    const entry = this.getArchived(sessionName);
+    if (!entry) {
+      throw new Error(`Archived session "${sessionName}" not found`);
+    }
+    if (entry.type !== 'worker') {
+      throw new Error(`Archived session "${sessionName}" is a copilot, not a worker`);
+    }
+
+    const worker = entry.data as WorkerInfo;
+    return this.createWorker({
+      repoRoot: worker.repoRoot,
+      branchName: worker.branch,
+      agentType: worker.agent,
+    });
+  }
+
+  async restoreCopilot(sessionName: string): Promise<CopilotInfo> {
+    const entry = this.getArchived(sessionName);
+    if (!entry) {
+      throw new Error(`Archived session "${sessionName}" not found`);
+    }
+    if (entry.type !== 'copilot') {
+      throw new Error(`Archived session "${sessionName}" is a worker, not a copilot`);
+    }
+
+    const copilot = entry.data as CopilotInfo;
+    return this.createCopilot({
+      workdir: copilot.workdir,
+      agentType: copilot.agent,
+      sessionName: copilot.sessionName,
+    });
+  }
+
   // ── Private helpers ──
+
+  private archiveEntry(
+    type: 'worker' | 'copilot',
+    sessionName: string,
+    agentSessionId: string | null,
+    data: WorkerInfo | CopilotInfo,
+  ): void {
+    const archive = this.readArchiveState();
+    archive.entries.push({
+      type,
+      sessionName,
+      agentSessionId,
+      archivedAt: new Date().toISOString(),
+      data: { ...data },
+    });
+    this.writeArchiveState(archive);
+  }
+
+  private readArchiveState(): ArchiveState {
+    try {
+      if (fs.existsSync(ARCHIVE_FILE)) {
+        const raw = fs.readFileSync(ARCHIVE_FILE, 'utf-8');
+        const parsed = JSON.parse(raw);
+        return { entries: parsed.entries || [] };
+      }
+    } catch {
+      // Corrupted file — start fresh
+    }
+    return { entries: [] };
+  }
+
+  private writeArchiveState(archive: ArchiveState): void {
+    if (!fs.existsSync(HYDRA_DIR)) {
+      fs.mkdirSync(HYDRA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(archive, null, 2), 'utf-8');
+  }
 
   private readSessionState(): SessionState {
     try {
