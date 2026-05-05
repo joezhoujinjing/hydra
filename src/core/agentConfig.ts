@@ -48,8 +48,34 @@ export const AGENT_SESSION_CAPTURE: Partial<Record<string, SessionCaptureConfig>
   },
 };
 
-/** Delay (ms) for Claude before sending task (agent needs time to start) */
+/** Delay (ms) for Claude before sending task (agent needs time to start) — used as fallback timeout */
 export const CLAUDE_READY_DELAY_MS = 5000;
+
+/**
+ * Ready indicator patterns per agent type.
+ * Poll tmux pane output for these patterns to detect when the agent TUI is ready.
+ *
+ * Claude Code's trust prompt uses both ❯ (selection indicator) and ─ (separator),
+ * so neither alone is sufficient. The status bar with ⏵ only appears once the TUI
+ * is fully initialized and at the idle input prompt.
+ */
+export const AGENT_READY_PATTERNS: Record<string, RegExp> = {
+  claude: /⏵/,
+  codex: /⏵/,
+  gemini: /⏵/,
+};
+
+/**
+ * Pattern to detect the Claude trust prompt ("Do you trust this folder?").
+ * When detected, send Enter to accept it before waiting for the actual input prompt.
+ */
+export const CLAUDE_TRUST_PROMPT_PATTERN = /trust this folder/;
+
+/** Maximum time (ms) to wait for agent readiness before giving up */
+export const AGENT_READY_TIMEOUT_MS = 30000;
+
+/** Polling interval (ms) when waiting for agent readiness */
+export const AGENT_READY_POLL_INTERVAL_MS = 500;
 
 /**
  * Build the shell command to RESUME an existing agent session.
