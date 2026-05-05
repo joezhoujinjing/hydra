@@ -108,175 +108,25 @@ hydra worker delete <session>                        # Clean up
 
 All commands support `--json` (auto-enabled when piped), `--quiet`, and `--no-interactive`.
 
-## CLI reference
+## CLI overview
 
-### `hydra list`
+- `hydra list` shows active copilots and workers.
+- `hydra worker ...` creates, inspects, messages, restarts, and deletes worker sessions.
+- `hydra copilot ...` creates, inspects, messages, renames, restores, and deletes copilot sessions.
+- `hydra archive ...` inspects archived sessions and restores them by name.
 
-List all copilots and workers.
+## CLI discovery
 
-```bash
-hydra list --json
-```
-
-```json
-{
-  "copilots": [
-    { "session": "hydra-copilot-claude", "agent": "claude", "status": "running", "attached": false, "workdir": "/path", "agentSessionId": "30a66510-bdf7-4942-8125-527005870bc9" }
-  ],
-  "workers": [
-    { "session": "hydra-ab12_feat-auth", "repo": "myapp", "branch": "feat/auth", "agent": "claude", "status": "running", "attached": false, "workdir": "~/.hydra/worktrees/myapp-ab12cd34/feat-auth", "agentSessionId": "019df6bd-8773-72a1-a0f1-eb5fc3ae6dbf" }
-  ],
-  "count": 2
-}
-```
-
-### `hydra worker create`
-
-Create a new worker (or resume if branch exists).
+Use the CLI itself as the source of truth:
 
 ```bash
-hydra worker create --repo <path> --branch <name> [--agent claude|codex|gemini] [--base <branch>] [--task "<prompt>"] [--task-file <path>]
+hydra --help
+hydra worker --help
+hydra copilot --help
+hydra archive --help
 ```
 
-| Flag | Required | Default | Description |
-|------|----------|---------|-------------|
-| `--repo` | yes | | Path to the repository |
-| `--branch` | yes | | Branch name to create |
-| `--agent` | no | `claude` | Agent type |
-| `--base` | no | main/master | Base branch to fork from |
-| `--task` | no | | Task prompt sent to agent |
-| `--task-file` | no | | Path to markdown file with task details |
-
-```json
-{ "status": "created", "session": "hydra-ab12_feat-auth", "branch": "feat/auth", "agent": "claude", "workdir": "~/.hydra/worktrees/myapp-ab12cd34/feat-auth" }
-```
-
-If the branch already exists, returns `"status": "exists"` and resumes.
-
-### `hydra worker logs <session>`
-
-Read terminal output from a worker.
-
-```bash
-hydra worker logs <session> --lines 50
-```
-
-```json
-{ "session": "hydra-ab12_feat-auth", "lines": 50, "output": "..." }
-```
-
-Default: 50 lines. Use `--lines 200` for deeper scrollback.
-
-### `hydra worker send <session> <message>`
-
-Send a message to a worker. Uses double-Enter for reliable delivery.
-
-```bash
-hydra worker send <session> "fix the type error in auth.ts"
-hydra worker send --all "run the test suite and report status"
-```
-
-```json
-{ "status": "sent", "session": "hydra-ab12_feat-auth", "message": "..." }
-{ "status": "sent", "sessions": ["session1", "session2"], "message": "..." }
-```
-
-### `hydra worker stop <session>`
-
-Kill the tmux session but keep the worktree (can restart later).
-
-```json
-{ "status": "stopped", "session": "hydra-ab12_feat-auth" }
-```
-
-### `hydra worker start <session>`
-
-Restart a stopped worker.
-
-```bash
-hydra worker start <session> [--agent <type>]
-```
-
-```json
-{ "status": "started", "session": "hydra-ab12_feat-auth", "agent": "claude", "workdir": "/path" }
-```
-
-### `hydra worker delete <session>`
-
-Kill session + remove worktree + delete branch. Irreversible.
-
-```json
-{ "status": "deleted", "session": "hydra-ab12_feat-auth" }
-```
-
-### `hydra copilot create`
-
-Create a new copilot.
-
-```bash
-hydra copilot create [--workdir <path>] [--agent claude|codex|gemini] [--name <display-name>] [--session <name>]
-```
-
-```json
-{ "status": "created", "session": "hydra-copilot-codex", "agent": "codex", "workdir": "/path", "agentSessionId": "019df6bd-8773-72a1-a0f1-eb5fc3ae6dbf" }
-```
-
-### `hydra copilot delete <session>`
-
-Delete a copilot (kill the tmux session and archive its metadata).
-
-```json
-{ "status": "deleted", "session": "hydra-copilot-codex" }
-```
-
-### `hydra copilot restore <session>`
-
-Restore an archived copilot by session name.
-
-```json
-{ "status": "restored", "type": "copilot", "session": "hydra-copilot-codex", "agent": "codex", "workdir": "/path", "agentSessionId": "019df6bd-8773-72a1-a0f1-eb5fc3ae6dbf" }
-```
-
-### `hydra copilot logs <session>`
-
-Read terminal output from a copilot.
-
-```bash
-hydra copilot logs <session> --lines 50
-```
-
-```json
-{ "session": "hydra-copilot-claude", "lines": 50, "output": "..." }
-```
-
-Default: 50 lines. Use `--lines 200` for deeper scrollback.
-
-### `hydra copilot send <session> <message>`
-
-Send a message to a copilot.
-
-```bash
-hydra copilot send <session> "review the workers and report status"
-```
-
-```json
-{ "status": "sent", "session": "hydra-copilot-claude", "message": "..." }
-```
-
-## Exit codes
-
-| Code | Meaning | Retryable |
-|------|---------|-----------|
-| 0 | Success | — |
-| 1 | Internal error | yes |
-| 2 | Validation error (bad input) | no |
-| 4 | Not found (session/worker) | no |
-| 5 | Conflict (already exists) | no |
-
-Error JSON (stderr):
-```json
-{ "error": { "code": 4, "message": "Worker not found", "retryable": false, "hint": "Use \"hydra list --json\" to see available sessions." } }
-```
+Prefer `--json` when scripting or when another agent will parse the output.
 
 ## Copilot workflow
 
