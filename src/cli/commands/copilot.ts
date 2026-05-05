@@ -81,20 +81,14 @@ export function registerCopilotCommands(program: Command): void {
     });
 
   copilot
-    .command('restore')
-    .description('Restore the most recent archived copilot')
-    .action(async () => {
+    .command('restore <session>')
+    .description('Restore an archived copilot by session name')
+    .action(async (sessionName: string) => {
       const globalOpts = program.opts() as OutputOpts;
       try {
         const backend = new TmuxBackendCore();
         const sm = new SessionManager(backend);
-        const entry = [...sm.listArchived()].reverse().find((candidate) => candidate.type === 'copilot');
-
-        if (!entry) {
-          throw new Error('No archived copilot found');
-        }
-
-        const { copilotInfo, postCreatePromise } = await sm.restoreCopilot(entry.sessionName);
+        const { copilotInfo, postCreatePromise } = await sm.restoreCopilot(sessionName);
         await postCreatePromise;
         const state = await sm.sync();
         const finalCopilot = state.copilots[copilotInfo.sessionName] || copilotInfo;

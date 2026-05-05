@@ -102,7 +102,7 @@ hydra copilot create --agent codex --workdir .      # Launch a copilot in the cu
 hydra worker create --repo . --branch feat/foo       # Spawn a worker
 hydra worker logs <session> --lines 30               # Read its output
 hydra worker send <session> "fix the failing test"   # Send instructions
-hydra copilot restore                                # Restore the most recent archived copilot
+hydra copilot restore <session>                      # Restore an archived copilot by session name
 hydra worker delete <session>                        # Clean up
 ```
 
@@ -229,9 +229,9 @@ Delete a copilot (kill the tmux session and archive its metadata).
 { "status": "deleted", "session": "hydra-copilot-codex" }
 ```
 
-### `hydra copilot restore`
+### `hydra copilot restore <session>`
 
-Restore the most recent archived copilot.
+Restore an archived copilot by session name.
 
 ```json
 { "status": "restored", "type": "copilot", "session": "hydra-copilot-codex", "agent": "codex", "workdir": "/path", "agentSessionId": "019df6bd-8773-72a1-a0f1-eb5fc3ae6dbf" }
