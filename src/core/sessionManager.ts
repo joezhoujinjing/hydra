@@ -321,24 +321,28 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'worker');
     await this.backend.setSessionAgent(sessionName, agentType);
 
-    // ── Phase 1: Launch agent & capture session ID ──
+    // ── Launch agent ──
     //
-    // All 3 agents converge to: sessionId stored in sessions.json.
-    // - Claude: pre-assigned via --session-id flag (known immediately)
-    // - Codex: launch → wait for ready → send /status → parse session ID
-    // - Gemini: launch → wait for ready → send /stats → parse session ID
-    // - Resume (from archive): session ID already known, launch with --resume
-    let preAssignedSessionId: string | null;
+    // Two distinct paths — resume (from archive) vs fresh create:
+    //
+    // Resume: session ID already known, launch with --resume, skip Phase 1.
+    // Fresh:  all 3 agents converge to sessionId stored in sessions.json:
+    //   - Claude: pre-assigned via --session-id flag (known immediately)
+    //   - Codex:  launch → wait for ready → send /status → parse session ID
+    //   - Gemini: launch → wait for ready → send /stats → parse session ID
+    const isResume = !!opts.resumeSessionId;
+    let sessionId: string | null;
 
-    if (opts.resumeSessionId) {
-      // Resume flow: session ID already known from archive, use --resume flag
-      preAssignedSessionId = opts.resumeSessionId;
-      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, opts.resumeSessionId);
-      await this.backend.sendKeys(sessionName, resumeCmd || buildAgentLaunchCommand(agentType, agentCommand));
+    if (isResume) {
+      sessionId = opts.resumeSessionId!;
+      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, sessionId);
+      if (!resumeCmd) {
+        throw new Error(`Agent "${agentType}" does not support session resume`);
+      }
+      await this.backend.sendKeys(sessionName, resumeCmd);
     } else {
-      // Fresh session: Claude gets pre-assigned ID; Codex/Gemini capture after launch
-      preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
-      const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
+      sessionId = agentType === 'claude' ? randomUUID() : null;
+      const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, sessionId ?? undefined);
       await this.backend.sendKeys(sessionName, launchCmd);
     }
 
@@ -364,7 +368,7 @@ export class SessionManager {
       tmuxSession: sessionName,
       createdAt: now,
       lastSeenAt: now,
-      sessionId: preAssignedSessionId,
+      sessionId,
       copilotSessionName: opts.copilotSessionName || null,
     };
 
@@ -372,12 +376,15 @@ export class SessionManager {
     state.updatedAt = now;
     this.writeSessionState(state);
 
-    // Async post-create: Phase 1 (capture sessionId) → Phase 2 (send task)
+    // Async post-create
     const postCreatePromise = (async () => {
-      // Phase 1: Wait for readiness & capture session ID into sessions.json
-      // (For resume/Claude, sessionId is already set — just waits for readiness.
-      //  For Codex/Gemini fresh, captures via slash command and updates sessions.json.)
-      await this.phase1CaptureSessionId(sessionName, agentType, preAssignedSessionId);
+      if (isResume) {
+        // Resume: skip Phase 1 (sessionId already known), just wait for readiness
+        await this.waitForAgentReady(sessionName, agentType);
+      } else {
+        // Phase 1: Wait for readiness & capture session ID into sessions.json
+        await this.phase1CaptureSessionId(sessionName, agentType, sessionId);
+      }
       // Phase 2: Send task prompt (only after sessions.json is up to date)
       await this.phase2SendPrompt(sessionName, task);
     })();
@@ -509,20 +516,22 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'copilot');
     await this.backend.setSessionAgent(sessionName, agentType);
 
-    // ── Phase 1: Launch agent & capture session ID ──
-    // Same convergence logic as createWorker — all agents end up with sessionId in sessions.json.
-    let preAssignedSessionId: string | null;
+    // ── Launch agent ──
+    // Same two paths as createWorker: resume vs fresh.
+    const isResume = !!opts.resumeSessionId;
+    let sessionId: string | null;
 
-    if (opts.resumeSessionId) {
-      // Resume flow: session ID already known, use --resume flag
-      preAssignedSessionId = opts.resumeSessionId;
-      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, opts.resumeSessionId);
-      await this.backend.sendKeys(sessionName, resumeCmd || buildAgentLaunchCommand(agentType, agentCommand));
+    if (isResume) {
+      sessionId = opts.resumeSessionId!;
+      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, sessionId);
+      if (!resumeCmd) {
+        throw new Error(`Agent "${agentType}" does not support session resume`);
+      }
+      await this.backend.sendKeys(sessionName, resumeCmd);
     } else {
-      // Fresh session: Claude gets pre-assigned ID; Codex/Gemini capture after launch
-      preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
+      sessionId = agentType === 'claude' ? randomUUID() : null;
       const launchCmd = agentType === 'claude'
-        ? buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined)
+        ? buildAgentLaunchCommand(agentType, agentCommand, undefined, sessionId ?? undefined)
         : agentCommand;
       await this.backend.sendKeys(sessionName, launchCmd);
     }
@@ -539,7 +548,7 @@ export class SessionManager {
       tmuxSession: sessionName,
       createdAt: now,
       lastSeenAt: now,
-      sessionId: preAssignedSessionId,
+      sessionId,
     };
 
     const state = this.readSessionState();
@@ -547,9 +556,9 @@ export class SessionManager {
     state.updatedAt = now;
     this.writeSessionState(state);
 
-    // Phase 1: Capture session ID in background for non-Claude agents
-    // (Phase 2 — sending onboarding prompt — is handled by the VS Code extension caller)
-    if (!preAssignedSessionId) {
+    // Phase 1 (background): capture session ID for non-Claude fresh sessions
+    // Phase 2 (onboarding prompt) is handled by the VS Code extension caller
+    if (!isResume && !sessionId) {
       this.phase1CaptureSessionId(sessionName, agentType, null).catch(() => {});
     }
 
