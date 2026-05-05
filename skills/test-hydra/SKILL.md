@@ -49,3 +49,5 @@ Launch the Hydra VS Code extension in a Development Host for manual testing.
 
 - Each invocation creates a fresh test workspace under `/tmp/hydra-test-<timestamp>` to avoid conflicts.
 - Only run this skill from the repo root or a worktree of the hydra repo.
+- `npm run e2e:isolated -- --root <path> -- hydra ...` runs headless in isolated tmux with no VS Code window.
+- `npm run e2e:isolated -- --keep -- code ...` opens a visible isolated Extension Development Host window.
