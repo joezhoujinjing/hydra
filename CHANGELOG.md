@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.29] - 2026-05-05
+
+### Added
+- Archive deleted sessions to `~/.hydra/archive.json` (#73)
+- `displayName` field for cleaner session name display (#77)
+- Display worker numbers in CLI list output (#74)
+- Open shell via tmux split-window instead of VS Code terminal (#71)
+- Test-hydra skill for launching Extension Development Host (#69)
+
+### Changed
+- Move worktree location outside the repo to `~/.hydra/worktrees/` (#72)
+- Remove Create Worker button from sidebar UI (#68)
+- Remove dead COPILOT_AGENTS.md and WORKER_AGENTS.md code (#75)
+
+### Fixed
+- Remove `--add-dir` flag from worker agent launch commands (#76)
+
 ## [0.1.28] - 2026-05-05
 
 ### Added
