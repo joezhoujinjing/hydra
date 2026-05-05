@@ -116,7 +116,7 @@
       },
       {
         "command": "tmux.attach",
-        "title": "Open in Terminal"
+        "title": "Open Shell"
       },
       {
         "command": "tmux.attachInEditor",

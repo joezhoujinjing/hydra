@@ -214,7 +214,7 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
 
   async splitPane(sessionName: string, cwd?: string): Promise<void> {
     const cwdArg = cwd ? `-c ${shellQuote(cwd)}` : '';
-    await exec(`tmux split-window -t ${shellQuote(sessionName)} ${cwdArg}`);
+    await exec(`tmux split-window -v -t ${shellQuote(sessionName)} ${cwdArg}`);
   }
 
   async newWindow(sessionName: string, cwd?: string): Promise<void> {
