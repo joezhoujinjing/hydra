@@ -294,7 +294,7 @@ export class SessionManager {
     const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
 
     // Launch agent without task (task sent after session ID capture)
-    const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, repoRoot, preAssignedSessionId ?? undefined);
+    const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
     await this.backend.sendKeys(sessionName, launchCmd);
 
     const now = new Date().toISOString();
@@ -391,7 +391,7 @@ export class SessionManager {
     // Resume from stored session ID if available; otherwise fresh start
     const storedSessionId = worker.sessionId;
     const resumeCmd = storedSessionId
-      ? buildAgentResumeCommand(agent, command, storedSessionId, worker.repoRoot)
+      ? buildAgentResumeCommand(agent, command, storedSessionId)
       : null;
 
     let postCreatePromise: Promise<void>;
@@ -410,7 +410,7 @@ export class SessionManager {
       // Fresh start — capture new session ID
       const preAssignedSessionId = agent === 'claude' ? randomUUID() : null;
       const snapshot = this.snapshotAgentSessions(agent, worker.workdir);
-      const launchCmd = buildAgentLaunchCommand(agent, command, undefined, worker.repoRoot, preAssignedSessionId ?? undefined);
+      const launchCmd = buildAgentLaunchCommand(agent, command, undefined, preAssignedSessionId ?? undefined);
       await this.backend.sendKeys(sessionName, launchCmd);
 
       worker.status = 'running';
@@ -452,7 +452,7 @@ export class SessionManager {
 
     // For Claude, launch with --session-id; for others, use agentCommand as-is
     const launchCmd = agentType === 'claude'
-      ? buildAgentLaunchCommand(agentType, agentCommand, undefined, undefined, preAssignedSessionId ?? undefined)
+      ? buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined)
       : agentCommand;
     await this.backend.sendKeys(sessionName, launchCmd);
 
@@ -925,7 +925,7 @@ export class SessionManager {
 
       // Resume from stored session ID if available; otherwise fresh start
       const resumeCmd = storedSessionId
-        ? buildAgentResumeCommand(agentType, agentCommand, storedSessionId, repoRoot)
+        ? buildAgentResumeCommand(agentType, agentCommand, storedSessionId)
         : null;
 
       let postCreatePromise: Promise<void>;
@@ -944,7 +944,7 @@ export class SessionManager {
         // Fresh start — capture new session ID
         const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
         const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
-        const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, repoRoot, preAssignedSessionId ?? undefined);
+        const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
         await this.backend.sendKeys(sessionName, launchCmd);
         sessionId = preAssignedSessionId;
         postCreatePromise = this.postCreate(sessionName, agentType, worktreePath, snapshot, task, preAssignedSessionId);
