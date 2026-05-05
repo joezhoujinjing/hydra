@@ -704,8 +704,22 @@ export class SessionManager {
     return this.readArchiveState().entries;
   }
 
+  getArchivedAll(sessionName: string): ArchivedSessionInfo[] {
+    return this.readArchiveState().entries.filter(e => e.sessionName === sessionName);
+  }
+
   getArchived(sessionName: string): ArchivedSessionInfo | undefined {
-    return this.readArchiveState().entries.find(e => e.sessionName === sessionName);
+    const all = this.getArchivedAll(sessionName);
+    return all.length > 0 ? all[all.length - 1] : undefined;
+  }
+
+  listArchivedLatest(): ArchivedSessionInfo[] {
+    const entries = this.readArchiveState().entries;
+    const latest = new Map<string, ArchivedSessionInfo>();
+    for (const entry of entries) {
+      latest.set(entry.sessionName, entry);
+    }
+    return [...latest.values()];
   }
 
   async restoreWorker(sessionName: string): Promise<CreateWorkerResult> {
