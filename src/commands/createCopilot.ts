@@ -83,7 +83,7 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
     // For Claude, pre-assign session ID via --session-id flag
     const preAssignedSessionId = agentType === 'claude' ? randomUUID() : undefined;
     const agentBinary = getAgentCommand(agentType);
-    const launchCmd = buildAgentLaunchCommand(agentType, agentBinary, undefined, undefined, preAssignedSessionId);
+    const launchCmd = buildAgentLaunchCommand(agentType, agentBinary, undefined, preAssignedSessionId);
     await backend.sendKeys(sessionName, launchCmd);
 
     // Persist copilot with session ID to sessions.json
@@ -157,7 +157,7 @@ export async function createCopilot(): Promise<void> {
     // For Claude, pre-assign session ID via --session-id flag
     const preAssignedSessionId = agentType === 'claude' ? randomUUID() : undefined;
     const agentBinary = getAgentCommand(agentType);
-    const launchCmd = buildAgentLaunchCommand(agentType, agentBinary, undefined, undefined, preAssignedSessionId);
+    const launchCmd = buildAgentLaunchCommand(agentType, agentBinary, undefined, preAssignedSessionId);
     await backend.sendKeys(sessionName, launchCmd);
 
     // Persist copilot with session ID to sessions.json

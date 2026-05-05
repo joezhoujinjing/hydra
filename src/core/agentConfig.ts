@@ -59,14 +59,11 @@ export function buildAgentResumeCommand(
   agentType: string,
   agentBinary: string,
   sessionId: string,
-  repoRoot?: string,
 ): string | null {
   const binary = agentBinary.split(/\s+/)[0]; // strip flags from default command
   switch (agentType) {
     case 'claude': {
-      let cmd = `${binary} --resume ${sessionId}`;
-      if (repoRoot) cmd += ` --add-dir ${repoRoot}`;
-      return cmd;
+      return `${binary} --resume ${sessionId}`;
     }
     case 'codex':
       return `${binary} resume ${sessionId}`;
@@ -82,7 +79,6 @@ export function buildAgentLaunchCommand(
   agentType: string,
   agentBinary: string,
   task?: string,
-  repoRoot?: string,
   sessionId?: string,
 ): string {
   const yolo = AGENT_YOLO_FLAGS[agentType] || '';
@@ -91,7 +87,6 @@ export function buildAgentLaunchCommand(
     case 'claude': {
       let flags = yolo;
       if (sessionId) flags += ` --session-id ${sessionId}`;
-      if (repoRoot) flags += ` --add-dir ${repoRoot}`;
       return task ? `${agentBinary} ${flags} -- ${shellQuoteForDisplay(task)}` : `${agentBinary} ${flags}`;
     }
     case 'codex':
