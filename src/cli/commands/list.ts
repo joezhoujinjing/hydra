@@ -28,6 +28,7 @@ export function registerListCommand(program: Command): void {
             workdir: c.workdir || null,
           })),
           workers: workers.map(w => ({
+            number: w.workerId,
             session: w.sessionName || w.tmuxSession,
             repo: w.repo || null,
             branch: w.branch || null,
@@ -91,7 +92,8 @@ export function registerListCommand(program: Command): void {
                 const attached = w.attached ? ' (attached)' : '';
                 const branch = w.branch ? ` (${w.branch})` : '';
                 const name = w.sessionName || w.tmuxSession;
-                console.log(`    ${statusIcon} ${name}${branch}  [${w.agent}]${attached}`);
+                const num = w.workerId != null ? `#${w.workerId} ` : '';
+                console.log(`    ${statusIcon} ${num}${name}${branch}  [${w.agent}]${attached}`);
                 if (w.workdir) console.log(`      workdir: ${w.workdir}`);
               }
             }
