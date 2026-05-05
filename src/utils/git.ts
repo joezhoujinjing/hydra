@@ -7,7 +7,8 @@ import { getActiveBackend } from './multiplexer';
 
 // Re-export pure functions directly
 export { isGitRepo, findGitReposInDir, validateBranchName, localBranchExists } from '../core/git';
-export { getRepoName, getManagedWorktreesRoot, getManagedRepoWorktreesDir } from '../core/git';
+export { getRepoName, getManagedWorktreesRoot, getManagedRepoWorktreesDir, getRepoIdentifier } from '../core/git';
+export { getInRepoWorktreesDir, resolveRepoRootFromWorktreePath } from '../core/git';
 export { ensureWorktreesDir, listWorktrees, getWorktreeBranch } from '../core/git';
 export { addWorktree, removeWorktree } from '../core/git';
 export type { Worktree } from '../core/types';
@@ -27,6 +28,10 @@ export function isSlugTaken(slug: string, repoSessionNamespace: string, repoRoot
 
 export function getLegacyManagedRepoWorktreesDir(repoRoot: string): string {
   return coreGit.getLegacyManagedRepoWorktreesDir(repoRoot, getActiveBackend());
+}
+
+export function getLegacyTmuxWorktreesDir(repoRoot: string): string {
+  return coreGit.getLegacyTmuxWorktreesDir(repoRoot, getActiveBackend());
 }
 
 export function isManagedWorktreePath(repoRoot: string, worktreePath: string): boolean {

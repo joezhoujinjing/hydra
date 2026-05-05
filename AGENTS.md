@@ -36,7 +36,7 @@ To test the extension in a VS Code Extension Development Host, use the `/test-hy
 
 ## Key Patterns
 
-- **Worktree Location**: Extension-managed worktrees go under `<repo>/.hydra/worktrees/` (auto-added to `.gitignore`). Legacy worktrees under `~/.tmux-worktrees/<hash>/` are still recognized.
+- **Worktree Location**: Extension-managed worktrees go under `~/.hydra/worktrees/<repo-identifier>/` (outside the repo to avoid tool/config leakage from parent). Legacy worktrees under `<repo>/.hydra/worktrees/` and `~/.tmux-worktrees/<hash>/` are still recognized.
 - **Session Namespace**: `{repoName}-{pathHash}_{branchSlug}` for collision safety across same-name repos in different directories.
 - **Root Detection**: Compare worktree path to primary via `git rev-parse --git-common-dir` — never infer from branch name or folder basename.
 - **Slug Collision**: basename → parent dir disambiguation → short path hash. Reserve `main` for the primary worktree.
@@ -122,7 +122,7 @@ hydra list --json
     { "session": "hydra-copilot-claude", "agent": "claude", "status": "running", "attached": false, "workdir": "/path" }
   ],
   "workers": [
-    { "session": "hydra-ab12_feat-auth", "repo": "myapp", "branch": "feat/auth", "agent": "claude", "status": "running", "attached": false, "workdir": "/path/.hydra/worktrees/feat-auth" }
+    { "session": "hydra-ab12_feat-auth", "repo": "myapp", "branch": "feat/auth", "agent": "claude", "status": "running", "attached": false, "workdir": "~/.hydra/worktrees/myapp-ab12cd34/feat-auth" }
   ],
   "count": 2
 }
@@ -146,7 +146,7 @@ hydra worker create --repo <path> --branch <name> [--agent claude|codex|gemini] 
 | `--task-file` | no | | Path to markdown file with task details |
 
 ```json
-{ "status": "created", "session": "hydra-ab12_feat-auth", "branch": "feat/auth", "agent": "claude", "workdir": "/repo/.hydra/worktrees/feat-auth" }
+{ "status": "created", "session": "hydra-ab12_feat-auth", "branch": "feat/auth", "agent": "claude", "workdir": "~/.hydra/worktrees/myapp-ab12cd34/feat-auth" }
 ```
 
 If the branch already exists, returns `"status": "exists"` and resumes.
