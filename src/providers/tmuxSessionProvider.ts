@@ -288,12 +288,13 @@ export class CopilotItem extends TmuxItem {
 
   constructor(opts: {
     sessionName: string;
+    displayName?: string;
     agentType: string;
     worktreePath?: string;
     classification: Classification;
   }) {
-    const label = `${opts.agentType}`;
-    const description = opts.worktreePath ? path.basename(opts.worktreePath) : undefined;
+    const label = opts.displayName || opts.sessionName;
+    const description = `[${opts.agentType}]`;
     super(label, vscode.TreeItemCollapsibleState.Expanded, undefined, opts.sessionName);
 
     this.worktreePath = opts.worktreePath;
@@ -720,6 +721,7 @@ export class CopilotProvider implements vscode.TreeDataProvider<TmuxItem> {
         }
         items.push(new CopilotItem({
           sessionName: c.sessionName,
+          displayName: c.displayName,
           agentType: c.agent,
           worktreePath: c.workdir,
           classification,

@@ -21,6 +21,7 @@ export function registerListCommand(program: Command): void {
 
         const data = {
           copilots: copilots.map(c => ({
+            name: c.displayName || c.sessionName || c.tmuxSession,
             session: c.sessionName || c.tmuxSession,
             agent: c.agent,
             status: c.status,
@@ -29,6 +30,7 @@ export function registerListCommand(program: Command): void {
           })),
           workers: workers.map(w => ({
             number: w.workerId,
+            name: w.displayName || w.slug || w.sessionName || w.tmuxSession,
             session: w.sessionName || w.tmuxSession,
             repo: w.repo || null,
             branch: w.branch || null,
@@ -57,7 +59,7 @@ export function registerListCommand(program: Command): void {
                 ? (c.status === 'running' ? '\x1b[32m\u25CF\x1b[0m' : '\u25CB')
                 : `[${c.status}]`;
               const attached = c.attached ? ' (attached)' : '';
-              const name = c.sessionName || c.tmuxSession;
+              const name = c.displayName || c.sessionName || c.tmuxSession;
               console.log(`  ${statusIcon} ${name}  [${c.agent}]${attached}`);
               if (c.workdir) console.log(`    workdir: ${c.workdir}`);
             }
@@ -91,7 +93,7 @@ export function registerListCommand(program: Command): void {
                   : `[${w.status}]`;
                 const attached = w.attached ? ' (attached)' : '';
                 const branch = w.branch ? ` (${w.branch})` : '';
-                const name = w.sessionName || w.tmuxSession;
+                const name = w.displayName || w.slug || w.sessionName || w.tmuxSession;
                 const num = w.workerId != null ? `#${w.workerId} ` : '';
                 console.log(`    ${statusIcon} ${num}${name}${branch}  [${w.agent}]${attached}`);
                 if (w.workdir) console.log(`      workdir: ${w.workdir}`);
