@@ -84,6 +84,20 @@ Imagine you're porting 40 features from an old codebase. Doing it alone is a wee
 
 ---
 
+## Quick Start Demo (Fully Autonomous)
+
+Want to see Hydra in action with zero manual setup? The **[Quickstart Demo](quickstart/README.md)** spawns a Copilot that autonomously creates a repo, scaffolds a TypeScript project, and delegates work to 3 parallel Workers — all in under 10 minutes.
+
+```bash
+# 1. Verify prerequisites
+./quickstart/preflight.sh
+
+# 2. Open VS Code, create a Copilot, and paste the demo prompt
+#    See quickstart/README.md for full instructions
+```
+
+---
+
 ## Capabilities
 
 ### 🏛️ The Command Center (Sidebar)
