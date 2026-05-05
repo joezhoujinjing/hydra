@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { resolve } from 'path';
 import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
@@ -24,7 +25,7 @@ export function registerWorkerCommands(program: Command): void {
     .option('--base <branch>', 'Base branch override')
     .option('--task <prompt>', 'Task prompt for the agent')
     .option('--task-file <path>', 'Path to a file containing the task description')
-    .option('--copilot <session>', 'Session ID of the parent copilot')
+    .option('--copilot <session>', 'Session name of the parent copilot (auto-detected if inside a copilot)')
     .action(async (opts: {
       repo: string;
       branch: string;
@@ -45,6 +46,20 @@ export function registerWorkerCommands(program: Command): void {
         const backend = new TmuxBackendCore();
         const sm = new SessionManager(backend);
 
+        // Auto-detect parent copilot if --copilot not explicitly set
+        let copilotSessionName = opts.copilot;
+        if (!copilotSessionName) {
+          const state = await sm.sync();
+          const cwd = resolve(process.cwd());
+          for (const copilot of Object.values(state.copilots)) {
+            const copilotDir = resolve(copilot.workdir);
+            if (cwd === copilotDir || cwd.startsWith(copilotDir + '/')) {
+              copilotSessionName = copilot.sessionName;
+              break;
+            }
+          }
+        }
+
         const { workerInfo, postCreatePromise } = await sm.createWorker({
           repoRoot,
           branchName: opts.branch,
@@ -52,7 +67,7 @@ export function registerWorkerCommands(program: Command): void {
           baseBranchOverride: opts.base,
           task: opts.task,
           taskFile: opts.taskFile,
-          copilotSessionName: opts.copilot,
+          copilotSessionName,
         });
 
         const status = branchExisted ? 'exists' : 'created';
