@@ -32,6 +32,8 @@ export function lookupWorkerId(sessionName: string): number | undefined {
 
 export interface WorkerInfo {
   sessionName: string;
+  /** Human-friendly name for display (the branch slug without the hash prefix). */
+  displayName: string;
   workerId: number;
   repo: string;
   repoRoot: string;
@@ -49,6 +51,8 @@ export interface WorkerInfo {
 
 export interface CopilotInfo {
   sessionName: string;
+  /** Human-friendly name for display (the user-given copilot name). */
+  displayName: string;
   status: 'running' | 'stopped';
   attached: boolean;
   agent: string;
@@ -81,6 +85,8 @@ export interface CreateWorkerOpts {
 export interface CreateCopilotOpts {
   workdir: string;
   agentType?: string;
+  /** User-given name for the copilot (used as displayName). */
+  name?: string;
   sessionName?: string;
   agentCommand?: string;
 }
@@ -157,13 +163,15 @@ export class SessionManager {
         if (workdir) {
           repoRoot = coreGit.resolveRepoRootFromWorktreePath(workdir) || '';
         }
+        const slug = this.extractSlugFromSessionName(session.name);
         state.workers[session.name] = {
           sessionName: session.name,
+          displayName: slug,
           workerId: state.nextWorkerId++,
           repo: repoRoot ? path.basename(repoRoot) : 'unknown',
           repoRoot,
           branch: '',
-          slug: this.extractSlugFromSessionName(session.name),
+          slug,
           status: 'running',
           attached: session.attached,
           agent,
@@ -176,6 +184,7 @@ export class SessionManager {
       } else if (role === 'copilot') {
         state.copilots[session.name] = {
           sessionName: session.name,
+          displayName: session.name,
           status: 'running',
           attached: session.attached,
           agent,
@@ -295,6 +304,7 @@ export class SessionManager {
 
     const workerInfo: WorkerInfo = {
       sessionName,
+      displayName: finalSlug,
       workerId,
       repo: coreGit.getRepoName(repoRoot),
       repoRoot,
@@ -424,6 +434,7 @@ export class SessionManager {
 
     const agentType = opts.agentType || 'claude';
     const agentCommand = opts.agentCommand || DEFAULT_AGENT_COMMANDS[agentType] || agentType;
+    const displayName = opts.name || opts.sessionName || `hydra-copilot-${agentType}`;
     const sessionName = opts.sessionName || this.backend.sanitizeSessionName(`hydra-copilot-${agentType}`);
 
     const exists = await this.backend.hasSession(sessionName);
@@ -448,6 +459,7 @@ export class SessionManager {
     const now = new Date().toISOString();
     const copilotInfo: CopilotInfo = {
       sessionName,
+      displayName,
       status: 'running',
       attached: false,
       agent: agentType,
@@ -560,6 +572,7 @@ export class SessionManager {
     const worktreeMoved = newSlug !== worker.slug && fs.existsSync(newWorktreePath);
     delete state.workers[oldSessionName];
     worker.sessionName = newSessionName;
+    worker.displayName = newSlug;
     worker.tmuxSession = newSessionName;
     worker.branch = newBranchName;
     worker.slug = newSlug;
@@ -600,6 +613,7 @@ export class SessionManager {
     // Update sessions.json
     delete state.copilots[oldSessionName];
     copilot.sessionName = newSessionName;
+    copilot.displayName = newSessionName;
     copilot.tmuxSession = newSessionName;
     state.copilots[newSessionName] = copilot;
     state.updatedAt = new Date().toISOString();
@@ -630,11 +644,13 @@ export class SessionManager {
     agentType: string,
     workdir: string,
     sessionId: string | null,
+    displayName?: string,
   ): void {
     const state = this.readSessionState();
     const now = new Date().toISOString();
     state.copilots[sessionName] = {
       sessionName,
+      displayName: displayName || state.copilots[sessionName]?.displayName || sessionName,
       status: 'running',
       attached: false,
       agent: agentType,
@@ -670,12 +686,14 @@ export class SessionManager {
           nextWorkerId: parsed.nextWorkerId || 1,
           updatedAt: parsed.updatedAt || new Date().toISOString(),
         };
-        // Backward compat: ensure sessionId field exists for legacy entries
+        // Backward compat: ensure sessionId and displayName fields exist for legacy entries
         for (const w of Object.values(state.workers)) {
           w.sessionId ??= null;
+          w.displayName ??= w.slug || this.extractSlugFromSessionName(w.sessionName);
         }
         for (const c of Object.values(state.copilots)) {
           c.sessionId ??= null;
+          c.displayName ??= c.sessionName;
         }
         return state;
       }
@@ -859,6 +877,7 @@ export class SessionManager {
 
       const workerInfo: WorkerInfo = {
         sessionName,
+        displayName: slug,
         workerId,
         repo: coreGit.getRepoName(repoRoot),
         repoRoot,
@@ -933,6 +952,7 @@ export class SessionManager {
 
       const workerInfo: WorkerInfo = {
         sessionName,
+        displayName: slug,
         workerId,
         repo: coreGit.getRepoName(repoRoot),
         repoRoot,
