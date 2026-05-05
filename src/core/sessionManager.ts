@@ -85,8 +85,6 @@ export interface ArchiveState {
   entries: ArchivedSessionInfo[];
 }
 
-type SessionSnapshot = Record<string, never>;
-
 export interface CreateWorkerOpts {
   repoRoot: string;
   branchName: string;
@@ -323,23 +321,29 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'worker');
     await this.backend.setSessionAgent(sessionName, agentType);
 
-    // If resuming an archived session, use --resume; otherwise fresh launch.
+    // ── Phase 1: Launch agent & capture session ID ──
+    //
+    // All 3 agents converge to: sessionId stored in sessions.json.
+    // - Claude: pre-assigned via --session-id flag (known immediately)
+    // - Codex: launch → wait for ready → send /status → parse session ID
+    // - Gemini: launch → wait for ready → send /stats → parse session ID
+    // - Resume (from archive): session ID already known, launch with --resume
     let preAssignedSessionId: string | null;
-    const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
 
     if (opts.resumeSessionId) {
+      // Resume flow: session ID already known from archive, use --resume flag
       preAssignedSessionId = opts.resumeSessionId;
       const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, opts.resumeSessionId);
-      const launchCmd = resumeCmd || buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
-      await this.backend.sendKeys(sessionName, launchCmd);
+      await this.backend.sendKeys(sessionName, resumeCmd || buildAgentLaunchCommand(agentType, agentCommand));
     } else {
-      // For Claude, pre-assign session ID via --session-id flag (guaranteed correct).
-      // For other agents, capture from filesystem after launch.
+      // Fresh session: Claude gets pre-assigned ID; Codex/Gemini capture after launch
       preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
       const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
       await this.backend.sendKeys(sessionName, launchCmd);
     }
 
+    // Write initial state to sessions.json
+    // (sessionId may be null for Codex/Gemini until Phase 1 capture completes)
     const now = new Date().toISOString();
     const state = this.readSessionState();
     const workerId = state.nextWorkerId;
@@ -368,8 +372,15 @@ export class SessionManager {
     state.updatedAt = now;
     this.writeSessionState(state);
 
-    // Post-create: capture session ID for non-Claude agents, then send task
-    const postCreatePromise = this.postCreate(sessionName, agentType, worktreePath, snapshot, task, preAssignedSessionId);
+    // Async post-create: Phase 1 (capture sessionId) → Phase 2 (send task)
+    const postCreatePromise = (async () => {
+      // Phase 1: Wait for readiness & capture session ID into sessions.json
+      // (For resume/Claude, sessionId is already set — just waits for readiness.
+      //  For Codex/Gemini fresh, captures via slash command and updates sessions.json.)
+      await this.phase1CaptureSessionId(sessionName, agentType, preAssignedSessionId);
+      // Phase 2: Send task prompt (only after sessions.json is up to date)
+      await this.phase2SendPrompt(sessionName, task);
+    })();
 
     return { workerInfo, postCreatePromise };
   }
@@ -446,7 +457,8 @@ export class SessionManager {
     let postCreatePromise: Promise<void>;
 
     if (resumeCmd) {
-      // Resume existing session — session ID stays the same
+      // ── Resume flow: launch with --resume, no session ID capture needed ──
+      // The agent already has its conversation context; just restart it.
       await this.backend.sendKeys(sessionName, resumeCmd);
       worker.status = 'running';
       worker.attached = false;
@@ -456,9 +468,9 @@ export class SessionManager {
       this.writeSessionState(state);
       postCreatePromise = Promise.resolve();
     } else {
-      // Fresh start — capture new session ID
+      // ── Fresh start: Phase 1 (capture sessionId) ──
+      // No stored session ID — launch fresh agent and capture new session ID.
       const preAssignedSessionId = agent === 'claude' ? randomUUID() : null;
-      const snapshot = this.snapshotAgentSessions(agent, worker.workdir);
       const launchCmd = buildAgentLaunchCommand(agent, command, undefined, preAssignedSessionId ?? undefined);
       await this.backend.sendKeys(sessionName, launchCmd);
 
@@ -470,7 +482,8 @@ export class SessionManager {
       state.updatedAt = new Date().toISOString();
       this.writeSessionState(state);
 
-      postCreatePromise = this.postCreate(sessionName, agent, worker.workdir, snapshot, undefined, preAssignedSessionId);
+      // Phase 1 only — startWorker is a restart, no task to send (Phase 2 skipped)
+      postCreatePromise = this.phase1CaptureSessionId(sessionName, agent, preAssignedSessionId);
     }
 
     return { workerInfo: worker, postCreatePromise };
@@ -496,16 +509,17 @@ export class SessionManager {
     await this.backend.setSessionRole(sessionName, 'copilot');
     await this.backend.setSessionAgent(sessionName, agentType);
 
+    // ── Phase 1: Launch agent & capture session ID ──
+    // Same convergence logic as createWorker — all agents end up with sessionId in sessions.json.
     let preAssignedSessionId: string | null;
-    const snapshot = this.snapshotAgentSessions(agentType, opts.workdir);
 
     if (opts.resumeSessionId) {
+      // Resume flow: session ID already known, use --resume flag
       preAssignedSessionId = opts.resumeSessionId;
       const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, opts.resumeSessionId);
-      const launchCmd = resumeCmd || buildAgentLaunchCommand(agentType, agentCommand);
-      await this.backend.sendKeys(sessionName, launchCmd);
+      await this.backend.sendKeys(sessionName, resumeCmd || buildAgentLaunchCommand(agentType, agentCommand));
     } else {
-      // For Claude, launch with --session-id; for others, use agentCommand as-is
+      // Fresh session: Claude gets pre-assigned ID; Codex/Gemini capture after launch
       preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
       const launchCmd = agentType === 'claude'
         ? buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined)
@@ -513,6 +527,7 @@ export class SessionManager {
       await this.backend.sendKeys(sessionName, launchCmd);
     }
 
+    // Write initial state to sessions.json
     const now = new Date().toISOString();
     const copilotInfo: CopilotInfo = {
       sessionName,
@@ -532,9 +547,10 @@ export class SessionManager {
     state.updatedAt = now;
     this.writeSessionState(state);
 
-    // Capture session ID in background for non-Claude agents
+    // Phase 1: Capture session ID in background for non-Claude agents
+    // (Phase 2 — sending onboarding prompt — is handled by the VS Code extension caller)
     if (!preAssignedSessionId) {
-      this.postCreate(sessionName, agentType, opts.workdir, snapshot, undefined, null).catch(() => {});
+      this.phase1CaptureSessionId(sessionName, agentType, null).catch(() => {});
     }
 
     return copilotInfo;
@@ -903,28 +919,46 @@ export class SessionManager {
   }
 
   /**
-   * Post-create flow: wait for agent readiness, capture session ID if needed,
-   * then send task.
+   * ── Phase 1: Capture session ID ──
    *
-   * For Claude, sessionId is pre-assigned via --session-id flag (no capture needed).
-   * For Codex/Gemini, sends slash command and parses session ID from pane output.
+   * Wait for agent readiness and ensure the agent's session ID is in sessions.json.
+   * This is the convergence point for all 3 agents:
+   *
+   * - Claude: sessionId pre-assigned via --session-id flag → just wait for TUI readiness
+   * - Codex: wait for readiness, send /status, parse session ID from output
+   * - Gemini: wait for readiness, send /stats, parse session ID from output
+   *
+   * After this method completes, sessions.json has the definitive sessionId.
+   * Skipped entirely on resume (sessionId already stored from the original create).
    */
-  private async postCreate(
+  private async phase1CaptureSessionId(
     sessionName: string,
     agentType: string,
-    _workdir: string,
-    _snapshot: SessionSnapshot,
-    task?: string,
-    preAssignedSessionId?: string | null,
+    preAssignedSessionId: string | null,
   ): Promise<void> {
     if (preAssignedSessionId) {
-      // Session ID already known (Claude) — poll for TUI readiness instead of fixed sleep
+      // Claude (or resume): sessionId already known — just wait for TUI readiness
       await this.waitForAgentReady(sessionName, agentType);
     } else {
-      // Capture session ID via slash command (/status or /stats)
+      // Codex/Gemini: capture sessionId via slash command (includes readiness wait)
       const sessionId = await this.captureAgentSessionId(sessionName, agentType);
       this.updateSessionId(sessionName, sessionId);
     }
+  }
+
+  /**
+   * ── Phase 2: Send prompt ──
+   *
+   * Send the task prompt to the agent. Only called after Phase 1 completes
+   * (i.e., sessions.json has the definitive sessionId).
+   *
+   * - Workers: send the task prompt (provided by copilot or --task flag)
+   * - Copilots: VS Code extension sends onboarding prompt separately
+   */
+  private async phase2SendPrompt(
+    sessionName: string,
+    task?: string,
+  ): Promise<void> {
     if (task) {
       await this.backend.sendMessage(sessionName, task);
     }
@@ -973,13 +1007,6 @@ export class SessionManager {
     }
 
     // Timeout reached — proceed anyway (best-effort, matches old behavior)
-  }
-
-  /**
-   * Snapshot before launch (placeholder for future use / compatibility).
-   */
-  private snapshotAgentSessions(_agentType: string, _workdir: string): SessionSnapshot {
-    return {};
   }
 
   /**
@@ -1130,7 +1157,7 @@ export class SessionManager {
       const workerId = existingId ?? state.nextWorkerId++;
       const storedSessionId = existingWorker?.sessionId;
 
-      // Resume from stored session ID if available; otherwise fresh start
+      // Resume or fresh start
       const resumeCmd = storedSessionId
         ? buildAgentResumeCommand(agentType, agentCommand, storedSessionId)
         : null;
@@ -1139,22 +1166,25 @@ export class SessionManager {
       let sessionId: string | null;
 
       if (resumeCmd) {
-        // Resume existing session — session ID stays the same
+        // ── Resume flow: launch with --resume, no session ID capture needed ──
+        // The agent already has its conversation context from the previous session.
         await this.backend.sendKeys(sessionName, resumeCmd);
         sessionId = storedSessionId;
-        // Send task after agent resumes (poll for readiness)
+        // Skip Phase 1 (sessionId already known). Phase 2 only: send task if provided.
         postCreatePromise = (async () => {
           await this.waitForAgentReady(sessionName, agentType);
-          if (task) await this.backend.sendMessage(sessionName, task);
+          await this.phase2SendPrompt(sessionName, task);
         })();
       } else {
-        // Fresh start — capture new session ID
+        // ── Fresh start: Phase 1 (capture sessionId) → Phase 2 (send task) ──
         const preAssignedSessionId = agentType === 'claude' ? randomUUID() : null;
-        const snapshot = this.snapshotAgentSessions(agentType, worktreePath);
         const launchCmd = buildAgentLaunchCommand(agentType, agentCommand, undefined, preAssignedSessionId ?? undefined);
         await this.backend.sendKeys(sessionName, launchCmd);
         sessionId = preAssignedSessionId;
-        postCreatePromise = this.postCreate(sessionName, agentType, worktreePath, snapshot, task, preAssignedSessionId);
+        postCreatePromise = (async () => {
+          await this.phase1CaptureSessionId(sessionName, agentType, preAssignedSessionId);
+          await this.phase2SendPrompt(sessionName, task);
+        })();
       }
 
       const workerInfo: WorkerInfo = {
