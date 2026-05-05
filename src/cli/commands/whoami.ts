@@ -16,6 +16,7 @@ interface WhoamiResult {
   workerId?: number;
   branch?: string;
   repo?: string;
+  copilotSessionName?: string | null;
 }
 
 export function registerWhoamiCommand(program: Command): void {
@@ -44,6 +45,7 @@ export function registerWhoamiCommand(program: Command): void {
             workerId: worker.workerId,
             branch: worker.branch,
             repo: worker.repo,
+            copilotSessionName: worker.copilotSessionName,
           };
 
           outputResult(data as unknown as Record<string, unknown>, globalOpts, () => {
@@ -91,6 +93,7 @@ function prettyPrintWorker(worker: WorkerInfo): void {
   console.log(`  Repo:        ${worker.repo}`);
   console.log(`  Agent:       ${worker.agent}`);
   console.log(`  Session ID:  ${worker.sessionId ?? '(none)'}`);
+  console.log(`  Copilot:     ${worker.copilotSessionName ?? '(none)'}`);
   console.log(`  Workdir:     ${worker.workdir}`);
   console.log(`  Status:      ${worker.status}`);
   console.log('');

@@ -5,6 +5,7 @@ import { SessionManager } from '../../core/sessionManager';
 import { getRepoRootFromPath, localBranchExists } from '../../core/git';
 import { toCanonicalPath } from '../../core/path';
 import { outputResult, outputError, type OutputOpts } from '../output';
+import { detectIdentity } from '../identity';
 
 function expandPath(p: string): string {
   return toCanonicalPath(p) || path.resolve(p);
@@ -24,6 +25,7 @@ export function registerWorkerCommands(program: Command): void {
     .option('--base <branch>', 'Base branch override')
     .option('--task <prompt>', 'Task prompt for the agent')
     .option('--task-file <path>', 'Path to a file containing the task description')
+    .option('--copilot <session>', 'Session name of the parent copilot (auto-detected if inside a copilot)')
     .action(async (opts: {
       repo: string;
       branch: string;
@@ -31,6 +33,7 @@ export function registerWorkerCommands(program: Command): void {
       base?: string;
       task?: string;
       taskFile?: string;
+      copilot?: string;
     }) => {
       const globalOpts = program.opts() as OutputOpts;
       try {
@@ -43,6 +46,15 @@ export function registerWorkerCommands(program: Command): void {
         const backend = new TmuxBackendCore();
         const sm = new SessionManager(backend);
 
+        // Auto-detect parent copilot if --copilot not explicitly set
+        let copilotSessionName = opts.copilot;
+        if (!copilotSessionName) {
+          const identity = detectIdentity();
+          if (identity?.role === 'copilot') {
+            copilotSessionName = identity.sessionName;
+          }
+        }
+
         const { workerInfo, postCreatePromise } = await sm.createWorker({
           repoRoot,
           branchName: opts.branch,
@@ -50,6 +62,7 @@ export function registerWorkerCommands(program: Command): void {
           baseBranchOverride: opts.base,
           task: opts.task,
           taskFile: opts.taskFile,
+          copilotSessionName,
         });
 
         const status = branchExisted ? 'exists' : 'created';

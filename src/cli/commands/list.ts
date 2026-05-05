@@ -38,6 +38,7 @@ export function registerListCommand(program: Command): void {
             status: w.status,
             attached: w.attached,
             workdir: w.workdir || null,
+            copilotSessionName: w.copilotSessionName || null,
           })),
           count: copilots.length + workers.length,
         };
