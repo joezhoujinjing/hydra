@@ -693,10 +693,18 @@ export class CopilotProvider implements vscode.TreeDataProvider<TmuxItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<TmuxItem | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
   private _extensionUri: vscode.Uri | undefined;
+  private _rootItems: CopilotItem[] = [];
 
   setExtensionUri(uri: vscode.Uri): void { this._extensionUri = uri; }
   refresh(): void { this._onDidChangeTreeData.fire(undefined); }
   getTreeItem(element: TmuxItem): vscode.TreeItem { return element; }
+  getParent(element: TmuxItem): TmuxItem | undefined {
+    if (element instanceof CopilotItem) return undefined;
+    // Detail items are children of CopilotItems
+    return this._rootItems.find(c => c.sessionName === element.sessionName);
+  }
+
+  getRootItemsCached(): CopilotItem[] { return this._rootItems; }
 
   async getChildren(element?: TmuxItem): Promise<TmuxItem[]> {
     if (!element) return this.getRootItems();
@@ -711,10 +719,11 @@ export class CopilotProvider implements vscode.TreeDataProvider<TmuxItem> {
       const copilots = await sm.listCopilots();
 
       if (copilots.length === 0) {
+        this._rootItems = [];
         return [];  // triggers viewsWelcome
       }
 
-      const items: TmuxItem[] = [];
+      const items: CopilotItem[] = [];
       for (const c of copilots) {
         let classification: Classification;
         if (c.status !== 'running') {
@@ -733,8 +742,10 @@ export class CopilotProvider implements vscode.TreeDataProvider<TmuxItem> {
         }));
       }
 
+      this._rootItems = items;
       return items;
     } catch {
+      this._rootItems = [];
       return [];
     }
   }
@@ -765,10 +776,39 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<TmuxItem | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
   private _extensionUri: vscode.Uri | undefined;
+  private _repoGroups: RepoGroupItem[] = [];
+  private _workerItemsByRepo = new Map<string, TmuxItem[]>();
 
   setExtensionUri(uri: vscode.Uri): void { this._extensionUri = uri; }
   refresh(): void { this._onDidChangeTreeData.fire(undefined); }
   getTreeItem(element: TmuxItem): vscode.TreeItem { return element; }
+  getParent(element: TmuxItem): TmuxItem | undefined {
+    if (element instanceof RepoGroupItem) return undefined;
+    // WorktreeItem/TmuxSessionItem/InactiveWorktreeItem are children of a RepoGroupItem
+    if (element instanceof WorktreeItem || element instanceof InactiveWorktreeItem) {
+      return this._repoGroups.find(g => g.repoName === element.repoName);
+    }
+    // Detail items (TmuxDetailItem, GitStatusItem) are children of a WorktreeItem
+    for (const items of this._workerItemsByRepo.values()) {
+      for (const item of items) {
+        if (item instanceof TmuxSessionItem) {
+          if (item.detailItem === element || item.gitStatusItem === element) return item;
+        }
+        if (item instanceof InactiveWorktreeItem) {
+          if (item.detailItem === element || item.gitStatusItem === element) return item;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  getWorkerItems(): TmuxItem[] {
+    const all: TmuxItem[] = [];
+    for (const items of this._workerItemsByRepo.values()) {
+      all.push(...items);
+    }
+    return all;
+  }
 
   async getChildren(element?: TmuxItem): Promise<TmuxItem[]> {
     if (!element) return this.getRootItems();
@@ -793,6 +833,8 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
       const workers = await sm.listWorkers();
 
       if (workers.length === 0) {
+        this._repoGroups = [];
+        this._workerItemsByRepo.clear();
         const hint = new TmuxItem('No workers', vscode.TreeItemCollapsibleState.None);
         hint.iconPath = new vscode.ThemeIcon('info');
         hint.description = 'Ask your copilot to create a worker';
@@ -812,14 +854,17 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
       }
 
       // Always show RepoGroupItem per repo
-      const items: TmuxItem[] = [];
+      const items: RepoGroupItem[] = [];
       for (const group of byRepo.values()) {
         let baseBranch: string | undefined;
         try { baseBranch = await getBaseBranch(group.repoRoot); } catch { /* */ }
         items.push(new RepoGroupItem(group.repoName, group.repoRoot, baseBranch));
       }
+      this._repoGroups = items;
       return items;
     } catch {
+      this._repoGroups = [];
+      this._workerItemsByRepo.clear();
       return [];
     }
   }
@@ -829,7 +874,9 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
       const backend = getActiveBackend();
       const sm = new SessionManager(backend);
       const workers = await sm.listWorkers(group.repoRoot);
-      return this.buildWorkerItems(workers, group.repoName, group.repoRoot);
+      const items = await this.buildWorkerItems(workers, group.repoName, group.repoRoot);
+      this._workerItemsByRepo.set(group.repoRoot, items);
+      return items;
     } catch {
       return [];
     }
