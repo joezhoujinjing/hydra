@@ -569,6 +569,10 @@ export class SessionManager {
     return { copilotInfo, postCreatePromise };
   }
 
+  async createCopilotAndFinalize(opts: CreateCopilotOpts): Promise<CopilotInfo> {
+    return this.finalizeCopilotResult(await this.createCopilot(opts));
+  }
+
   async renameWorker(oldSessionName: string, newBranchName: string): Promise<WorkerInfo> {
     const state = this.readSessionState();
     const worker = state.workers[oldSessionName];
@@ -828,6 +832,12 @@ export class SessionManager {
   }
 
   // ── Private helpers ──
+
+  private async finalizeCopilotResult(result: CreateCopilotResult): Promise<CopilotInfo> {
+    await result.postCreatePromise;
+    const state = await this.sync();
+    return state.copilots[result.copilotInfo.sessionName] || result.copilotInfo;
+  }
 
   private archiveEntry(
     type: 'worker' | 'copilot',

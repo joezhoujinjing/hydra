@@ -56,15 +56,14 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
 
   try {
     const sm = new SessionManager(new TmuxBackendCore());
-    const { copilotInfo, postCreatePromise } = await sm.createCopilot({
+    const copilotInfo = await sm.createCopilotAndFinalize({
       workdir: os.homedir(),
       agentType,
       sessionName,
     });
-    void postCreatePromise;
 
-    sendCopilotOnboarding(backend, sessionName);
-    backend.attachSession(sessionName, copilotInfo.workdir, undefined, 'copilot');
+    sendCopilotOnboarding(backend, copilotInfo.sessionName);
+    backend.attachSession(copilotInfo.sessionName, copilotInfo.workdir, undefined, 'copilot');
 
     vscode.window.showInformationMessage(`Copilot created: ${sessionName} (${agentType})`);
     vscode.commands.executeCommand('tmux.refresh');
@@ -112,16 +111,15 @@ export async function createCopilot(): Promise<void> {
 
   try {
     const sm = new SessionManager(new TmuxBackendCore());
-    const { copilotInfo, postCreatePromise } = await sm.createCopilot({
+    const copilotInfo = await sm.createCopilotAndFinalize({
       workdir: os.homedir(),
       agentType,
       sessionName,
       name: nameInput.trim(),
     });
-    void postCreatePromise;
 
-    sendCopilotOnboarding(backend, sessionName);
-    backend.attachSession(sessionName, copilotInfo.workdir, undefined, 'copilot');
+    sendCopilotOnboarding(backend, copilotInfo.sessionName);
+    backend.attachSession(copilotInfo.sessionName, copilotInfo.workdir, undefined, 'copilot');
 
     vscode.window.showInformationMessage(`Copilot created: ${sessionName} (${agentType})`);
     vscode.commands.executeCommand('tmux.refresh');
