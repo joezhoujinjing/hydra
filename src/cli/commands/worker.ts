@@ -1,11 +1,11 @@
 import * as path from 'path';
-import { resolve } from 'path';
 import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
 import { getRepoRootFromPath, localBranchExists } from '../../core/git';
 import { toCanonicalPath } from '../../core/path';
 import { outputResult, outputError, type OutputOpts } from '../output';
+import { detectIdentity } from '../identity';
 
 function expandPath(p: string): string {
   return toCanonicalPath(p) || path.resolve(p);
@@ -49,14 +49,9 @@ export function registerWorkerCommands(program: Command): void {
         // Auto-detect parent copilot if --copilot not explicitly set
         let copilotSessionName = opts.copilot;
         if (!copilotSessionName) {
-          const state = await sm.sync();
-          const cwd = resolve(process.cwd());
-          for (const copilot of Object.values(state.copilots)) {
-            const copilotDir = resolve(copilot.workdir);
-            if (cwd === copilotDir || cwd.startsWith(copilotDir + '/')) {
-              copilotSessionName = copilot.sessionName;
-              break;
-            }
+          const identity = detectIdentity();
+          if (identity?.role === 'copilot') {
+            copilotSessionName = identity.sessionName;
           }
         }
 
