@@ -6,6 +6,7 @@ import { registerListCommand } from './commands/list';
 import { registerWorkerCommands } from './commands/worker';
 import { registerCopilotCommands } from './commands/copilot';
 import { registerArchiveCommands } from './commands/archive';
+import { registerDoctorCommand } from './commands/doctor';
 
 const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
 
@@ -28,5 +29,6 @@ registerListCommand(program);
 registerWorkerCommands(program);
 registerCopilotCommands(program);
 registerArchiveCommands(program);
+registerDoctorCommand(program);
 
 program.parse();
