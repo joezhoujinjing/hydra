@@ -1,1 +1,1 @@
-export { ensureHydraGlobalConfig, injectWorkerInstructions } from '../core/hydraGlobalConfig';
+export { ensureHydraGlobalConfig } from '../core/hydraGlobalConfig';

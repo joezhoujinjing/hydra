@@ -4,7 +4,7 @@ import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { MultiplexerBackendCore } from './types';
 import * as coreGit from './git';
-import { injectWorkerInstructions, ensureHydraGlobalConfig } from './hydraGlobalConfig';
+import { ensureHydraGlobalConfig } from './hydraGlobalConfig';
 import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS } from './agentConfig';
 import { exec } from './exec';
 import { shellQuote } from './shell';
@@ -271,9 +271,6 @@ export class SessionManager {
     this.resolveImports(path.join(worktreePath, 'CLAUDE.md'), repoRoot);
     this.resolveImports(path.join(worktreePath, 'AGENTS.md'), repoRoot);
     this.resolveImports(path.join(worktreePath, 'GEMINI.md'), repoRoot);
-
-    // Inject worker instructions
-    injectWorkerInstructions(worktreePath, agentType, taskFilename);
 
     // Create tmux session + set metadata
     const sessionName = this.backend.buildSessionName(repoSessionNamespace, finalSlug);
