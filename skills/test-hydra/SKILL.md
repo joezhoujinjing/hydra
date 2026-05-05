@@ -5,18 +5,49 @@ description: Use when you need to test the Hydra extension. Compiles and launche
 
 # Skill: test-hydra
 
-Launch the Hydra VS Code extension in a Development Host for manual testing.
+Test the Hydra extension — either manually via the VS Code Extension Development Host, or automatically via the E2E CLI test suite.
 
 ## Prerequisites
 
 - Must be run from the repo root or a worktree of the hydra repo.
 - Requires **Node.js 18+**, **VS Code** (`code` CLI on PATH), and dependencies installed (`npm install`).
+- E2E tests additionally require **tmux** and **git**.
 
-## Steps
+## Option A: E2E Integration Tests (automated)
+
+Run the full E2E test suite against real tmux sessions, git worktrees, and the SessionManager:
+
+```bash
+cd <absolute-path-to-repo-or-worktree>
+npm run compile
+node out/cli/index.js test
+```
+
+### Options
+
+- `--filter <pattern>` — Run only tests matching the substring (e.g., `--filter worker`)
+- `--json` — Output results as machine-readable JSON
+
+### What it tests
+
+- **Worker lifecycle:** create, delete, stop/start, rename
+- **Copilot lifecycle:** create, delete, stop/resume
+- **Archive:** list, restore, dedup handling
+- **Session model invariants:** 1:1 tmux-agent mapping, 1:1 worker-worktree mapping, no orphan sessions
+- **CLI:** whoami identity detection, doctor prerequisites
+
+### Environment isolation
+
+Tests run with `HYDRA_HOME` set to a temporary directory, so they never touch `~/.hydra` or the user's real sessions. All test sessions use the `test-e2e-` prefix and are cleaned up automatically.
+
+### Exit codes
+
+- `0` — All tests passed
+- `1` — One or more tests failed
+
+## Option B: Extension Development Host (manual)
 
 1. **Compile the extension**
-
-   Resolve the absolute path to the repo or worktree first, then compile from that directory:
 
    ```bash
    cd <absolute-path-to-repo-or-worktree>
@@ -26,8 +57,6 @@ Launch the Hydra VS Code extension in a Development Host for manual testing.
    If compilation fails, report the errors and stop.
 
 2. **Create a unique test workspace**
-
-   Use a timestamp to avoid conflicts with other test sessions:
 
    ```bash
    mkdir -p /tmp/hydra-test-$(date +%s)
@@ -47,5 +76,6 @@ Launch the Hydra VS Code extension in a Development Host for manual testing.
 
 ## Notes
 
+- E2E tests run sequentially (tmux operations are not safe to parallelize).
 - Each invocation creates a fresh test workspace under `/tmp/hydra-test-<timestamp>` to avoid conflicts.
 - Only run this skill from the repo root or a worktree of the hydra repo.

@@ -2,8 +2,8 @@ import { Command } from 'commander';
 import { execSync } from 'child_process';
 import { existsSync, mkdirSync, constants, accessSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { type OutputOpts } from '../output';
+import { getHydraDir } from '../../core/paths';
 
 interface CheckResult {
   name: string;
@@ -50,7 +50,7 @@ export function registerDoctorCommand(program: Command): void {
     .action(async () => {
       const globalOpts = program.opts() as OutputOpts;
       const checks: CheckResult[] = [];
-      const hydraDir = join(homedir(), '.hydra');
+      const hydraDir = getHydraDir();
       const hydraBin = join(hydraDir, 'bin', 'hydra');
       const hydraBinDir = join(hydraDir, 'bin');
 

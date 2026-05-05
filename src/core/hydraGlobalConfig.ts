@@ -1,12 +1,10 @@
 import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import { getHydraDir } from './paths';
 
-const HYDRA_DIR = path.join(os.homedir(), '.hydra');
-
-/** Ensure ~/.hydra/ directory exists. */
+/** Ensure the Hydra home directory exists. */
 export function ensureHydraGlobalConfig(): void {
-  if (!fs.existsSync(HYDRA_DIR)) {
-    fs.mkdirSync(HYDRA_DIR, { recursive: true });
+  const hydraDir = getHydraDir();
+  if (!fs.existsSync(hydraDir)) {
+    fs.mkdirSync(hydraDir, { recursive: true });
   }
 }

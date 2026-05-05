@@ -1,9 +1,6 @@
 import { resolve } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
-import * as os from 'os';
-
-const SESSIONS_FILE = join(os.homedir(), '.hydra', 'sessions.json');
+import { getSessionsFile } from '../core/paths';
 
 export interface HydraIdentity {
   role: 'worker' | 'copilot';
@@ -42,8 +39,8 @@ export function detectIdentity(cwd?: string): HydraIdentity | null {
 
   let state: { copilots?: Record<string, RawSession>; workers?: Record<string, RawSession> };
   try {
-    if (!existsSync(SESSIONS_FILE)) return null;
-    state = JSON.parse(readFileSync(SESSIONS_FILE, 'utf-8'));
+    if (!existsSync(getSessionsFile())) return null;
+    state = JSON.parse(readFileSync(getSessionsFile(), 'utf-8'));
   } catch {
     return null;
   }

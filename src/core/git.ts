@@ -6,6 +6,7 @@ import { exec } from './exec';
 import { toCanonicalPath } from './path';
 import { shellQuote } from './shell';
 import { MultiplexerBackendCore, Worktree } from './types';
+import { getManagedWorktreesRoot as getManagedWorktreesRootFromPaths } from './paths';
 
 export async function isGitRepo(dirPath: string): Promise<boolean> {
   try {
@@ -104,7 +105,7 @@ export async function localBranchExists(repoRoot: string, branchName: string): P
 }
 
 export function getManagedWorktreesRoot(): string {
-  return path.join(os.homedir(), '.hydra', 'worktrees');
+  return getManagedWorktreesRootFromPaths();
 }
 
 /**

@@ -1,12 +1,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { getHydraDir } from './paths';
 
-const HYDRA_DIR = path.join(os.homedir(), '.hydra');
-const BIN_DIR = path.join(HYDRA_DIR, 'bin');
-const WRAPPER_PATH = path.join(BIN_DIR, 'hydra');
-const EXT_PATH_FILE = path.join(HYDRA_DIR, 'ext-path');
-const VERSION_FILE = path.join(HYDRA_DIR, 'cli-version');
+function getCliPaths() {
+  const hydraDir = getHydraDir();
+  return {
+    hydraDir,
+    binDir: path.join(hydraDir, 'bin'),
+    wrapperPath: path.join(hydraDir, 'bin', 'hydra'),
+    extPathFile: path.join(hydraDir, 'ext-path'),
+    versionFile: path.join(hydraDir, 'cli-version'),
+  };
+}
 
 const WRAPPER_SCRIPT = `#!/bin/sh
 EXT_PATH=$(cat "$HOME/.hydra/ext-path" 2>/dev/null)
@@ -18,24 +24,26 @@ exec node "$EXT_PATH/out/cli/index.js" "$@"
 `;
 
 export function installCli(extensionPath: string, version: string): { installed: boolean; updated: boolean } {
+  const { binDir, wrapperPath, extPathFile, versionFile } = getCliPaths();
+
   // Create ~/.hydra/bin/ directory
-  fs.mkdirSync(BIN_DIR, { recursive: true });
+  fs.mkdirSync(binDir, { recursive: true });
 
   // Always write ext-path to handle extension updates
-  fs.writeFileSync(EXT_PATH_FILE, extensionPath, 'utf-8');
+  fs.writeFileSync(extPathFile, extensionPath, 'utf-8');
 
   // Write wrapper script
-  fs.writeFileSync(WRAPPER_PATH, WRAPPER_SCRIPT, { encoding: 'utf-8', mode: 0o755 });
+  fs.writeFileSync(wrapperPath, WRAPPER_SCRIPT, { encoding: 'utf-8', mode: 0o755 });
 
   // Determine install vs update by comparing cli-version
   let previousVersion: string | undefined;
   try {
-    previousVersion = fs.readFileSync(VERSION_FILE, 'utf-8').trim();
+    previousVersion = fs.readFileSync(versionFile, 'utf-8').trim();
   } catch {
     // File doesn't exist — fresh install
   }
 
-  fs.writeFileSync(VERSION_FILE, version, 'utf-8');
+  fs.writeFileSync(versionFile, version, 'utf-8');
 
   if (!previousVersion) {
     return { installed: true, updated: false };
@@ -66,12 +74,13 @@ export function ensurePathInShellProfile(): void {
 }
 
 export function isCliOnPath(): boolean {
+  const { binDir } = getCliPaths();
   const envPath = process.env.PATH || '';
   return envPath.split(path.delimiter).some(p => {
     try {
-      return fs.realpathSync(p) === fs.realpathSync(BIN_DIR);
+      return fs.realpathSync(p) === fs.realpathSync(binDir);
     } catch {
-      return p === BIN_DIR || p === '$HOME/.hydra/bin' || p.endsWith('/.hydra/bin');
+      return p === binDir || p === '$HOME/.hydra/bin' || p.endsWith('/.hydra/bin');
     }
   });
 }
