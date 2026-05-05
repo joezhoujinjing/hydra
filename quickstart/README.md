@@ -1,99 +1,86 @@
 # Hydra Quickstart Demo
 
-A zero-setup, fully autonomous demo that showcases Hydra's parallel agent orchestration. In under 10 minutes, you'll watch a Copilot spawn three Workers that build a TypeScript project from scratch — simultaneously.
+One command. Zero interaction. Watch Hydra spawn 3 parallel AI workers that build a TypeScript project from scratch.
 
-## Prerequisites
-
-| Tool | Purpose |
-|------|---------|
-| **git** | Version control |
-| **tmux** | Persistent agent sessions |
-| **VS Code** + `code` CLI | IDE + Hydra extension host |
-| **Hydra extension** | Orchestration engine (installs `~/.hydra/bin/hydra`) |
-| **gh CLI** (authenticated) | Repo creation + PR management |
-| **AI agent CLI** (claude, codex, or gemini) | At least one agent runtime |
-
-## Step 1: Run Doctor Check
+## Run It
 
 ```bash
-hydra doctor
+./quickstart/run.sh
 ```
 
-This verifies every prerequisite is installed and authenticated. Fix any issues before continuing.
+That's it. Walk away and come back to find 3 PRs on your GitHub.
 
-## Step 2: Open VS Code
+## What It Does
 
-```bash
-code .
+The script autonomously:
+
+1. **Checks prerequisites** via `hydra doctor`
+2. **Creates a private repo** (`hydra-demo`) on your GitHub
+3. **Scaffolds a TypeScript project** (package.json, tsconfig, src/)
+4. **Spawns 3 parallel Hydra workers:**
+   - `feat/core` — Calculator functions (add, subtract, multiply, divide)
+   - `feat/cli` — CLI interface with Commander.js
+   - `feat/tests` — Vitest test suite with edge cases
+5. **Polls until all 3 PRs are created** (or 10-min timeout)
+6. **Reports results** — lists PRs and worker status
+
+## What You'll See
+
+```
+🐉 Hydra Quickstart Demo
+▶ Running hydra doctor...
+✔ All prerequisites passed
+▶ Creating private repo: hydra-demo
+✔ Repo created
+▶ Spawning 3 parallel workers...
+  ● Worker 1: feat/core  → hydra-ab12_feat-core
+  ● Worker 2: feat/cli   → hydra-ab12_feat-cli
+  ● Worker 3: feat/tests → hydra-ab12_feat-tests
+✔ All workers spawned
+▶ Monitoring workers (polling every 30s)...
+  [30s]  PRs: 0/3 | Active workers: 3
+  [60s]  PRs: 1/3 | Active workers: 3
+  [120s] PRs: 2/3 | Active workers: 2
+  [180s] PRs: 3/3 | Active workers: 0
+
+═══════════════════════════════════════════════
+  🎉 Hydra Demo Complete — All PRs Created!
+═══════════════════════════════════════════════
 ```
 
-Ensure the Hydra sidebar is visible (robot icon in the Activity Bar). If you just installed the extension, restart VS Code.
-
-## Step 3: Create a Copilot
-
-1. Open the Hydra sidebar and click **"Create Copilot"**
-2. Choose your preferred agent (e.g., `claude`)
-3. When the Copilot terminal opens, **paste the demo prompt** from [`demo-prompt.md`](./demo-prompt.md)
-
-> **Tip:** Copy the entire contents of `demo-prompt.md` and paste it directly into the Copilot terminal.
-
-## What to Expect
-
-Once the Copilot receives the prompt, it will:
-
-1. **Create a demo repository** — `hydra-demo` (private, on your GitHub account)
-2. **Scaffold the project** — TypeScript + package.json + tsconfig + initial commit
-3. **Spawn 3 Workers in parallel:**
-   - `feat/core` — Implements calculator functions (add, subtract, multiply, divide)
-   - `feat/cli` — Builds the CLI interface with Commander.js
-   - `feat/tests` — Writes comprehensive Vitest tests
-4. **Monitor progress** — The Copilot checks worker logs periodically
-5. **Report completion** — Lists all created PRs when workers finish
-
-### What You'll See
-
-- **Sidebar:** Three workers appear with live status indicators
-- **Terminals:** Three parallel tmux sessions, each with an AI agent coding
-- **Git:** Three feature branches pushed with PRs created
-- **Timeline:** ~5–10 minutes for all workers to complete
+**Optional:** Open VS Code alongside to watch workers appear in the Hydra sidebar in real time.
 
 ## Estimated Time
 
 | Phase | Duration |
 |-------|----------|
-| Copilot planning & repo setup | ~1 min |
+| Repo + scaffold | ~15 sec |
 | Workers coding in parallel | ~3–7 min |
-| PR creation & summary | ~1 min |
 | **Total** | **~5–10 min** |
+
+## Prerequisites
+
+Run `hydra doctor` to verify. Requires:
+- git, tmux, Hydra CLI (`~/.hydra/bin/hydra`)
+- gh CLI (authenticated)
+- At least one AI agent: claude, codex, or gemini
+
+## Cleanup
+
+```bash
+gh repo delete hydra-demo --yes
+```
+
+Workers are auto-cleaned when the repo is deleted, or manually:
+```bash
+hydra list --json | jq -r '.workers[].session' | while read s; do hydra worker delete "$s"; done
+```
 
 ## Troubleshooting
 
-### Copilot doesn't spawn workers
-
-- Ensure the `hydra` CLI is in your PATH: `which hydra` or `~/.hydra/bin/hydra --version`
-- Restart your terminal after installing the Hydra extension
-
-### Workers fail immediately
-
-- Check agent authentication: `claude --version`, `codex --version`, or `gemini --version`
-- Ensure your API keys are configured (e.g., `ANTHROPIC_API_KEY` in environment)
-
-### `gh repo create` fails
-
-- Verify: `gh auth status`
-- Ensure you don't already have a repo named `hydra-demo`: `gh repo view hydra-demo 2>/dev/null`
-
-### Workers stuck or not progressing
-
-- Check logs: `hydra worker logs <session> --lines 50`
-- Send a nudge: `hydra worker send <session> "continue working"`
-
-### Cleanup after the demo
-
-```bash
-# Delete the demo repo
-gh repo delete hydra-demo --yes
-
-# Remove local workers
-hydra list --json | jq -r '.workers[].session' | while read s; do hydra worker delete "$s"; done
-```
+| Issue | Fix |
+|-------|-----|
+| `hydra doctor` fails | Install missing tools, run `hydra doctor` for details |
+| Workers fail immediately | Check agent auth (`claude --version`) and API keys |
+| Timeout with 0 PRs | Run `hydra worker logs <session> --lines 50` to diagnose |
+| Repo already exists | Script auto-deletes and recreates it |
