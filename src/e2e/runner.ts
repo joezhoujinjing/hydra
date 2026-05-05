@@ -23,13 +23,19 @@ export interface TestReport {
   durationMs: number;
 }
 
-type TestFn = () => Promise<void>;
+interface RunE2ETestOptions {
+  filter?: string;
+  agent?: string;
+}
+
+type TestFn = (opts: RunE2ETestOptions) => Promise<void>;
 
 interface IsolatedEnvironmentContext {
   root: string;
   homeDir: string;
   hydraHome: string;
   hydraConfigPath: string;
+  zdotdir: string;
   tmuxSocket: string;
   vscodeUserDataDir: string;
   activateScript: string;
@@ -83,6 +89,7 @@ const MANAGED_ENV_KEYS = [
   'TMPDIR',
   'TMP',
   'TEMP',
+  'ZDOTDIR',
   'TMUX',
   'TMUX_PANE',
 ] as const;
@@ -125,7 +132,16 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function detectAgent(): Promise<string> {
+async function detectAgent(preferredAgent?: string): Promise<string> {
+  if (preferredAgent) {
+    try {
+      await exec(`which ${preferredAgent}`);
+      return preferredAgent;
+    } catch {
+      throw new Error(`Requested agent "${preferredAgent}" is not installed or not on PATH`);
+    }
+  }
+
   for (const agent of ['claude', 'codex', 'gemini']) {
     try {
       await exec(`which ${agent}`);
@@ -171,6 +187,7 @@ function captureManagedEnv(): Record<ManagedEnvKey, string | undefined> {
     TMPDIR: process.env.TMPDIR,
     TMP: process.env.TMP,
     TEMP: process.env.TEMP,
+    ZDOTDIR: process.env.ZDOTDIR,
     TMUX: process.env.TMUX,
     TMUX_PANE: process.env.TMUX_PANE,
   };
@@ -201,6 +218,7 @@ function applyIsolatedEnvironment(context: IsolatedEnvironmentContext): ActiveIs
   process.env.TMPDIR = tmpDir;
   process.env.TMP = tmpDir;
   process.env.TEMP = tmpDir;
+  process.env.ZDOTDIR = context.zdotdir;
   delete process.env.TMUX;
   delete process.env.TMUX_PANE;
 
@@ -398,13 +416,13 @@ function buildDemoPrompt(repoRoot: string, branchName: string, agentType: string
   ].join('\n');
 }
 
-const test_copilot_worker_conversation: TestFn = async () => {
+const test_copilot_worker_conversation: TestFn = async (opts) => {
   const environment = getActiveEnvironment();
   const backend = new TmuxBackendCore();
   const sessionManager = new SessionManager(backend);
   const branchName = `${TEST_PREFIX}demo-${generateId()}`;
   const copilotName = `${TEST_PREFIX}copilot-${generateId()}`;
-  const agentType = await detectAgent();
+  const agentType = await detectAgent(opts.agent);
 
   launchExtensionDevHost(environment.repoRoot);
   await sleep(3000);
@@ -458,7 +476,7 @@ const ALL_TESTS: Array<{ name: string; fn: TestFn }> = [
   { name: 'test_copilot_worker_conversation', fn: test_copilot_worker_conversation },
 ];
 
-export async function runE2ETests(opts?: { filter?: string }): Promise<TestReport> {
+export async function runE2ETests(opts?: RunE2ETestOptions): Promise<TestReport> {
   const startTime = Date.now();
   const results: TestResult[] = [];
 
@@ -485,7 +503,7 @@ export async function runE2ETests(opts?: { filter?: string }): Promise<TestRepor
       const testStart = Date.now();
 
       try {
-        await withTimeout(test.fn(), SCENARIO_TIMEOUT_MS + 90_000, test.name);
+        await withTimeout(test.fn(opts || {}), SCENARIO_TIMEOUT_MS + 90_000, test.name);
         results.push({
           name: test.name,
           passed: true,

@@ -11,7 +11,8 @@ export function registerTestCommand(program: Command): void {
     .command('test')
     .description('Run Hydra E2E scenario tests inside an isolated environment')
     .option('--filter <pattern>', 'Run only tests matching this substring')
-    .action(async (opts: { filter?: string }) => {
+    .option('--agent <type>', 'Force a specific agent CLI (claude, codex, gemini)')
+    .action(async (opts: { filter?: string; agent?: string }) => {
       const globalOpts = program.opts() as OutputOpts;
 
       try {
@@ -20,7 +21,10 @@ export function registerTestCommand(program: Command): void {
           console.log('\u2500'.repeat(60));
         }
 
-        const report: TestReport = await runE2ETests({ filter: opts.filter });
+        const report: TestReport = await runE2ETests({
+          filter: opts.filter,
+          agent: opts.agent,
+        });
 
         if (globalOpts.json) {
           console.log(JSON.stringify(report));
