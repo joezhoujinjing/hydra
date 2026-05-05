@@ -16,16 +16,7 @@ After changes, always run `npm run compile` to verify the build succeeds before 
 
 ### Manual Testing
 
-To test the extension in a VS Code Extension Development Host, use the `/test-hydra` skill or run manually:
-
-```bash
-cd <absolute-path-to-worktree-or-repo>
-npm run compile
-mkdir -p /tmp/hydra-test
-code --extensionDevelopmentPath="<absolute-path-to-worktree-or-repo>" /tmp/hydra-test
-```
-
-See [`skills/test-hydra/SKILL.md`](./skills/test-hydra/SKILL.md) for details.
+To test the extension in a VS Code Extension Development Host, use the `/test-hydra` skill. See [`skills/test-hydra/SKILL.md`](./skills/test-hydra/SKILL.md).
 
 ## Project Structure
 

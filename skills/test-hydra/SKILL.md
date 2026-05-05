@@ -16,24 +16,27 @@ Launch the Hydra VS Code extension in a Development Host for manual testing.
 
 1. **Compile the extension**
 
+   Resolve the absolute path to the repo or worktree first, then compile from that directory:
+
    ```bash
+   cd <absolute-path-to-repo-or-worktree>
    npm run compile
    ```
 
    If compilation fails, report the errors and stop.
 
-2. **Ensure a test workspace exists**
+2. **Create a unique test workspace**
+
+   Use a timestamp to avoid conflicts with other test sessions:
 
    ```bash
-   mkdir -p /tmp/hydra-test
+   mkdir -p /tmp/hydra-test-$(date +%s)
    ```
 
 3. **Launch the Extension Development Host**
 
-   Resolve the absolute path to the repo or worktree, then open VS Code in extension development mode:
-
    ```bash
-   code --extensionDevelopmentPath="<absolute-path-to-repo-or-worktree>" /tmp/hydra-test
+   code --extensionDevelopmentPath="<absolute-path-to-repo-or-worktree>" /tmp/hydra-test-<timestamp>
    ```
 
    This opens a new VS Code window with the locally-compiled Hydra extension loaded.
@@ -44,5 +47,5 @@ Launch the Hydra VS Code extension in a Development Host for manual testing.
 
 ## Notes
 
-- The test workspace (`/tmp/hydra-test`) is a throwaway directory — safe to reuse or delete.
+- Each invocation creates a fresh test workspace under `/tmp/hydra-test-<timestamp>` to avoid conflicts.
 - Only run this skill from the repo root or a worktree of the hydra repo.
