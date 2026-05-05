@@ -441,9 +441,6 @@ export class SessionManager {
   async createCopilot(opts: CreateCopilotOpts): Promise<CopilotInfo> {
     ensureHydraGlobalConfig();
 
-    // Fetch latest from remote so copilot has fresh refs
-    await coreGit.fetchOrigin(opts.workdir);
-
     const agentType = opts.agentType || 'claude';
     const agentCommand = opts.agentCommand || DEFAULT_AGENT_COMMANDS[agentType] || agentType;
     const sessionName = opts.sessionName || this.backend.sanitizeSessionName(`hydra-copilot-${agentType}`);
