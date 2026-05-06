@@ -21,5 +21,7 @@ if (fs.existsSync(cliEntry)) {
   if (!content.startsWith('#!/usr/bin/env node')) {
     fs.writeFileSync(cliEntry, '#!/usr/bin/env node\n' + content);
   }
-  fs.chmodSync(cliEntry, '755');
+  if (process.platform !== 'win32') {
+    fs.chmodSync(cliEntry, '755');
+  }
 }

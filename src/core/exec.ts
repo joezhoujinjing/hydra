@@ -1,4 +1,5 @@
 import { exec as execCallback } from 'child_process';
+import path from 'node:path';
 import { promisify } from 'util';
 import { getIsolatedEnv } from './path';
 
@@ -12,19 +13,24 @@ export interface ExecOptions {
 // Add common binary locations (Homebrew, etc.) to PATH.
 function getEnhancedPath(): string {
   const currentPath = process.env.PATH || '';
-  const additionalPaths = [
-    '/Applications/Codex.app/Contents/Resources',
-    '/opt/homebrew/bin',      // Apple Silicon Homebrew
-    '/usr/local/bin',         // Intel Mac Homebrew / common location
-    '/opt/homebrew/sbin',
-    '/usr/local/sbin',
-  ];
+  const additionalPaths = process.platform === 'win32'
+    ? [
+        'C:\\Program Files\\nodejs',
+        'C:\\Program Files\\Git\\cmd',
+      ]
+    : [
+        '/Applications/Codex.app/Contents/Resources',
+        '/opt/homebrew/bin',      // Apple Silicon Homebrew
+        '/usr/local/bin',         // Intel Mac Homebrew / common location
+        '/opt/homebrew/sbin',
+        '/usr/local/sbin',
+      ];
 
-  const pathSet = new Set(currentPath.split(':'));
+  const pathSet = new Set(currentPath.split(path.delimiter));
   const newPaths = additionalPaths.filter(p => !pathSet.has(p));
 
   return newPaths.length > 0
-    ? `${newPaths.join(':')}:${currentPath}`
+    ? `${newPaths.join(path.delimiter)}${path.delimiter}${currentPath}`
     : currentPath;
 }
 
