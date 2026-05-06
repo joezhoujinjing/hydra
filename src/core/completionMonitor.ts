@@ -17,6 +17,13 @@ interface MonitorConfig {
   copilotSessionName: string;
   readyPattern: string;
   message: string;
+  /** @internal Timing overrides for testing */
+  initialSleepMs?: number;
+  phase1PollMs?: number;
+  phase1TimeoutMs?: number;
+  confirmationMs?: number;
+  phase2PollMs?: number;
+  phase2TimeoutMs?: number;
 }
 
 const config: MonitorConfig = JSON.parse(process.argv[2]);
@@ -57,12 +64,18 @@ function sleep(ms: number): Promise<void> {
 
 async function main(): Promise<void> {
   const pattern = new RegExp(config.readyPattern);
+  const initialSleep = config.initialSleepMs ?? 15_000;
+  const phase1Poll = config.phase1PollMs ?? 3_000;
+  const phase1Timeout = config.phase1TimeoutMs ?? 120_000;
+  const confirmation = config.confirmationMs ?? 3_000;
+  const phase2Poll = config.phase2PollMs ?? 5_000;
+  const phase2Timeout = config.phase2TimeoutMs ?? 7_200_000;
 
   // Phase 1: Wait for agent to start processing (ready pattern disappears).
   // After the task prompt is sent the agent may still briefly show the idle
   // indicator, so we give it time to begin work.
-  await sleep(15_000);
-  const busyDeadline = Date.now() + 120_000;
+  await sleep(initialSleep);
+  const busyDeadline = Date.now() + phase1Timeout;
   let seenBusy = false;
 
   while (Date.now() < busyDeadline) {
@@ -72,13 +85,13 @@ async function main(): Promise<void> {
       seenBusy = true;
       break;
     }
-    await sleep(3_000);
+    await sleep(phase1Poll);
   }
 
   if (!seenBusy) return; // Agent never started processing — nothing to notify
 
   // Phase 2: Wait for agent to become idle again (ready pattern reappears).
-  const idleDeadline = Date.now() + 7_200_000; // 2 hours max
+  const idleDeadline = Date.now() + phase2Timeout;
 
   while (Date.now() < idleDeadline) {
     if (!hasSession(config.sessionName)) return;
@@ -88,7 +101,7 @@ async function main(): Promise<void> {
 
     if (pattern.test(output)) {
       // Confirm with a second check after a brief delay to avoid false positives
-      await sleep(3_000);
+      await sleep(confirmation);
       const output2 = capturePane();
       if (output2 && pattern.test(output2)) {
         // Agent is idle — send notification to copilot
@@ -111,7 +124,7 @@ async function main(): Promise<void> {
       }
     }
 
-    await sleep(5_000);
+    await sleep(phase2Poll);
   }
 }
 
