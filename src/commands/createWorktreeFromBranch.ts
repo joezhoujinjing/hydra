@@ -14,6 +14,7 @@ import {
 import { exec } from '../utils/exec';
 import { getActiveBackend } from '../utils/multiplexer';
 import { WorktreeItem } from '../providers/tmuxSessionProvider';
+import { ensureBackendInstalled } from './ensureBackendInstalled';
 
 function formatFileStatusCounts(nameStatusOutput: string): string {
   const lines = nameStatusOutput.trim().split('\n').filter(l => l.length > 0);
@@ -53,8 +54,7 @@ export async function createWorktreeFromBranch(item: WorktreeItem | undefined): 
   }
 
   const backend = getActiveBackend();
-  if (!await backend.isInstalled()) {
-    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
+  if (!await ensureBackendInstalled(backend)) {
     return;
   }
 

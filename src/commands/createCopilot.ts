@@ -4,6 +4,7 @@ import { getActiveBackend, MultiplexerBackend } from '../utils/multiplexer';
 import { getAgentCommand, pickAgentType, AgentType } from '../utils/agentConfig';
 import { TmuxBackendCore } from '../core/tmux';
 import { SessionManager } from '../core/sessionManager';
+import { ensureBackendInstalled } from './ensureBackendInstalled';
 
 const ONBOARDING_PROMPT = `You are a Hydra copilot — an AI orchestrator that manages parallel AI workers to complete complex tasks.
 
@@ -40,8 +41,7 @@ function sendCopilotOnboarding(backend: MultiplexerBackend, sessionName: string)
 
 export async function createCopilotWithAgent(agentType: AgentType): Promise<void> {
   const backend = getActiveBackend();
-  if (!await backend.isInstalled()) {
-    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
+  if (!await ensureBackendInstalled(backend)) {
     return;
   }
 
@@ -76,8 +76,7 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
 
 export async function createCopilot(): Promise<void> {
   const backend = getActiveBackend();
-  if (!await backend.isInstalled()) {
-    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
+  if (!await ensureBackendInstalled(backend)) {
     return;
   }
 

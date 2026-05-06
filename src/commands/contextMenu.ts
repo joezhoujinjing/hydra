@@ -12,6 +12,7 @@ import {
 import { getActiveBackend, HydraRole } from '../utils/multiplexer';
 import { getHydraEditorLocation } from '../utils/hydraEditorGroup';
 import { exec } from '../utils/exec';
+import { ensureBackendInstalled } from './ensureBackendInstalled';
 
 function getWorktreePath(item: TmuxItem): string | undefined {
   if (item instanceof CopilotItem) return item.worktreePath;
@@ -50,8 +51,7 @@ export async function attach(item: TmuxItem): Promise<void> {
     return;
   }
   const backend = getActiveBackend();
-  if (!await backend.isInstalled()) {
-    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
+  if (!await ensureBackendInstalled(backend)) {
     return;
   }
 
@@ -73,8 +73,7 @@ export async function attachInEditor(item: TmuxItem): Promise<void> {
     return;
   }
   const backend = getActiveBackend();
-  if (!await backend.isInstalled()) {
-    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
+  if (!await ensureBackendInstalled(backend)) {
     return;
   }
 
@@ -117,8 +116,7 @@ export async function newPane(item: TmuxItem): Promise<void> {
   }
   const backend = getActiveBackend();
   try {
-    if (!await backend.isInstalled()) {
-      vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
+    if (!await ensureBackendInstalled(backend)) {
       return;
     }
 
@@ -138,8 +136,7 @@ export async function newWindow(item: TmuxItem): Promise<void> {
   }
   const backend = getActiveBackend();
   try {
-    if (!await backend.isInstalled()) {
-      vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
+    if (!await ensureBackendInstalled(backend)) {
       return;
     }
 
