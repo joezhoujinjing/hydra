@@ -1,13 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { spawn } from 'child_process';
 import { MultiplexerBackendCore } from './types';
 import * as coreGit from './git';
 import { ensureHydraGlobalConfig } from './hydraGlobalConfig';
 import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS, AGENT_READY_PATTERNS, AGENT_READY_TIMEOUT_MS, AGENT_READY_POLL_INTERVAL_MS, CLAUDE_TRUST_PROMPT_PATTERN } from './agentConfig';
 import { exec, resolveCommandPath } from './exec';
-import { getHydraArchiveFile, getHydraHome, getHydraSessionsFile, getTmuxCommand } from './path';
+import { getHydraArchiveFile, getHydraHome, getHydraSessionsFile } from './path';
 import { shellQuote } from './shell';
 
 const POST_CREATE_TIMEOUT_MS = AGENT_READY_TIMEOUT_MS + 15000;
@@ -344,8 +343,21 @@ export class SessionManager {
     this.resolveImports(path.join(worktreePath, 'AGENTS.md'), repoRoot);
     this.resolveImports(path.join(worktreePath, 'GEMINI.md'), repoRoot);
 
-    // Create tmux session + set metadata
+    // Inject agent completion hook (must be before agent launch so it reads the config)
     const sessionName = this.backend.buildSessionName(repoSessionNamespace, finalSlug);
+    if (opts.notifyCopilot !== false && opts.copilotSessionName && (task || taskFile)) {
+      const peekState = this.readSessionState();
+      const workerId = peekState.workers[sessionName]?.workerId ?? peekState.nextWorkerId;
+      this.injectCompletionHook(worktreePath, agentType, {
+        copilotSessionName: opts.copilotSessionName,
+        sessionName,
+        workerId,
+        displayName: finalSlug,
+        branch: branchName,
+      });
+    }
+
+    // Create tmux session + set metadata
     await this.backend.createSession(sessionName, worktreePath);
     await this.backend.setSessionWorkdir(sessionName, worktreePath);
     await this.backend.setSessionRole(sessionName, 'worker');
@@ -418,11 +430,6 @@ export class SessionManager {
       }
       // Phase 2: Send task prompt (only after sessions.json is up to date)
       await this.sendInitialPrompt(sessionName, task);
-
-      // Fire-and-forget: monitor for completion and notify parent copilot
-      if (opts.notifyCopilot !== false && opts.copilotSessionName && task) {
-        this.spawnCompletionMonitor(sessionName, agentType, workerInfo);
-      }
     })(), sessionName, 'worker startup');
 
     return { workerInfo, postCreatePromise };
@@ -1217,47 +1224,127 @@ export class SessionManager {
     }
   }
 
+  // ── Completion hook injection ──
+
   /**
-   * Spawn a detached background process that monitors the worker's tmux pane
-   * for the agent becoming idle after processing a task. When idle is confirmed,
-   * it sends a notification message to the parent copilot session.
+   * Metadata needed to build the completion notification hook.
+   * Gathered before updateSessionState so the hook is in place before the agent starts.
    */
-  private spawnCompletionMonitor(
-    sessionName: string,
+  private injectCompletionHook(
+    worktreePath: string,
     agentType: string,
-    workerInfo: WorkerInfo,
+    info: {
+      copilotSessionName: string;
+      sessionName: string;
+      workerId: number;
+      displayName: string;
+      branch: string;
+    },
   ): void {
-    const pattern = AGENT_READY_PATTERNS[agentType];
-    if (!pattern) return;
-
-    const copilotSessionName = workerInfo.copilotSessionName;
-    if (!copilotSessionName) return;
-
-    const tmuxCommand = getTmuxCommand();
-    const message =
-      `Worker #${workerInfo.workerId} (${workerInfo.displayName}) has completed. ` +
-      `Branch: ${workerInfo.branch}. ` +
-      `Use \`hydra worker logs ${workerInfo.sessionName}\` to review output.`;
-
-    const config = JSON.stringify({
-      tmuxCommand,
-      sessionName,
-      copilotSessionName,
-      readyPattern: pattern.source,
-      message,
-    });
-
-    const monitorScript = path.resolve(__dirname, 'completionMonitor.js');
-
     try {
-      const child = spawn(process.execPath, [monitorScript, config], {
-        detached: true,
-        stdio: 'ignore',
-      });
-      child.unref();
+      // 1. Write the notification shell script
+      const hooksDir = path.join(getHydraHome(), 'hooks');
+      fs.mkdirSync(hooksDir, { recursive: true });
+
+      const scriptPath = path.join(hooksDir, `notify-${info.sessionName}.sh`);
+      fs.writeFileSync(scriptPath, this.buildNotifyScript(info), { mode: 0o755 });
+
+      const hookCommand = `sh ${shellQuote(scriptPath)}`;
+
+      // 2. Merge the completion hook into the agent's config
+      switch (agentType) {
+        case 'claude':
+          this.mergeAgentHookConfig(
+            path.join(worktreePath, '.claude', 'settings.json'),
+            'Stop',
+            { hooks: [{ type: 'command', command: hookCommand, async: true }] },
+          );
+          break;
+        case 'codex':
+          this.mergeAgentHookConfig(
+            path.join(worktreePath, '.codex', 'hooks.json'),
+            'Stop',
+            { hooks: [{ type: 'command', command: hookCommand }] },
+          );
+          break;
+        case 'gemini':
+          this.mergeAgentHookConfig(
+            path.join(worktreePath, '.gemini', 'settings.json'),
+            'AfterAgent',
+            { hooks: [{ type: 'command', command: hookCommand }] },
+          );
+          break;
+        // custom: no known hook system — skip
+      }
     } catch {
-      // Best-effort — don't fail worker creation if monitor can't start
+      // Best-effort — don't fail worker creation if hook injection fails
     }
+  }
+
+  private mergeAgentHookConfig(
+    configPath: string,
+    eventName: string,
+    hookEntry: Record<string, unknown>,
+  ): void {
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let config: any = {};
+    try {
+      if (fs.existsSync(configPath)) {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      }
+    } catch { /* start fresh */ }
+
+    if (!config.hooks) config.hooks = {};
+    if (!Array.isArray(config.hooks[eventName])) config.hooks[eventName] = [];
+    config.hooks[eventName].push(hookEntry);
+
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  }
+
+  private buildNotifyScript(info: {
+    copilotSessionName: string;
+    sessionName: string;
+    workerId: number;
+    displayName: string;
+    branch: string;
+  }): string {
+    const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+    return [
+      '#!/bin/sh',
+      '# Auto-generated by Hydra — notifies the parent copilot when this worker responds.',
+      '',
+      `COPILOT=${sq(info.copilotSessionName)}`,
+      `SESSION=${sq(info.sessionName)}`,
+      `WORKER_ID=${sq(String(info.workerId))}`,
+      `NAME=${sq(info.displayName)}`,
+      `BRANCH=${sq(info.branch)}`,
+      '',
+      '# Resolve tmux command (honors HYDRA_TMUX_SOCKET if set)',
+      't=tmux',
+      'if [ -n "$HYDRA_TMUX_SOCKET" ]; then',
+      '  case "$HYDRA_TMUX_SOCKET" in',
+      '    /*|./*|../*) t="tmux -S $HYDRA_TMUX_SOCKET" ;;',
+      '    *) t="tmux -L $HYDRA_TMUX_SOCKET" ;;',
+      '  esac',
+      'fi',
+      '',
+      '# Only notify if copilot session still exists',
+      '$t has-session -t "$COPILOT" 2>/dev/null || exit 0',
+      '',
+      'MSG="Worker #${WORKER_ID} (${NAME}) has completed. Branch: ${BRANCH}. Use \\`hydra worker logs ${SESSION}\\` to review output."',
+      '',
+      '# Use load-buffer/paste-buffer to avoid the Enter-swallow issue (see PR #122)',
+      'f=$(mktemp) || exit 0',
+      'printf \'%s\' "$MSG" > "$f"',
+      'b="hydra-$$"',
+      '$t load-buffer -b "$b" "$f" 2>/dev/null',
+      '$t paste-buffer -b "$b" -t "$COPILOT" -d 2>/dev/null',
+      'sleep 0.1',
+      '$t send-keys -t "$COPILOT" Enter 2>/dev/null',
+      'rm -f "$f"',
+    ].join('\n') + '\n';
   }
 
   /**
