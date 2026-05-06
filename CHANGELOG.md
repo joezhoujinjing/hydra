@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.32] - 2026-05-06
+
+### Fixed
+- Exclude local state files from VSIX packaging (#107)
+- Fail closed on worker delete tmux errors instead of silently continuing (#106)
+
 ## [0.1.31] - 2026-05-06
 
 ### Added
