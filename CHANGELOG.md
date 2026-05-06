@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.0] - 2026-05-06
+
+### Added
+- Windows platform support for core helpers (#112)
+- Windows CLI installer, doctor, and clipboard support (#113)
+- Windows terminal and shell integration via psmux (#114)
+- Windows CI smoke test job
+- Copilot lifecycle CLI and hardened tmux sync (#95)
+- Codex and Gemini skills symlinks (#97)
+- Isolated e2e scenario runner and plumbing (#101, #103)
+
+### Fixed
+- Fix Codex copilot launch when tmux PATH cannot find codex (#109)
+- Fix unresolved merge markers in session manager (#109)
+- Exclude local state files from VSIX packaging (#107)
+- Fail closed on worker delete tmux errors (#106)
+- Reuse shared GitHub repo in e2e runner (#103)
+- Support codex e2e runner isolation (#102)
+- Serialize session state updates to avoid worker ID races (#102)
+- Keep codex sessions in bypass mode (#100)
+
+### Changed
+- Limit `hydra whoami` to worker worktrees only (#99)
+- Clarify isolated test modes in docs (#100)
+
 ## [0.1.32] - 2026-05-06
 
 ### Fixed
