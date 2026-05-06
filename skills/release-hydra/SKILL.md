@@ -14,13 +14,12 @@ Release a new version of the Hydra VS Code extension by creating a release PR.
 
 ## Steps
 
-1. **Determine the current version and next version**
+1. **Determine the next version**
 
-   ```bash
-   node -p "require('./package.json').version"
-   ```
+   Format: `0.<minor>.<yyyymmddNN>` (UTC date + 2-digit in-day counter).
 
-   Bump the patch number (e.g., 0.1.27 → 0.1.28) unless the user specifies a different bump type (minor/major).
+   - Patch: today's `yyyymmdd` + `NN` — `00` for the first release of the day, else increment from the current patch's `NN`.
+   - Minor: bump only on schema/breaking changes (resets `NN` to `00`). The `0.3.x` line is the first on this scheme.
 
 2. **Collect commits since last release**
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.2026050600] - 2026-05-06
+
+### Changed
+- Adopt date-based versioning: `0.<minor>.<yyyymmddNN>` (UTC date + in-day counter); minor bumps only on schema/breaking changes
+
 ## [0.2.2] - 2026-05-06
 
 ### Fixed
