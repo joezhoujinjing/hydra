@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.2] - 2026-05-06
+
+### Fixed
+- Prompt Windows users to install psmux from VS Code when Hydra cannot find the session backend
+
 ## [0.2.1] - 2026-05-06
 
 ### Fixed
