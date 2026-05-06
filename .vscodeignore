@@ -18,5 +18,8 @@ CLAUDE.md
 README.ai-ready.md
 eslint.config.js
 .hydra-task*
+.hydra/**
 .claude/**
+.codex/**
+.gemini/**
 skills/**
