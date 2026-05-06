@@ -109,14 +109,14 @@ function parseGitPorcelainStatus(lines: string[]): Pick<
 
 async function getWorktreeBranchLabel(worktreePath: string, fallbackLabel: string): Promise<string> {
   try {
-    const branch = (await exec(`git -C "${worktreePath}" symbolic-ref --short HEAD`)).trim();
+    const branch = (await exec('git symbolic-ref --short HEAD', { cwd: worktreePath })).trim();
     if (branch) return branch;
   } catch {
     void 0;
   }
 
   try {
-    const head = (await exec(`git -C "${worktreePath}" rev-parse --short HEAD`)).trim();
+    const head = (await exec('git rev-parse --short HEAD', { cwd: worktreePath })).trim();
     if (head) return head;
   } catch {
     void 0;
@@ -137,7 +137,7 @@ async function getWorktreeGitStatus(worktreePath: string): Promise<Pick<
   }
 
   try {
-    const gitStatusOutput = await exec(`git -C "${worktreePath}" status --porcelain`);
+    const gitStatusOutput = await exec('git status --porcelain', { cwd: worktreePath });
     const lines = gitStatusOutput.split('\n');
     parsed = parseGitPorcelainStatus(lines);
   } catch {
@@ -145,7 +145,7 @@ async function getWorktreeGitStatus(worktreePath: string): Promise<Pick<
   }
 
   try {
-    const aheadOutput = await exec(`git -C "${worktreePath}" rev-list --count @{upstream}..HEAD`);
+    const aheadOutput = await exec('git rev-list --count @{upstream}..HEAD', { cwd: worktreePath });
     commitsAhead = parseInt(aheadOutput.trim(), 10) || 0;
   } catch {
     void 0;
@@ -183,8 +183,9 @@ async function getSessionStatus(sessionName: string, worktreePath?: string): Pro
 
   try {
     const pids = await backend.getSessionPanePids(sessionName);
-    if (pids.length > 0) {
-      const pidList = pids.join(',');
+    const numericPids = pids.filter(pid => /^\d+$/.test(pid));
+    if (numericPids.length > 0) {
+      const pidList = numericPids.join(',');
       const cpuOutput = await exec(`ps -o %cpu= -p ${pidList}`);
       const cpuValues = cpuOutput.split('\n').filter(l => l.trim()).map(v => parseFloat(v.trim()) || 0);
       cpuUsage = cpuValues.reduce((a, b) => a + b, 0);
@@ -195,7 +196,7 @@ async function getSessionStatus(sessionName: string, worktreePath?: string): Pro
 
   if (worktreePath && fs.existsSync(worktreePath)) {
     try {
-      const gitStatusOutput = await exec(`git -C "${worktreePath}" status --porcelain`);
+      const gitStatusOutput = await exec('git status --porcelain', { cwd: worktreePath });
       const parsed = parseGitPorcelainStatus(gitStatusOutput.split('\n'));
       gitDirty = parsed.gitDirty;
       gitModified = parsed.gitModified;
@@ -207,7 +208,7 @@ async function getSessionStatus(sessionName: string, worktreePath?: string): Pro
     }
 
     try {
-      const aheadOutput = await exec(`git -C "${worktreePath}" rev-list --count @{upstream}..HEAD`);
+      const aheadOutput = await exec('git rev-list --count @{upstream}..HEAD', { cwd: worktreePath });
       commitsAhead = parseInt(aheadOutput.trim(), 10) || 0;
     } catch {
       void 0;
@@ -230,7 +231,7 @@ async function getSessionStatus(sessionName: string, worktreePath?: string): Pro
 
 async function isGitInitialized(dirPath: string): Promise<boolean> {
   try {
-    await exec(`git -C "${dirPath}" rev-parse --git-dir`);
+    await exec('git rev-parse --git-dir', { cwd: dirPath });
     return true;
   } catch {
     return false;
