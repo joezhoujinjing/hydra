@@ -5,7 +5,7 @@ import { MultiplexerBackendCore } from './types';
 import * as coreGit from './git';
 import { ensureHydraGlobalConfig } from './hydraGlobalConfig';
 import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS, AGENT_READY_PATTERNS, AGENT_READY_TIMEOUT_MS, AGENT_READY_POLL_INTERVAL_MS, CLAUDE_TRUST_PROMPT_PATTERN } from './agentConfig';
-import { exec } from './exec';
+import { exec, resolveCommandPath } from './exec';
 import { getHydraArchiveFile, getHydraHome, getHydraSessionsFile } from './path';
 import { shellQuote } from './shell';
 
@@ -1332,12 +1332,12 @@ export class SessionManager {
     if (!trimmed) return agentCommand;
 
     const [binary, ...rest] = trimmed.split(/\s+/);
-    if (!binary || binary.includes('/')) return trimmed;
+    if (!binary || binary.includes('/') || binary.includes('\\')) return trimmed;
 
     try {
-      const resolved = await exec(`command -v ${shellQuote(binary)}`);
+      const resolved = await resolveCommandPath(binary);
       if (!resolved) return trimmed;
-      return [shellQuote(resolved.split('\n')[0]), ...rest].join(' ');
+      return [shellQuote(resolved), ...rest].join(' ');
     } catch {
       return trimmed;
     }
