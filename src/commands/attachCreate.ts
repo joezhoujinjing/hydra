@@ -5,6 +5,7 @@ import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem } from '../providers
 import { createRepoSessionPrefixConfig, isWorkdirInRepo } from '../utils/sessionCompatibility';
 import { SessionManager } from '../core/sessionManager';
 import { TmuxBackendCore } from '../core/tmux';
+import { ensureBackendInstalled } from './ensureBackendInstalled';
 
 async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
   const backend = getActiveBackend();
@@ -91,8 +92,7 @@ async function handleCommandExecution(): Promise<void> {
 
 export async function attachCreate(item?: TmuxItem | string): Promise<void> {
   const backend = getActiveBackend();
-  if (!await backend.isInstalled()) {
-    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
+  if (!await ensureBackendInstalled(backend)) {
     return;
   }
 

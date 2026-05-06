@@ -4,6 +4,7 @@ import { TmuxBackendCore } from '../core/tmux';
 import { validateBranchName, localBranchExists, getRepoRoot } from '../utils/git';
 import { pickAgentType } from '../utils/agentConfig';
 import { getActiveBackend } from '../utils/multiplexer';
+import { ensureBackendInstalled } from './ensureBackendInstalled';
 
 function getBaseBranchOverride(): string | undefined {
   const hydraOverride = vscode.workspace.getConfiguration('hydra').get<string>('baseBranch');
@@ -17,8 +18,7 @@ function getBaseBranchOverride(): string | undefined {
 
 export async function newTask(): Promise<void> {
   const backend = getActiveBackend();
-  if (!await backend.isInstalled()) {
-    vscode.window.showErrorMessage(`${backend.displayName} not found. ${backend.installHint}`);
+  if (!await ensureBackendInstalled(backend)) {
     return;
   }
 
