@@ -42,7 +42,7 @@ jobs:
     - name: Compile
       run: npm run compile
 
-    - name: Test fixWindowsSymlinks
+    - name: Test fixWindowsSymlinks (synthetic)
       shell: pwsh
       run: |
         # Create a fake worktree directory with a broken symlink (text file containing target)
@@ -60,8 +60,6 @@ jobs:
         node -e "
           const path = require('path');
           const fs = require('fs');
-          // Load the compiled sessionManager to access fixWindowsSymlinks indirectly
-          // Since it's not exported, we inline the logic for testing
           const worktreeDir = process.argv[1];
           const KNOWN_SYMLINK_PATHS = ['.claude/skills'];
           for (const relPath of KNOWN_SYMLINK_PATHS) {
@@ -77,8 +75,69 @@ jobs:
           // Verify the junction works
           const marker = fs.readFileSync(path.join(worktreeDir, '.claude/skills/marker.txt'), 'utf-8');
           if (marker.trim() !== 'symlink-works') { console.error('Junction did not resolve correctly'); process.exit(1); }
-          console.log('fixWindowsSymlinks test PASSED');
+          console.log('fixWindowsSymlinks synthetic test PASSED');
         " "$worktree"
+
+    - name: Test fixWindowsSymlinks (real worktree clone)
+      shell: pwsh
+      run: |
+        # Clone the repo fresh (symlinks will become text files on Windows)
+        $cloneDir = "$env:RUNNER_TEMP\hydra-clone"
+        git clone --no-symlinks https://github.com/joezhoujinjing/hydra.git $cloneDir
+
+        # Show what git created for the symlink files (should be regular text files)
+        Write-Host "=== Before fix: .codex/skills is a file containing target path ==="
+        Get-Item "$cloneDir\.codex\skills" | Format-List
+        Get-Content "$cloneDir\.codex\skills"
+        Write-Host ""
+
+        # Create a worktree from the clone
+        Set-Location $cloneDir
+        git worktree add "$cloneDir\.hydra\worktrees\test-wt" -b test-wt-branch HEAD
+
+        Write-Host "=== Worktree .codex/skills (before fix) ==="
+        $wtSkills = "$cloneDir\.hydra\worktrees\test-wt\.codex\skills"
+        Get-Item $wtSkills | Format-List
+        Get-Content $wtSkills
+        Write-Host ""
+
+        # Apply the fix
+        node -e "
+          const path = require('path');
+          const fs = require('fs');
+          const worktreeDir = process.argv[1];
+          const KNOWN_SYMLINK_PATHS = ['.claude/skills', '.codex/skills', '.gemini/skills'];
+          for (const relPath of KNOWN_SYMLINK_PATHS) {
+            const fullPath = path.join(worktreeDir, relPath);
+            try {
+              const stat = fs.lstatSync(fullPath);
+              if (!stat.isFile()) { console.log(relPath + ' is not a file, skipping'); continue; }
+              const target = fs.readFileSync(fullPath, 'utf-8').trim();
+              console.log(relPath + ' contains target: ' + target);
+              const resolvedTarget = path.resolve(path.dirname(fullPath), target);
+              if (!fs.existsSync(resolvedTarget)) { console.log('  Target not found: ' + resolvedTarget + ', skipping'); continue; }
+              fs.unlinkSync(fullPath);
+              fs.symlinkSync(resolvedTarget, fullPath, 'junction');
+              console.log('  -> Replaced with junction to ' + resolvedTarget);
+            } catch (e) { console.log(relPath + ': ' + e.message); }
+          }
+        " "$cloneDir\.hydra\worktrees\test-wt"
+
+        Write-Host ""
+        Write-Host "=== After fix: ls .codex/skills/ ==="
+        Get-ChildItem "$cloneDir\.hydra\worktrees\test-wt\.codex\skills" | ForEach-Object { Write-Host $_.Name }
+
+        Write-Host ""
+        Write-Host "=== Reading .codex/skills/hydra content ==="
+        $hydraSkill = "$cloneDir\.hydra\worktrees\test-wt\.codex\skills\hydra"
+        if (Test-Path $hydraSkill) {
+          Get-ChildItem $hydraSkill | ForEach-Object { Write-Host $_.Name }
+        } else {
+          Write-Host "ERROR: .codex/skills/hydra not accessible!"
+          exit 1
+        }
+        Write-Host ""
+        Write-Host "Real worktree symlink fix test PASSED"
 
     - name: Doctor check (informational)
       run: node out/cli/index.js doctor --json || true
