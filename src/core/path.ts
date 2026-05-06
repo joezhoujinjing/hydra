@@ -173,10 +173,11 @@ export function getTmuxSocketArgs(): string[] {
 }
 
 export function getTmuxCommand(): string {
+  const binary = process.platform === 'win32' ? 'psmux' : 'tmux';
   const socketArgs = getTmuxSocketArgs();
   if (socketArgs.length === 0) {
-    return 'tmux';
+    return binary;
   }
 
-  return `tmux ${socketArgs.map(arg => shellQuote(arg)).join(' ')}`;
+  return `${binary} ${socketArgs.map(arg => shellQuote(arg)).join(' ')}`;
 }

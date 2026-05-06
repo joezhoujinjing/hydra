@@ -59,34 +59,56 @@ export class TmuxBackend extends TmuxBackendCore implements MultiplexerBackend {
       existing.dispose();
     }
 
-    const escapedName = sessionName.replace(/'/g, "'\\''");
     const tmuxCommand = getTmuxCommand();
-    const attachCommand = [
-      buildStoredTmuxEnvScrubCommand(sessionName),
-      `${tmuxCommand} set-option -gq set-clipboard on >/dev/null 2>&1 || true`,
-      `${tmuxCommand} set-option -agq terminal-features ',xterm-256color:clipboard' >/dev/null 2>&1 || true`,
-      `${tmuxCommand} set-option -agq terminal-overrides ',*:clipboard' >/dev/null 2>&1 || true`,
-      `${tmuxCommand} set-window-option -gwq allow-passthrough on >/dev/null 2>&1 || true`,
-      "rows=''; cols=''",
-      "for _ in 1 2 3 4 5; do",
-      "size=$(stty size 2>/dev/null || true)",
-      "candidate_rows=${size%% *}",
-      "candidate_cols=${size##* }",
-      "if [ -n \"$candidate_rows\" ] && [ -n \"$candidate_cols\" ] && [ \"$candidate_rows\" -gt 0 ] && [ \"$candidate_cols\" -gt 0 ]; then rows=\"$candidate_rows\"; cols=\"$candidate_cols\"; fi",
-      "if [ -n \"$rows\" ] && [ \"$rows\" -ge 30 ] && [ \"$cols\" -ge 100 ]; then break; fi",
-      "sleep 0.04",
-      "done",
-      "if [ -n \"$rows\" ] && [ \"$rows\" -ge 1 ] && [ \"$cols\" -ge 1 ]; then " + tmuxCommand + " set-option -t '" + escapedName + "' default-size \"${cols}x${rows}\" >/dev/null 2>&1 || true; fi",
-      "if [ -n \"$rows\" ] && [ \"$rows\" -ge 1 ] && [ \"$cols\" -ge 1 ]; then " + tmuxCommand + " resize-window -t '" + escapedName + "':. -x \"$cols\" -y \"$rows\" >/dev/null 2>&1 || true; fi",
-      `${tmuxCommand} set-window-option -t '${escapedName}':. window-size latest >/dev/null 2>&1 || true`,
-      "sleep 0.08",
-      `exec ${tmuxCommand} attach -t '${escapedName}'`
-    ].join('\n');
+    let shellPath: string;
+    let shellArgs: string[];
+
+    if (process.platform === 'win32') {
+      // Windows: PowerShell with simplified attach (VS Code handles terminal sizing)
+      const escapedName = sessionName.replace(/'/g, "''");
+      const attachCommand = [
+        buildStoredTmuxEnvScrubCommand(sessionName),
+        `${tmuxCommand} set-option -gq set-clipboard on *>$null`,
+        `${tmuxCommand} set-option -agq terminal-features ',xterm-256color:clipboard' *>$null`,
+        `${tmuxCommand} set-option -agq terminal-overrides ',*:clipboard' *>$null`,
+        `${tmuxCommand} set-window-option -gwq allow-passthrough on *>$null`,
+        `${tmuxCommand} set-window-option -t '${escapedName}':. window-size latest *>$null`,
+        `${tmuxCommand} attach -t '${escapedName}'`,
+      ].join('\n');
+      shellPath = 'powershell.exe';
+      shellArgs = ['-NoProfile', '-Command', attachCommand];
+    } else {
+      // Unix: /bin/sh with stty sizing for proper initial terminal dimensions
+      const escapedName = sessionName.replace(/'/g, "'\\''");
+      const attachCommand = [
+        buildStoredTmuxEnvScrubCommand(sessionName),
+        `${tmuxCommand} set-option -gq set-clipboard on >/dev/null 2>&1 || true`,
+        `${tmuxCommand} set-option -agq terminal-features ',xterm-256color:clipboard' >/dev/null 2>&1 || true`,
+        `${tmuxCommand} set-option -agq terminal-overrides ',*:clipboard' >/dev/null 2>&1 || true`,
+        `${tmuxCommand} set-window-option -gwq allow-passthrough on >/dev/null 2>&1 || true`,
+        "rows=''; cols=''",
+        "for _ in 1 2 3 4 5; do",
+        "size=$(stty size 2>/dev/null || true)",
+        "candidate_rows=${size%% *}",
+        "candidate_cols=${size##* }",
+        "if [ -n \"$candidate_rows\" ] && [ -n \"$candidate_cols\" ] && [ \"$candidate_rows\" -gt 0 ] && [ \"$candidate_cols\" -gt 0 ]; then rows=\"$candidate_rows\"; cols=\"$candidate_cols\"; fi",
+        "if [ -n \"$rows\" ] && [ \"$rows\" -ge 30 ] && [ \"$cols\" -ge 100 ]; then break; fi",
+        "sleep 0.04",
+        "done",
+        "if [ -n \"$rows\" ] && [ \"$rows\" -ge 1 ] && [ \"$cols\" -ge 1 ]; then " + tmuxCommand + " set-option -t '" + escapedName + "' default-size \"${cols}x${rows}\" >/dev/null 2>&1 || true; fi",
+        "if [ -n \"$rows\" ] && [ \"$rows\" -ge 1 ] && [ \"$cols\" -ge 1 ]; then " + tmuxCommand + " resize-window -t '" + escapedName + "':. -x \"$cols\" -y \"$rows\" >/dev/null 2>&1 || true; fi",
+        `${tmuxCommand} set-window-option -t '${escapedName}':. window-size latest >/dev/null 2>&1 || true`,
+        "sleep 0.08",
+        `exec ${tmuxCommand} attach -t '${escapedName}'`
+      ].join('\n');
+      shellPath = '/bin/sh';
+      shellArgs = ['-c', attachCommand];
+    }
 
     const terminal = vscode.window.createTerminal({
       name: terminalName,
-      shellPath: '/bin/sh',
-      shellArgs: ['-c', attachCommand],
+      shellPath,
+      shellArgs,
       cwd: cwd,
       env: {
         'TERM': 'xterm-256color',

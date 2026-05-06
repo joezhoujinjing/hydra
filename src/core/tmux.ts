@@ -1,6 +1,6 @@
 import { exec } from './exec';
 import { getHydraConfigPath, getHydraHome, getTmuxCommand, toCanonicalPath } from './path';
-import { shellQuote } from './shell';
+import { shellQuote, pwshQuote } from './shell';
 import { MultiplexerBackendCore, MultiplexerSession, SessionStatusInfo, HydraRole } from './types';
 
 interface ExecFailure extends Error {
@@ -37,7 +37,41 @@ export function buildSanitizedTmuxCommand(command: string): string {
   return `env ${unsetArgs} ${tmuxCommand} ${command}`;
 }
 
+function buildStoredTmuxEnvScrubCommandPowerShell(sessionName?: string): string {
+  const tmuxCommand = getTmuxCommand();
+  const sessionTarget = sessionName ? ` -t ${pwshQuote(sessionName)}` : '';
+  const varsToSet = [
+    `${tmuxCommand} set-environment -g HYDRA_HOME ${pwshQuote(getHydraHome())} *>$null`,
+    `${tmuxCommand} set-environment -g HYDRA_CONFIG_PATH ${pwshQuote(getHydraConfigPath())} *>$null`,
+  ];
+
+  if (process.env.HYDRA_TMUX_SOCKET) {
+    varsToSet.push(
+      `${tmuxCommand} set-environment -g HYDRA_TMUX_SOCKET ${pwshQuote(process.env.HYDRA_TMUX_SOCKET)} *>$null`,
+    );
+  }
+
+  return [
+    ...varsToSet,
+    `foreach ($name in @('ELECTRON_RUN_AS_NODE', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'VSCODE_INJECTION', 'VSCODE_SHELL_INTEGRATION')) {`,
+    `  ${tmuxCommand} set-environment -gu $name *>$null`,
+    `  ${tmuxCommand} set-environment${sessionTarget} -u $name *>$null`,
+    '}',
+    `(${tmuxCommand} show-environment -g 2>$null) | ForEach-Object {`,
+    `  $name = $_.Split('=')[0]`,
+    `  if ($name -like 'VSCODE_*') {`,
+    `    ${tmuxCommand} set-environment -gu $name *>$null`,
+    `    ${tmuxCommand} set-environment${sessionTarget} -u $name *>$null`,
+    '  }',
+    '}',
+  ].join('\n');
+}
+
 export function buildStoredTmuxEnvScrubCommand(sessionName?: string): string {
+  if (process.platform === 'win32') {
+    return buildStoredTmuxEnvScrubCommandPowerShell(sessionName);
+  }
+
   const tmuxCommand = getTmuxCommand();
   const sessionTarget = sessionName ? ` -t ${shellQuote(sessionName)}` : '';
   const varsToSet = [
@@ -111,11 +145,14 @@ export class TmuxUnavailableError extends Error {
 export class TmuxBackendCore implements MultiplexerBackendCore {
   readonly type = 'tmux' as const;
   readonly displayName = 'tmux';
-  readonly installHint = 'Install: `brew install tmux`';
+  readonly installHint = process.platform === 'win32'
+    ? 'Install: `winget install psmux`'
+    : 'Install: `brew install tmux`';
 
   async isInstalled(): Promise<boolean> {
     try {
-      await exec('which tmux');
+      const cmd = process.platform === 'win32' ? 'where psmux' : 'which tmux';
+      await exec(cmd);
       return true;
     } catch {
       return false;
