@@ -20,17 +20,30 @@ Release a new version of the Hydra VS Code extension by creating a release PR.
    node -p "require('./package.json').version"
    ```
 
-   Hydra uses the format `0.<minor>.<yyyyddmmhhmm>`:
+   Hydra uses the format `0.<minor>.<yyyymmddNN>`:
    - The **second digit** is the major small-release version. Bump it only when the user requests a "major small release" or when there is a schema/breaking change.
-   - The **patch** is a UTC timestamp `yyyyddmmhhmm` (year, day, month, hour, minute) generated at release time:
+   - The **patch** is `<yyyymmdd><NN>` — today's UTC date followed by a 2-digit in-day counter. `NN` starts at `00` for the first release of the day and increments for each subsequent release that same day.
 
-     ```bash
-     date -u +%Y%d%m%H%M
-     ```
+   Compute the next patch:
 
-   Default behavior: keep the current minor, set patch to the current `yyyyddmmhhmm`. If the user asks for a "major small release" bump (or this release contains a schema/breaking change), increment the minor and use the same timestamp for patch.
+   ```bash
+   TODAY=$(date -u +%Y%m%d)
+   CURRENT=$(node -p "require('./package.json').version")
+   CURRENT_MINOR=$(echo "$CURRENT" | cut -d. -f2)
+   CURRENT_PATCH=$(echo "$CURRENT" | cut -d. -f3)
+   # If today's date matches the current patch's date prefix AND the minor is unchanged,
+   # increment the counter; otherwise reset to 00.
+   if [ "${CURRENT_PATCH:0:8}" = "$TODAY" ] && [ "$CURRENT_MINOR" = "<target-minor>" ]; then
+     NN=$(printf "%02d" $((10#${CURRENT_PATCH:8:2} + 1)))
+   else
+     NN="00"
+   fi
+   echo "0.<target-minor>.${TODAY}${NN}"
+   ```
 
-   Note: the `0.2.x` line was the last to use a sequential patch counter. The first release on the timestamp scheme jumped to `0.3.<yyyyddmmhhmm>`.
+   Default behavior: keep the current minor, set patch as above. If the user asks for a "major small release" bump (or this release contains a schema/breaking change), increment the minor and reset `NN` to `00`.
+
+   Note: the `0.2.x` line was the last to use a sequential patch counter. The first release on the date scheme jumped to `0.3.<yyyymmdd>00`.
 
 2. **Collect commits since last release**
 
