@@ -25,3 +25,25 @@ jobs:
       
     - name: Compile
       run: npm run compile
+
+  test-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install Dependencies
+      run: npm ci
+
+    - name: Compile
+      run: npm run compile
+
+    - name: Doctor check
+      run: node out/cli/index.js doctor --json
+
+    - name: Version check
+      run: node out/cli/index.js --version
