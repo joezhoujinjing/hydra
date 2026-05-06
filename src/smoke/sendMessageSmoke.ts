@@ -44,8 +44,9 @@ async function sendMessageOld(session: string, message: string): Promise<void> {
 // ── NEW method (load-buffer + paste-buffer + separate Enter) ──
 
 async function sendMessageNew(session: string, message: string): Promise<void> {
-  const bufferName = 'hydra-smoke';
-  const tmpFile = path.join(os.tmpdir(), `hydra-smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const bufferName = `hydra-smoke-${suffix}`;
+  const tmpFile = path.join(os.tmpdir(), `hydra-smoke-${suffix}`);
   try {
     fs.writeFileSync(tmpFile, message);
     await exec(`tmux load-buffer -b ${bufferName} ${shellQuote(tmpFile)}`);

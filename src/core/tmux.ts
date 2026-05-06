@@ -283,12 +283,13 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
 
   async sendMessage(sessionName: string, message: string): Promise<void> {
     const tmuxCommand = getTmuxCommand();
-    const bufferName = 'hydra-send';
     // Write message to a temp file and load it into a tmux buffer.
     // This avoids shell-quoting issues and ARG_MAX limits that cause
     // send-keys -l to silently drop the trailing Enter on long or
     // special-character-heavy messages.
-    const tmpFile = path.join(os.tmpdir(), `hydra-msg-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const bufferName = `hydra-send-${suffix}`;
+    const tmpFile = path.join(os.tmpdir(), `hydra-msg-${suffix}`);
     try {
       fs.writeFileSync(tmpFile, message);
       await exec(`${tmuxCommand} load-buffer -b ${bufferName} ${shellQuote(tmpFile)}`);
