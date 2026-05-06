@@ -1,11 +1,11 @@
 import { Command } from 'commander';
 import { resolve } from 'path';
 import { type OutputOpts, outputResult } from '../output';
-import { SessionManager, type WorkerInfo, type CopilotInfo } from '../../core/sessionManager';
+import { SessionManager, type WorkerInfo } from '../../core/sessionManager';
 import { TmuxBackendCore } from '../../core/tmux';
 
 interface WhoamiResult {
-  role: 'worker' | 'copilot';
+  role: 'worker';
   sessionName: string;
   displayName: string;
   agent: string;
@@ -22,7 +22,7 @@ interface WhoamiResult {
 export function registerWhoamiCommand(program: Command): void {
   program
     .command('whoami')
-    .description('Report the copilot/worker/worktree context of the current working directory')
+    .description('Report the Hydra worker context of the current working directory')
     .action(async () => {
       const globalOpts = program.opts() as OutputOpts;
       const cwd = resolve(process.cwd());
@@ -55,31 +55,11 @@ export function registerWhoamiCommand(program: Command): void {
         }
       }
 
-      // Match cwd against copilot workdirs
-      for (const copilot of Object.values(state.copilots)) {
-        if (cwd === resolve(copilot.workdir) || cwd.startsWith(resolve(copilot.workdir) + '/')) {
-          const data: WhoamiResult = {
-            role: 'copilot',
-            sessionName: copilot.sessionName,
-            displayName: copilot.displayName,
-            agent: copilot.agent,
-            sessionId: copilot.sessionId,
-            workdir: copilot.workdir,
-            status: copilot.status,
-          };
-
-          outputResult(data as unknown as Record<string, unknown>, globalOpts, () => {
-            prettyPrintCopilot(copilot);
-          });
-          return;
-        }
-      }
-
-      // Not in a hydra session
+      // Not in a Hydra worker workdir
       if (globalOpts.json) {
-        console.log(JSON.stringify({ role: null, message: 'Not running inside a Hydra session.' }));
+        console.log(JSON.stringify({ role: null, message: 'Current directory is not inside a Hydra worker workdir.' }));
       } else if (!globalOpts.quiet) {
-        console.log('Not running inside a Hydra session.');
+        console.log('Current directory is not inside a Hydra worker workdir.');
       }
     });
 }
@@ -96,16 +76,5 @@ function prettyPrintWorker(worker: WorkerInfo): void {
   console.log(`  Copilot:     ${worker.copilotSessionName ?? '(none)'}`);
   console.log(`  Workdir:     ${worker.workdir}`);
   console.log(`  Status:      ${worker.status}`);
-  console.log('');
-}
-
-function prettyPrintCopilot(copilot: CopilotInfo): void {
-  console.log('');
-  console.log(`  Role:        copilot`);
-  console.log(`  Session:     ${copilot.sessionName}`);
-  console.log(`  Agent:       ${copilot.agent}`);
-  console.log(`  Session ID:  ${copilot.sessionId ?? '(none)'}`);
-  console.log(`  Workdir:     ${copilot.workdir}`);
-  console.log(`  Status:      ${copilot.status}`);
   console.log('');
 }

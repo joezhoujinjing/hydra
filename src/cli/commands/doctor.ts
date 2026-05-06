@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { execSync } from 'child_process';
 import { existsSync, mkdirSync, constants, accessSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getHydraBinDir, getHydraConfigPath, getHydraHome } from '../../core/path';
 import { type OutputOpts } from '../output';
 
 interface CheckResult {
@@ -50,9 +50,10 @@ export function registerDoctorCommand(program: Command): void {
     .action(async () => {
       const globalOpts = program.opts() as OutputOpts;
       const checks: CheckResult[] = [];
-      const hydraDir = join(homedir(), '.hydra');
-      const hydraBin = join(hydraDir, 'bin', 'hydra');
-      const hydraBinDir = join(hydraDir, 'bin');
+      const hydraDir = getHydraHome();
+      const hydraConfigPath = getHydraConfigPath();
+      const hydraBinDir = getHydraBinDir();
+      const hydraBin = join(hydraBinDir, 'hydra');
 
       // 1. git
       checks.push(checkOnPath('git')
@@ -69,39 +70,46 @@ export function registerDoctorCommand(program: Command): void {
         ? { name: 'code', status: 'pass', message: 'VS Code CLI is installed' }
         : { name: 'code', status: 'fail', message: 'code CLI not found — install from https://code.visualstudio.com then run "Shell Command: Install code"' });
 
-      // 4. ~/.hydra directory
+      // 4. Hydra home directory
       if (existsSync(hydraDir)) {
-        checks.push({ name: '~/.hydra', status: 'pass', message: '~/.hydra directory exists' });
+        checks.push({ name: 'hydra-home', status: 'pass', message: `Hydra home directory exists: ${hydraDir}` });
       } else {
         mkdirSync(hydraDir, { recursive: true });
-        checks.push({ name: '~/.hydra', status: 'warn', message: '~/.hydra was missing — created automatically' });
+        checks.push({ name: 'hydra-home', status: 'warn', message: `Hydra home was missing — created automatically at ${hydraDir}` });
       }
 
-      // 5. Hydra CLI binary
+      // 5. Hydra config path
+      if (existsSync(hydraConfigPath)) {
+        checks.push({ name: 'hydra-config', status: 'pass', message: `Hydra config exists: ${hydraConfigPath}` });
+      } else {
+        checks.push({ name: 'hydra-config', status: 'warn', message: `Hydra config not found yet: ${hydraConfigPath}` });
+      }
+
+      // 6. Hydra CLI binary
       if (existsSync(hydraBin) && isExecutable(hydraBin)) {
-        checks.push({ name: 'hydra-cli', status: 'pass', message: '~/.hydra/bin/hydra is installed' });
+        checks.push({ name: 'hydra-cli', status: 'pass', message: `Hydra CLI is installed at ${hydraBin}` });
       } else {
         if (!existsSync(hydraBinDir)) {
           mkdirSync(hydraBinDir, { recursive: true });
         }
-        checks.push({ name: 'hydra-cli', status: 'fail', message: '~/.hydra/bin/hydra not found — open VS Code with the Hydra extension installed to auto-install' });
+        checks.push({ name: 'hydra-cli', status: 'fail', message: `Hydra CLI not found at ${hydraBin} — open VS Code with the Hydra extension installed to auto-install` });
       }
 
-      // 6. ~/.hydra/bin in PATH
+      // 7. Hydra bin in PATH
       const pathDirs = (process.env.PATH || '').split(':');
-      const binInPath = pathDirs.some(d => d === hydraBinDir || d === '~/.hydra/bin');
+      const binInPath = pathDirs.some(d => d === hydraBinDir);
       if (binInPath) {
-        checks.push({ name: 'hydra-path', status: 'pass', message: '~/.hydra/bin is in PATH' });
+        checks.push({ name: 'hydra-path', status: 'pass', message: `${hydraBinDir} is in PATH` });
       } else {
-        checks.push({ name: 'hydra-path', status: 'warn', message: '~/.hydra/bin is not in PATH — add to your shell profile:\n    export PATH="$HOME/.hydra/bin:$PATH"' });
+        checks.push({ name: 'hydra-path', status: 'warn', message: `${hydraBinDir} is not in PATH — add to your shell profile:\n    export PATH="${hydraBinDir}:$PATH"` });
       }
 
-      // 7. GitHub CLI
+      // 8. GitHub CLI
       checks.push(checkOnPath('gh')
         ? { name: 'gh', status: 'pass', message: 'GitHub CLI is installed' }
         : { name: 'gh', status: 'fail', message: 'gh not found — install from https://cli.github.com' });
 
-      // 8. GitHub CLI authenticated
+      // 9. GitHub CLI authenticated
       if (checkOnPath('gh')) {
         checks.push(ghAuthenticated()
           ? { name: 'gh-auth', status: 'pass', message: 'GitHub CLI is authenticated' }
@@ -110,7 +118,7 @@ export function registerDoctorCommand(program: Command): void {
         checks.push({ name: 'gh-auth', status: 'fail', message: 'gh is not authenticated (gh not installed)' });
       }
 
-      // 9. AI agent CLIs
+      // 10. AI agent CLIs
       const agents = ['claude', 'codex', 'gemini'];
       const foundAgents = agents.filter(a => checkOnPath(a));
       if (foundAgents.length > 0) {

@@ -2,10 +2,10 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from '../utils/exec';
-import { getRepoRoot, getRepoName, getBaseBranch } from '../utils/git';
+import { getRepoRoot, getBaseBranch } from '../utils/git';
 import { getActiveBackend, MultiplexerSession, HydraRole } from '../utils/multiplexer';
 import { toCanonicalPath } from '../utils/path';
-import { SessionManager, WorkerInfo, CopilotInfo } from '../core/sessionManager';
+import { SessionManager, WorkerInfo } from '../core/sessionManager';
 import { Worktree } from '../core/types';
 
 export type Classification = 'attached' | 'alive' | 'idle' | 'stopped' | 'orphan';

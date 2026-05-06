@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { createHash } from 'crypto';
 import { exec } from './exec';
-import { toCanonicalPath } from './path';
+import { getHydraWorktreesRoot, toCanonicalPath } from './path';
 import { shellQuote } from './shell';
 import { MultiplexerBackendCore, Worktree } from './types';
 
@@ -104,7 +104,7 @@ export async function localBranchExists(repoRoot: string, branchName: string): P
 }
 
 export function getManagedWorktreesRoot(): string {
-  return path.join(os.homedir(), '.hydra', 'worktrees');
+  return getHydraWorktreesRoot();
 }
 
 /**

@@ -1,17 +1,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { MultiplexerBackendCore } from './types';
 import * as coreGit from './git';
 import { ensureHydraGlobalConfig } from './hydraGlobalConfig';
 import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS, AGENT_READY_PATTERNS, AGENT_READY_TIMEOUT_MS, AGENT_READY_POLL_INTERVAL_MS, CLAUDE_TRUST_PROMPT_PATTERN } from './agentConfig';
 import { exec } from './exec';
+import { getHydraArchiveFile, getHydraHome, getHydraSessionsFile } from './path';
 import { shellQuote } from './shell';
 
-const HYDRA_DIR = path.join(os.homedir(), '.hydra');
-const SESSIONS_FILE = path.join(HYDRA_DIR, 'sessions.json');
-const ARCHIVE_FILE = path.join(HYDRA_DIR, 'archive.json');
+const POST_CREATE_TIMEOUT_MS = AGENT_READY_TIMEOUT_MS + 15000;
+const SESSION_STATE_LOCK_TIMEOUT_MS = 10000;
+const SESSION_STATE_LOCK_RETRY_MS = 50;
+const SESSION_STATE_LOCK_STALE_MS = 120000;
 
 /**
  * Look up a worker's numeric ID from sessions.json.
@@ -19,8 +20,9 @@ const ARCHIVE_FILE = path.join(HYDRA_DIR, 'archive.json');
  */
 export function lookupWorkerId(sessionName: string): number | undefined {
   try {
-    if (fs.existsSync(SESSIONS_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8'));
+    const sessionsFile = getHydraSessionsFile();
+    if (fs.existsSync(sessionsFile)) {
+      const parsed = JSON.parse(fs.readFileSync(sessionsFile, 'utf-8'));
       return parsed.workers?.[sessionName]?.workerId;
     }
   } catch {
@@ -116,6 +118,12 @@ export interface CreateWorkerResult {
   postCreatePromise: Promise<void>;
 }
 
+export interface CreateCopilotResult {
+  copilotInfo: CopilotInfo;
+  /** Resolves after the agent is ready and any deferred session ID capture has completed. */
+  postCreatePromise: Promise<void>;
+}
+
 // ── SessionManager Class ──
 
 export class SessionManager {
@@ -124,102 +132,121 @@ export class SessionManager {
   // ── Sync: reconcile sessions.json <-> live multiplexer ──
 
   async sync(): Promise<SessionState> {
-    const state = this.readSessionState();
     const liveSessions = await this.backend.listSessions();
     const liveSessionMap = new Map(liveSessions.map(s => [s.name, s]));
-    const now = new Date().toISOString();
+    const discoveredSessions = new Map<string, {
+      role: 'worker' | 'copilot';
+      agent: string;
+      workdir: string;
+    }>();
 
-    // Reconcile workers
-    for (const [key, worker] of Object.entries(state.workers)) {
-      // Backfill workerId for workers created before this feature
-      if (worker.workerId == null) {
-        worker.workerId = state.nextWorkerId++;
-      }
-      const live = liveSessionMap.get(worker.sessionName);
-      if (live) {
-        worker.status = 'running';
-        worker.attached = live.attached;
-        worker.lastSeenAt = now;
-      } else if (worker.workdir && fs.existsSync(worker.workdir)) {
-        worker.status = 'stopped';
-        worker.attached = false;
-      } else {
-        // Orphan: tmux dead + no worktree
-        delete state.workers[key];
-      }
-    }
-
-    // Reconcile copilots
-    for (const [key, copilot] of Object.entries(state.copilots)) {
-      const live = liveSessionMap.get(copilot.sessionName);
-      if (live) {
-        copilot.status = 'running';
-        copilot.attached = live.attached;
-        copilot.lastSeenAt = now;
-      } else {
-        delete state.copilots[key];
-      }
-    }
-
-    // Discover live sessions with @hydra-role not yet in JSON
-    const knownSessionNames = new Set([
-      ...Object.values(state.workers).map(w => w.sessionName),
-      ...Object.values(state.copilots).map(c => c.sessionName),
-    ]);
-
-    for (const session of liveSessions) {
-      if (knownSessionNames.has(session.name)) continue;
-
+    await Promise.all(liveSessions.map(async (session) => {
       const role = await this.backend.getSessionRole(session.name);
-      if (!role) continue;
+      if (role !== 'worker' && role !== 'copilot') return;
 
-      const agent = await this.backend.getSessionAgent(session.name) || 'unknown';
-      const workdir = await this.backend.getSessionWorkdir(session.name) || '';
+      const [agent, workdir] = await Promise.all([
+        this.backend.getSessionAgent(session.name),
+        this.backend.getSessionWorkdir(session.name),
+      ]);
 
-      if (role === 'worker') {
-        // Derive repoRoot from workdir path via .repo-root marker or legacy path pattern
-        let repoRoot = '';
-        if (workdir) {
-          repoRoot = coreGit.resolveRepoRootFromWorktreePath(workdir) || '';
+      discoveredSessions.set(session.name, {
+        role,
+        agent: agent || 'unknown',
+        workdir: workdir || '',
+      });
+    }));
+
+    return this.updateSessionState((state) => {
+      const now = new Date().toISOString();
+
+      // Reconcile workers
+      for (const [key, worker] of Object.entries(state.workers)) {
+        // Backfill workerId for workers created before this feature
+        if (worker.workerId == null) {
+          worker.workerId = state.nextWorkerId++;
         }
-        const slug = this.extractSlugFromSessionName(session.name);
-        state.workers[session.name] = {
-          sessionName: session.name,
-          displayName: slug,
-          workerId: state.nextWorkerId++,
-          repo: repoRoot ? path.basename(repoRoot) : 'unknown',
-          repoRoot,
-          branch: '',
-          slug,
-          status: 'running',
-          attached: session.attached,
-          agent,
-          workdir,
-          tmuxSession: session.name,
-          createdAt: now,
-          lastSeenAt: now,
-          sessionId: null,
-          copilotSessionName: null,
-        };
-      } else if (role === 'copilot') {
-        state.copilots[session.name] = {
-          sessionName: session.name,
-          displayName: session.name,
-          status: 'running',
-          attached: session.attached,
-          agent,
-          workdir,
-          tmuxSession: session.name,
-          createdAt: now,
-          lastSeenAt: now,
-          sessionId: null,
-        };
+        const live = liveSessionMap.get(worker.sessionName);
+        if (live) {
+          worker.status = 'running';
+          worker.attached = live.attached;
+          worker.lastSeenAt = now;
+        } else if (worker.workdir && fs.existsSync(worker.workdir)) {
+          worker.status = 'stopped';
+          worker.attached = false;
+        } else {
+          // Orphan: tmux dead + no worktree
+          delete state.workers[key];
+        }
       }
-    }
 
-    state.updatedAt = now;
-    this.writeSessionState(state);
-    return state;
+      // Reconcile copilots
+      for (const [key, copilot] of Object.entries(state.copilots)) {
+        const live = liveSessionMap.get(copilot.sessionName);
+        if (live) {
+          copilot.status = 'running';
+          copilot.attached = live.attached;
+          copilot.lastSeenAt = now;
+        } else {
+          delete state.copilots[key];
+        }
+      }
+
+      // Discover live sessions with @hydra-role not yet in JSON
+      const knownSessionNames = new Set([
+        ...Object.values(state.workers).map(w => w.sessionName),
+        ...Object.values(state.copilots).map(c => c.sessionName),
+      ]);
+
+      for (const session of liveSessions) {
+        if (knownSessionNames.has(session.name)) continue;
+
+        const discovered = discoveredSessions.get(session.name);
+        if (!discovered) continue;
+
+        if (discovered.role === 'worker') {
+          // Derive repoRoot from workdir path via .repo-root marker or legacy path pattern
+          let repoRoot = '';
+          if (discovered.workdir) {
+            repoRoot = coreGit.resolveRepoRootFromWorktreePath(discovered.workdir) || '';
+          }
+          const slug = this.extractSlugFromSessionName(session.name);
+          state.workers[session.name] = {
+            sessionName: session.name,
+            displayName: slug,
+            workerId: state.nextWorkerId++,
+            repo: repoRoot ? path.basename(repoRoot) : 'unknown',
+            repoRoot,
+            branch: '',
+            slug,
+            status: 'running',
+            attached: session.attached,
+            agent: discovered.agent,
+            workdir: discovered.workdir,
+            tmuxSession: session.name,
+            createdAt: now,
+            lastSeenAt: now,
+            sessionId: null,
+            copilotSessionName: null,
+          };
+        } else {
+          state.copilots[session.name] = {
+            sessionName: session.name,
+            displayName: session.name,
+            status: 'running',
+            attached: session.attached,
+            agent: discovered.agent,
+            workdir: discovered.workdir,
+            tmuxSession: session.name,
+            createdAt: now,
+            lastSeenAt: now,
+            sessionId: null,
+          };
+        }
+      }
+
+      state.updatedAt = now;
+      return state;
+    });
   }
 
   async listWorkers(repoRoot?: string): Promise<WorkerInfo[]> {
@@ -348,36 +375,37 @@ export class SessionManager {
 
     // Write initial state to sessions.json
     // (sessionId may be null for Codex/Gemini until Phase 1 capture completes)
-    const now = new Date().toISOString();
-    const state = this.readSessionState();
-    const workerId = state.nextWorkerId;
-    state.nextWorkerId = workerId + 1;
+    const workerInfo = await this.updateSessionState((state) => {
+      const now = new Date().toISOString();
+      const existingWorker = state.workers[sessionName];
+      const workerId = existingWorker?.workerId ?? state.nextWorkerId++;
 
-    const workerInfo: WorkerInfo = {
-      sessionName,
-      displayName: finalSlug,
-      workerId,
-      repo: coreGit.getRepoName(repoRoot),
-      repoRoot,
-      branch: branchName,
-      slug: finalSlug,
-      status: 'running',
-      attached: false,
-      agent: agentType,
-      workdir: worktreePath,
-      tmuxSession: sessionName,
-      createdAt: now,
-      lastSeenAt: now,
-      sessionId,
-      copilotSessionName: opts.copilotSessionName || null,
-    };
+      const nextWorker: WorkerInfo = {
+        sessionName,
+        displayName: finalSlug,
+        workerId,
+        repo: coreGit.getRepoName(repoRoot),
+        repoRoot,
+        branch: branchName,
+        slug: finalSlug,
+        status: 'running',
+        attached: false,
+        agent: agentType,
+        workdir: worktreePath,
+        tmuxSession: sessionName,
+        createdAt: existingWorker?.createdAt ?? now,
+        lastSeenAt: now,
+        sessionId: sessionId ?? existingWorker?.sessionId ?? null,
+        copilotSessionName: opts.copilotSessionName ?? existingWorker?.copilotSessionName ?? null,
+      };
 
-    state.workers[sessionName] = workerInfo;
-    state.updatedAt = now;
-    this.writeSessionState(state);
+      state.workers[sessionName] = nextWorker;
+      state.updatedAt = now;
+      return nextWorker;
+    });
 
     // Async post-create
-    const postCreatePromise = (async () => {
+    const postCreatePromise = this.withPostCreateTimeout((async () => {
       if (isResume) {
         // Resume: skip Phase 1 (sessionId already known), just wait for readiness
         await this.waitForAgentReady(sessionName, agentType);
@@ -387,18 +415,15 @@ export class SessionManager {
       }
       // Phase 2: Send task prompt (only after sessions.json is up to date)
       await this.sendInitialPrompt(sessionName, task);
-    })();
+    })(), sessionName, 'worker startup');
 
     return { workerInfo, postCreatePromise };
   }
 
   async deleteWorker(sessionName: string): Promise<void> {
-    try {
-      await this.backend.killSession(sessionName);
-    } catch { /* Already dead */ }
+    await this.killSessionOrConfirmAbsent(sessionName);
 
-    const state = this.readSessionState();
-    const worker = state.workers[sessionName];
+    const worker = this.readSessionState().workers[sessionName];
 
     // Archive before removing
     if (worker) {
@@ -417,9 +442,12 @@ export class SessionManager {
       }
     }
 
-    delete state.workers[sessionName];
-    state.updatedAt = new Date().toISOString();
-    this.writeSessionState(state);
+    await this.updateSessionState((state) => {
+      if (state.workers[sessionName]) {
+        delete state.workers[sessionName];
+        state.updatedAt = new Date().toISOString();
+      }
+    });
   }
 
   async stopWorker(sessionName: string): Promise<void> {
@@ -427,53 +455,62 @@ export class SessionManager {
       await this.backend.killSession(sessionName);
     } catch { /* Already dead */ }
 
-    const state = this.readSessionState();
-    if (state.workers[sessionName]) {
-      state.workers[sessionName].status = 'stopped';
-      state.workers[sessionName].attached = false;
-      state.updatedAt = new Date().toISOString();
-      this.writeSessionState(state);
-    }
+    await this.updateSessionState((state) => {
+      if (state.workers[sessionName]) {
+        state.workers[sessionName].status = 'stopped';
+        state.workers[sessionName].attached = false;
+        state.updatedAt = new Date().toISOString();
+      }
+    });
   }
 
   async startWorker(sessionName: string, agentType?: string, agentCommand?: string): Promise<CreateWorkerResult> {
-    const state = this.readSessionState();
-    const worker = state.workers[sessionName];
-    if (!worker) {
+    const existingWorker = this.readSessionState().workers[sessionName];
+    if (!existingWorker) {
       throw new Error(`Worker "${sessionName}" not found in sessions.json`);
     }
 
-    if (!worker.workdir || !fs.existsSync(worker.workdir)) {
-      throw new Error(`Worktree "${worker.workdir}" does not exist`);
+    if (!existingWorker.workdir || !fs.existsSync(existingWorker.workdir)) {
+      throw new Error(`Worktree "${existingWorker.workdir}" does not exist`);
     }
 
     const agent = agentType || worker.agent || 'claude';
     const command = await this.resolveAgentCommand(agentCommand || DEFAULT_AGENT_COMMANDS[agent] || agent);
 
-    await this.backend.createSession(sessionName, worker.workdir);
-    await this.backend.setSessionWorkdir(sessionName, worker.workdir);
+    await this.backend.createSession(sessionName, existingWorker.workdir);
+    await this.backend.setSessionWorkdir(sessionName, existingWorker.workdir);
     await this.backend.setSessionRole(sessionName, 'worker');
     await this.backend.setSessionAgent(sessionName, agent);
 
     // Resume from stored session ID if available; otherwise fresh start
-    const storedSessionId = worker.sessionId;
+    const storedSessionId = existingWorker.sessionId;
     const resumeCmd = storedSessionId
       ? buildAgentResumeCommand(agent, command, storedSessionId)
       : null;
 
+    let workerInfo: WorkerInfo;
     let postCreatePromise: Promise<void>;
 
     if (resumeCmd) {
       // ── Resume flow: launch with --resume, no session ID capture needed ──
       // The agent already has its conversation context; just restart it.
       await this.backend.sendKeys(sessionName, resumeCmd);
-      worker.status = 'running';
-      worker.attached = false;
-      worker.agent = agent;
-      worker.lastSeenAt = new Date().toISOString();
-      state.updatedAt = new Date().toISOString();
-      this.writeSessionState(state);
-      postCreatePromise = Promise.resolve();
+      workerInfo = await this.updateSessionState((currentState) => {
+        const currentWorker = currentState.workers[sessionName];
+        if (!currentWorker) {
+          throw new Error(`Worker "${sessionName}" not found in sessions.json`);
+        }
+
+        currentWorker.status = 'running';
+        currentWorker.attached = false;
+        currentWorker.agent = agent;
+        currentWorker.lastSeenAt = new Date().toISOString();
+        currentState.updatedAt = currentWorker.lastSeenAt;
+        return { ...currentWorker };
+      });
+      // Wait for the resumed TUI to reach its idle prompt so follow-up CLI
+      // commands can run immediately without racing the agent startup.
+      postCreatePromise = this.waitForAgentReady(sessionName, agent);
     } else {
       // ── Fresh start: Phase 1 (capture sessionId) ──
       // No stored session ID — launch fresh agent and capture new session ID.
@@ -481,24 +518,34 @@ export class SessionManager {
       const launchCmd = buildAgentLaunchCommand(agent, command, undefined, preAssignedSessionId ?? undefined);
       await this.backend.sendKeys(sessionName, launchCmd);
 
-      worker.status = 'running';
-      worker.attached = false;
-      worker.agent = agent;
-      worker.sessionId = preAssignedSessionId;
-      worker.lastSeenAt = new Date().toISOString();
-      state.updatedAt = new Date().toISOString();
-      this.writeSessionState(state);
+      workerInfo = await this.updateSessionState((currentState) => {
+        const currentWorker = currentState.workers[sessionName];
+        if (!currentWorker) {
+          throw new Error(`Worker "${sessionName}" not found in sessions.json`);
+        }
+
+        currentWorker.status = 'running';
+        currentWorker.attached = false;
+        currentWorker.agent = agent;
+        currentWorker.sessionId = preAssignedSessionId;
+        currentWorker.lastSeenAt = new Date().toISOString();
+        currentState.updatedAt = currentWorker.lastSeenAt;
+        return { ...currentWorker };
+      });
 
       // Phase 1 only — startWorker is a restart, no task to send (Phase 2 skipped)
       postCreatePromise = this.waitForReadyAndCaptureSessionId(sessionName, agent, preAssignedSessionId);
     }
 
-    return { workerInfo: worker, postCreatePromise };
+    return {
+      workerInfo,
+      postCreatePromise: this.withPostCreateTimeout(postCreatePromise, sessionName, 'worker startup'),
+    };
   }
 
   // ── Copilot Lifecycle ──
 
-  async createCopilot(opts: CreateCopilotOpts): Promise<CopilotInfo> {
+  async createCopilot(opts: CreateCopilotOpts): Promise<CreateCopilotResult> {
     ensureHydraGlobalConfig();
 
     const agentType = opts.agentType || 'claude';
@@ -520,6 +567,8 @@ export class SessionManager {
     // Same two paths as createWorker: resume vs fresh.
     const isResume = !!opts.resumeSessionId;
     let sessionId: string | null;
+
+    let postCreatePromise = Promise.resolve();
 
     if (isResume) {
       sessionId = opts.resumeSessionId!;
@@ -549,18 +598,36 @@ export class SessionManager {
       sessionId,
     };
 
-    const state = this.readSessionState();
-    state.copilots[sessionName] = copilotInfo;
-    state.updatedAt = now;
-    this.writeSessionState(state);
+    const persistedCopilotInfo = await this.updateSessionState((state) => {
+      const existingCopilot = state.copilots[sessionName];
+      const nextCopilot: CopilotInfo = {
+        ...copilotInfo,
+        createdAt: existingCopilot?.createdAt ?? now,
+        sessionId: sessionId ?? existingCopilot?.sessionId ?? null,
+      };
 
-    // Phase 1 (background): capture session ID for non-Claude fresh sessions
-    // Phase 2 (onboarding prompt) is handled by the VS Code extension caller
-    if (!isResume && !sessionId) {
-      this.waitForReadyAndCaptureSessionId(sessionName, agentType, null).catch(() => {});
-    }
+      state.copilots[sessionName] = nextCopilot;
+      state.updatedAt = now;
+      return nextCopilot;
+    });
 
-    return copilotInfo;
+    // Match worker lifecycle semantics: wait for readiness and persist any deferred
+    // session ID capture before the CLI treats creation as complete.
+    postCreatePromise = this.withPostCreateTimeout(
+      this.waitForReadyAndCaptureSessionId(sessionName, agentType, sessionId),
+      sessionName,
+      'copilot startup',
+    );
+
+    return { copilotInfo: persistedCopilotInfo, postCreatePromise };
+  }
+
+  async createCopilotAndFinalize(opts: CreateCopilotOpts): Promise<CopilotInfo> {
+    return this.finalizeCopilotResult(await this.createCopilot(opts));
+  }
+
+  async restoreCopilotAndFinalize(sessionName: string): Promise<CopilotInfo> {
+    return this.finalizeCopilotResult(await this.restoreCopilot(sessionName));
   }
 
   async renameWorker(oldSessionName: string, newBranchName: string): Promise<WorkerInfo> {
@@ -648,22 +715,26 @@ export class SessionManager {
       }
     }
 
-    // 4. Update sessions.json
-    const worktreeMoved = newSlug !== worker.slug && fs.existsSync(newWorktreePath);
-    delete state.workers[oldSessionName];
-    worker.sessionName = newSessionName;
-    worker.displayName = newSlug;
-    worker.tmuxSession = newSessionName;
-    worker.branch = newBranchName;
-    worker.slug = newSlug;
-    if (worktreeMoved) {
-      worker.workdir = newWorktreePath;
-    }
-    state.workers[newSessionName] = worker;
-    state.updatedAt = new Date().toISOString();
-    this.writeSessionState(state);
+    return this.updateSessionState((currentState) => {
+      const currentWorker = currentState.workers[oldSessionName];
+      if (!currentWorker) {
+        throw new Error(`Worker "${oldSessionName}" not found`);
+      }
 
-    return worker;
+      const worktreeMoved = newSlug !== currentWorker.slug && fs.existsSync(newWorktreePath);
+      delete currentState.workers[oldSessionName];
+      currentWorker.sessionName = newSessionName;
+      currentWorker.displayName = newSlug;
+      currentWorker.tmuxSession = newSessionName;
+      currentWorker.branch = newBranchName;
+      currentWorker.slug = newSlug;
+      if (worktreeMoved) {
+        currentWorker.workdir = newWorktreePath;
+      }
+      currentState.workers[newSessionName] = currentWorker;
+      currentState.updatedAt = new Date().toISOString();
+      return { ...currentWorker };
+    });
   }
 
   async renameCopilot(oldSessionName: string, newSessionName: string): Promise<CopilotInfo> {
@@ -690,16 +761,20 @@ export class SessionManager {
       await this.backend.renameSession(oldSessionName, newSessionName);
     }
 
-    // Update sessions.json
-    delete state.copilots[oldSessionName];
-    copilot.sessionName = newSessionName;
-    copilot.displayName = newSessionName;
-    copilot.tmuxSession = newSessionName;
-    state.copilots[newSessionName] = copilot;
-    state.updatedAt = new Date().toISOString();
-    this.writeSessionState(state);
+    return this.updateSessionState((currentState) => {
+      const currentCopilot = currentState.copilots[oldSessionName];
+      if (!currentCopilot) {
+        throw new Error(`Copilot "${oldSessionName}" not found`);
+      }
 
-    return copilot;
+      delete currentState.copilots[oldSessionName];
+      currentCopilot.sessionName = newSessionName;
+      currentCopilot.displayName = newSessionName;
+      currentCopilot.tmuxSession = newSessionName;
+      currentState.copilots[newSessionName] = currentCopilot;
+      currentState.updatedAt = new Date().toISOString();
+      return { ...currentCopilot };
+    });
   }
 
   async deleteCopilot(sessionName: string): Promise<void> {
@@ -707,17 +782,19 @@ export class SessionManager {
       await this.backend.killSession(sessionName);
     } catch { /* Already dead */ }
 
-    const state = this.readSessionState();
-    const copilot = state.copilots[sessionName];
+    const copilot = this.readSessionState().copilots[sessionName];
 
     // Archive before removing
     if (copilot) {
       this.archiveEntry('copilot', copilot.sessionName, copilot.sessionId, copilot);
     }
 
-    delete state.copilots[sessionName];
-    state.updatedAt = new Date().toISOString();
-    this.writeSessionState(state);
+    await this.updateSessionState((state) => {
+      if (state.copilots[sessionName]) {
+        delete state.copilots[sessionName];
+        state.updatedAt = new Date().toISOString();
+      }
+    });
   }
 
   // ── Public helpers for VS Code extension ──
@@ -726,29 +803,30 @@ export class SessionManager {
    * Persist a copilot entry to sessions.json with pre-assigned session ID.
    * Called by the VS Code extension which creates sessions directly via backend.
    */
-  persistCopilotSessionId(
+  async persistCopilotSessionId(
     sessionName: string,
     agentType: string,
     workdir: string,
     sessionId: string | null,
     displayName?: string,
-  ): void {
-    const state = this.readSessionState();
-    const now = new Date().toISOString();
-    state.copilots[sessionName] = {
-      sessionName,
-      displayName: displayName || state.copilots[sessionName]?.displayName || sessionName,
-      status: 'running',
-      attached: false,
-      agent: agentType,
-      workdir,
-      tmuxSession: sessionName,
-      createdAt: now,
-      lastSeenAt: now,
-      sessionId,
-    };
-    state.updatedAt = now;
-    this.writeSessionState(state);
+  ): Promise<void> {
+    await this.updateSessionState((state) => {
+      const now = new Date().toISOString();
+      const existingCopilot = state.copilots[sessionName];
+      state.copilots[sessionName] = {
+        sessionName,
+        displayName: displayName || existingCopilot?.displayName || sessionName,
+        status: 'running',
+        attached: false,
+        agent: agentType,
+        workdir,
+        tmuxSession: sessionName,
+        createdAt: existingCopilot?.createdAt ?? now,
+        lastSeenAt: now,
+        sessionId: sessionId ?? existingCopilot?.sessionId ?? null,
+      };
+      state.updatedAt = now;
+    });
   }
 
   /**
@@ -757,7 +835,7 @@ export class SessionManager {
    */
   async captureAndPersistSessionId(sessionName: string, agentType: string): Promise<void> {
     const sessionId = await this.captureAgentSessionId(sessionName, agentType);
-    this.updateSessionId(sessionName, sessionId);
+    await this.updateSessionId(sessionName, sessionId);
   }
 
   // ── Archive ──
@@ -802,7 +880,7 @@ export class SessionManager {
     });
   }
 
-  async restoreCopilot(sessionName: string): Promise<CopilotInfo> {
+  async restoreCopilot(sessionName: string): Promise<CreateCopilotResult> {
     const entry = this.getArchived(sessionName);
     if (!entry) {
       throw new Error(`Archived session "${sessionName}" not found`);
@@ -815,12 +893,62 @@ export class SessionManager {
     return this.createCopilot({
       workdir: copilot.workdir,
       agentType: copilot.agent,
+      name: copilot.displayName,
       sessionName: copilot.sessionName,
       resumeSessionId: entry.agentSessionId || undefined,
     });
   }
 
   // ── Private helpers ──
+
+  private async finalizeCopilotResult(result: CreateCopilotResult): Promise<CopilotInfo> {
+    await result.postCreatePromise;
+    const state = await this.sync();
+    return state.copilots[result.copilotInfo.sessionName] || result.copilotInfo;
+  }
+
+  private withPostCreateTimeout(
+    promise: Promise<void>,
+    sessionName: string,
+    operation: string,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`Timed out waiting for ${operation} for "${sessionName}" after ${POST_CREATE_TIMEOUT_MS}ms`));
+      }, POST_CREATE_TIMEOUT_MS);
+
+      promise.then(
+        () => {
+          clearTimeout(timeoutId);
+          resolve();
+        },
+        (error) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  private async killSessionOrConfirmAbsent(sessionName: string): Promise<void> {
+    try {
+      await this.backend.killSession(sessionName);
+      return;
+    } catch (error) {
+      let hasLiveSession: boolean;
+      try {
+        hasLiveSession = await this.backend.hasSession(sessionName);
+      } catch {
+        throw error;
+      }
+
+      if (!hasLiveSession) {
+        return;
+      }
+
+      throw error;
+    }
+  }
 
   private archiveEntry(
     type: 'worker' | 'copilot',
@@ -840,9 +968,10 @@ export class SessionManager {
   }
 
   private readArchiveState(): ArchiveState {
+    const archiveFile = getHydraArchiveFile();
     try {
-      if (fs.existsSync(ARCHIVE_FILE)) {
-        const raw = fs.readFileSync(ARCHIVE_FILE, 'utf-8');
+      if (fs.existsSync(archiveFile)) {
+        const raw = fs.readFileSync(archiveFile, 'utf-8');
         const parsed = JSON.parse(raw);
         return { entries: parsed.entries || [] };
       }
@@ -853,16 +982,15 @@ export class SessionManager {
   }
 
   private writeArchiveState(archive: ArchiveState): void {
-    if (!fs.existsSync(HYDRA_DIR)) {
-      fs.mkdirSync(HYDRA_DIR, { recursive: true });
-    }
-    fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(archive, null, 2), 'utf-8');
+    const archiveFile = getHydraArchiveFile();
+    this.writeJsonAtomically(archiveFile, JSON.stringify(archive, null, 2));
   }
 
   private readSessionState(): SessionState {
+    const sessionsFile = getHydraSessionsFile();
     try {
-      if (fs.existsSync(SESSIONS_FILE)) {
-        const raw = fs.readFileSync(SESSIONS_FILE, 'utf-8');
+      if (fs.existsSync(sessionsFile)) {
+        const raw = fs.readFileSync(sessionsFile, 'utf-8');
         const parsed = JSON.parse(raw);
         const state: SessionState = {
           copilots: parsed.copilots || {},
@@ -888,10 +1016,121 @@ export class SessionManager {
   }
 
   private writeSessionState(state: SessionState): void {
-    if (!fs.existsSync(HYDRA_DIR)) {
-      fs.mkdirSync(HYDRA_DIR, { recursive: true });
+    const sessionsFile = getHydraSessionsFile();
+    this.writeJsonAtomically(sessionsFile, JSON.stringify(state, null, 2));
+  }
+
+  private async updateSessionState<T>(mutate: (state: SessionState) => T): Promise<T> {
+    const release = await this.acquireSessionStateLock();
+    try {
+      const state = this.readSessionState();
+      const result = mutate(state);
+      this.writeSessionState(state);
+      return result;
+    } finally {
+      await release();
     }
-    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(state, null, 2), 'utf-8');
+  }
+
+  private async acquireSessionStateLock(): Promise<() => Promise<void>> {
+    const sessionsFile = getHydraSessionsFile();
+    const hydraHome = getHydraHome();
+    if (!fs.existsSync(hydraHome)) {
+      fs.mkdirSync(hydraHome, { recursive: true });
+    }
+
+    const lockFile = `${sessionsFile}.lock`;
+    const deadline = Date.now() + SESSION_STATE_LOCK_TIMEOUT_MS;
+
+    while (true) {
+      try {
+        const handle = await fs.promises.open(lockFile, 'wx');
+        try {
+          await handle.writeFile(
+            JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }, null, 2),
+            'utf-8',
+          );
+        } catch (error) {
+          await handle.close().catch(() => undefined);
+          throw error;
+        }
+
+        return async () => {
+          try {
+            await handle.close();
+          } finally {
+            try {
+              await fs.promises.unlink(lockFile);
+            } catch {
+              // Best-effort cleanup
+            }
+          }
+        };
+      } catch (error) {
+        const err = error as { code?: string };
+        if (err.code !== 'EEXIST') {
+          throw error;
+        }
+
+        if (this.isSessionStateLockStale(lockFile)) {
+          try {
+            fs.unlinkSync(lockFile);
+            continue;
+          } catch (unlinkError) {
+            const unlinkErr = unlinkError as { code?: string };
+            if (unlinkErr.code === 'ENOENT') {
+              continue;
+            }
+            throw unlinkError;
+          }
+        }
+
+        if (Date.now() >= deadline) {
+          throw new Error(`Timed out waiting for sessions lock: ${lockFile}`);
+        }
+
+        await this.sleep(SESSION_STATE_LOCK_RETRY_MS);
+      }
+    }
+  }
+
+  private isSessionStateLockStale(lockFile: string): boolean {
+    try {
+      const stat = fs.statSync(lockFile);
+      return (Date.now() - stat.mtimeMs) > SESSION_STATE_LOCK_STALE_MS;
+    } catch (error) {
+      const err = error as { code?: string };
+      if (err.code === 'ENOENT') {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  private writeJsonAtomically(filePath: string, contents: string): void {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const tempFile = path.join(
+      dir,
+      `${path.basename(filePath)}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`,
+    );
+
+    try {
+      fs.writeFileSync(tempFile, contents, 'utf-8');
+      fs.renameSync(tempFile, filePath);
+    } catch (error) {
+      try {
+        if (fs.existsSync(tempFile)) {
+          fs.unlinkSync(tempFile);
+        }
+      } catch {
+        // Best-effort cleanup
+      }
+      throw error;
+    }
   }
 
   /**
@@ -949,7 +1188,7 @@ export class SessionManager {
     } else {
       // Codex/Gemini: capture sessionId via slash command (includes readiness wait)
       const sessionId = await this.captureAgentSessionId(sessionName, agentType);
-      this.updateSessionId(sessionName, sessionId);
+      await this.updateSessionId(sessionName, sessionId);
     }
   }
 
@@ -1064,17 +1303,16 @@ export class SessionManager {
     }
   }
 
-  private updateSessionId(sessionName: string, sessionId: string | null): void {
-    const state = this.readSessionState();
-    if (state.workers[sessionName]) {
-      state.workers[sessionName].sessionId = sessionId;
-      state.updatedAt = new Date().toISOString();
-      this.writeSessionState(state);
-    } else if (state.copilots[sessionName]) {
-      state.copilots[sessionName].sessionId = sessionId;
-      state.updatedAt = new Date().toISOString();
-      this.writeSessionState(state);
-    }
+  private async updateSessionId(sessionName: string, sessionId: string | null): Promise<void> {
+    await this.updateSessionState((state) => {
+      if (state.workers[sessionName]) {
+        state.workers[sessionName].sessionId = sessionId;
+        state.updatedAt = new Date().toISOString();
+      } else if (state.copilots[sessionName]) {
+        state.copilots[sessionName].sessionId = sessionId;
+        state.updatedAt = new Date().toISOString();
+      }
+    });
   }
 
   private sleep(ms: number): Promise<void> {
@@ -1126,33 +1364,37 @@ export class SessionManager {
       const agent = await this.backend.getSessionAgent(sessionName) || agentType;
       const now = new Date().toISOString();
 
-      const state = this.readSessionState();
-      const existingWorker = state.workers[sessionName];
-      const workerId = existingWorker?.workerId ?? state.nextWorkerId++;
+      const workerInfo = await this.updateSessionState((state) => {
+        const existingWorker = state.workers[sessionName];
+        const workerId = existingWorker?.workerId ?? state.nextWorkerId++;
+        const nextWorker: WorkerInfo = {
+          sessionName,
+          displayName: slug,
+          workerId,
+          repo: coreGit.getRepoName(repoRoot),
+          repoRoot,
+          branch: branchName,
+          slug,
+          status: 'running',
+          attached: false,
+          agent,
+          workdir,
+          tmuxSession: sessionName,
+          createdAt: existingWorker?.createdAt ?? now,
+          lastSeenAt: now,
+          sessionId: existingWorker?.sessionId ?? null,
+          copilotSessionName: existingWorker?.copilotSessionName ?? null,
+        };
 
-      const workerInfo: WorkerInfo = {
-        sessionName,
-        displayName: slug,
-        workerId,
-        repo: coreGit.getRepoName(repoRoot),
-        repoRoot,
-        branch: branchName,
-        slug,
-        status: 'running',
-        attached: false,
-        agent,
-        workdir,
-        tmuxSession: sessionName,
-        createdAt: now,
-        lastSeenAt: now,
-        sessionId: existingWorker?.sessionId ?? null,
-        copilotSessionName: existingWorker?.copilotSessionName ?? null,
+        state.workers[sessionName] = nextWorker;
+        state.updatedAt = now;
+        return nextWorker;
+      });
+
+      return {
+        workerInfo,
+        postCreatePromise: this.withPostCreateTimeout(Promise.resolve(), sessionName, 'worker startup'),
       };
-
-      state.workers[sessionName] = workerInfo;
-      state.updatedAt = now;
-      this.writeSessionState(state);
-      return { workerInfo, postCreatePromise: Promise.resolve() };
     }
 
     // Worktree exists but tmux is dead — check new and legacy locations
@@ -1173,10 +1415,7 @@ export class SessionManager {
       await this.backend.setSessionAgent(sessionName, agentType);
 
       const now = new Date().toISOString();
-      const state = this.readSessionState();
-      const existingWorker = state.workers[sessionName];
-      const existingId = existingWorker?.workerId;
-      const workerId = existingId ?? state.nextWorkerId++;
+      const existingWorker = this.readSessionState().workers[sessionName];
       const storedSessionId = existingWorker?.sessionId;
 
       // Resume or fresh start
@@ -1209,30 +1448,37 @@ export class SessionManager {
         })();
       }
 
-      const workerInfo: WorkerInfo = {
-        sessionName,
-        displayName: slug,
-        workerId,
-        repo: coreGit.getRepoName(repoRoot),
-        repoRoot,
-        branch: branchName,
-        slug,
-        status: 'running',
-        attached: false,
-        agent: agentType,
-        workdir: worktreePath,
-        tmuxSession: sessionName,
-        createdAt: now,
-        lastSeenAt: now,
-        sessionId,
-        copilotSessionName: existingWorker?.copilotSessionName ?? null,
+      const workerInfo = await this.updateSessionState((state) => {
+        const currentWorker = state.workers[sessionName];
+        const workerId = currentWorker?.workerId ?? state.nextWorkerId++;
+        const nextWorker: WorkerInfo = {
+          sessionName,
+          displayName: slug,
+          workerId,
+          repo: coreGit.getRepoName(repoRoot),
+          repoRoot,
+          branch: branchName,
+          slug,
+          status: 'running',
+          attached: false,
+          agent: agentType,
+          workdir: worktreePath,
+          tmuxSession: sessionName,
+          createdAt: currentWorker?.createdAt ?? now,
+          lastSeenAt: now,
+          sessionId,
+          copilotSessionName: currentWorker?.copilotSessionName ?? null,
+        };
+
+        state.workers[sessionName] = nextWorker;
+        state.updatedAt = now;
+        return nextWorker;
+      });
+
+      return {
+        workerInfo,
+        postCreatePromise: this.withPostCreateTimeout(postCreatePromise, sessionName, 'worker startup'),
       };
-
-      state.workers[sessionName] = workerInfo;
-      state.updatedAt = now;
-      this.writeSessionState(state);
-
-      return { workerInfo, postCreatePromise };
     }
 
     throw new Error(`Branch "${branchName}" exists but has no managed worktree. Delete the branch first or use a different name.`);
