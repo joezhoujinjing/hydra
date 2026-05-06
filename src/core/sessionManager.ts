@@ -474,7 +474,7 @@ export class SessionManager {
       throw new Error(`Worktree "${existingWorker.workdir}" does not exist`);
     }
 
-    const agent = agentType || worker.agent || 'claude';
+    const agent = agentType || existingWorker.agent || 'claude';
     const command = await this.resolveAgentCommand(agentCommand || DEFAULT_AGENT_COMMANDS[agent] || agent);
 
     await this.backend.createSession(sessionName, existingWorker.workdir);
