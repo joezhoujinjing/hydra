@@ -1,12 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import { spawn } from 'child_process';
 import { MultiplexerBackendCore } from './types';
 import * as coreGit from './git';
 import { ensureHydraGlobalConfig } from './hydraGlobalConfig';
 import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS, AGENT_READY_PATTERNS, AGENT_READY_TIMEOUT_MS, AGENT_READY_POLL_INTERVAL_MS, CLAUDE_TRUST_PROMPT_PATTERN } from './agentConfig';
 import { exec, resolveCommandPath } from './exec';
-import { getHydraArchiveFile, getHydraHome, getHydraSessionsFile } from './path';
+import { getHydraArchiveFile, getHydraHome, getHydraSessionsFile, getTmuxCommand } from './path';
 import { shellQuote } from './shell';
 
 const POST_CREATE_TIMEOUT_MS = AGENT_READY_TIMEOUT_MS + 15000;
@@ -99,6 +100,8 @@ export interface CreateWorkerOpts {
   resumeSessionId?: string;
   /** Session name of the copilot that spawned this worker. */
   copilotSessionName?: string;
+  /** Whether to notify the parent copilot when the worker completes (default: true). */
+  notifyCopilot?: boolean;
 }
 
 export interface CreateCopilotOpts {
@@ -415,6 +418,11 @@ export class SessionManager {
       }
       // Phase 2: Send task prompt (only after sessions.json is up to date)
       await this.sendInitialPrompt(sessionName, task);
+
+      // Fire-and-forget: monitor for completion and notify parent copilot
+      if (opts.notifyCopilot !== false && opts.copilotSessionName && task) {
+        this.spawnCompletionMonitor(sessionName, agentType, workerInfo);
+      }
     })(), sessionName, 'worker startup');
 
     return { workerInfo, postCreatePromise };
@@ -1206,6 +1214,49 @@ export class SessionManager {
   ): Promise<void> {
     if (task) {
       await this.backend.sendMessage(sessionName, task);
+    }
+  }
+
+  /**
+   * Spawn a detached background process that monitors the worker's tmux pane
+   * for the agent becoming idle after processing a task. When idle is confirmed,
+   * it sends a notification message to the parent copilot session.
+   */
+  private spawnCompletionMonitor(
+    sessionName: string,
+    agentType: string,
+    workerInfo: WorkerInfo,
+  ): void {
+    const pattern = AGENT_READY_PATTERNS[agentType];
+    if (!pattern) return;
+
+    const copilotSessionName = workerInfo.copilotSessionName;
+    if (!copilotSessionName) return;
+
+    const tmuxCommand = getTmuxCommand();
+    const message =
+      `Worker #${workerInfo.workerId} (${workerInfo.displayName}) has completed. ` +
+      `Branch: ${workerInfo.branch}. ` +
+      `Use \`hydra worker logs ${workerInfo.sessionName}\` to review output.`;
+
+    const config = JSON.stringify({
+      tmuxCommand,
+      sessionName,
+      copilotSessionName,
+      readyPattern: pattern.source,
+      message,
+    });
+
+    const monitorScript = path.resolve(__dirname, 'completionMonitor.js');
+
+    try {
+      const child = spawn(process.execPath, [monitorScript, config], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+    } catch {
+      // Best-effort — don't fail worker creation if monitor can't start
     }
   }
 

@@ -26,6 +26,8 @@ export function registerWorkerCommands(program: Command): void {
     .option('--task <prompt>', 'Task prompt for the agent')
     .option('--task-file <path>', 'Path to a file containing the task description')
     .option('--copilot <session>', 'Session name of the parent copilot (auto-detected if inside a copilot)')
+    .option('--notify-copilot', 'Notify parent copilot when worker completes (default: true)', true)
+    .option('--no-notify-copilot', 'Disable completion notification to parent copilot')
     .action(async (opts: {
       repo: string;
       branch: string;
@@ -34,6 +36,7 @@ export function registerWorkerCommands(program: Command): void {
       task?: string;
       taskFile?: string;
       copilot?: string;
+      notifyCopilot: boolean;
     }) => {
       const globalOpts = program.opts() as OutputOpts;
       try {
@@ -63,6 +66,7 @@ export function registerWorkerCommands(program: Command): void {
           task: opts.task,
           taskFile: opts.taskFile,
           copilotSessionName,
+          notifyCopilot: opts.notifyCopilot,
         });
 
         const status = branchExisted ? 'exists' : 'created';

@@ -225,6 +225,11 @@
             "gemini": "gemini"
           },
           "markdownDescription": "Map of agent type to shell command used to launch the agent."
+        },
+        "hydra.notifyCopilotOnWorkerComplete": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Automatically notify the parent copilot when a worker finishes its task. The notification is sent as a message to the copilot's tmux session."
         }
       }
     },
