@@ -178,6 +178,7 @@ async function main(): Promise<void> {
   process.env.HOME = tempHome;
 
   const hydraDir = path.join(tempHome, '.hydra');
+  process.env.HYDRA_HOME = hydraDir;
   const sessionsFile = path.join(hydraDir, 'sessions.json');
   const archiveFile = path.join(hydraDir, 'archive.json');
 
@@ -208,6 +209,9 @@ async function main(): Promise<void> {
   assert.ok(dedupedResumeCommand);
   assert.equal(countOccurrences(dedupedResumeCommand, BYPASS_FLAG), 1);
 
+  const smokeCodexCommand = 'codex-smoke-test';
+  agentConfig.DEFAULT_AGENT_COMMANDS.codex = smokeCodexCommand;
+
   {
     const backend = new FakeBackend();
     backend.paneOutputs.set(
@@ -226,7 +230,7 @@ async function main(): Promise<void> {
 
     assert.equal(
       backend.sendKeysCalls[0]?.keys,
-      `codex ${BYPASS_FLAG}`,
+      `${smokeCodexCommand} ${BYPASS_FLAG}`,
     );
     assert.ok(
       backend.sendMessageCalls.some(call => call.sessionName === 'copilot-fresh' && call.message === '/status'),
@@ -266,7 +270,7 @@ async function main(): Promise<void> {
 
     assert.equal(
       command,
-      `codex ${BYPASS_FLAG} resume '22222222-2222-4222-8222-222222222222'`,
+      `${smokeCodexCommand} ${BYPASS_FLAG} resume '22222222-2222-4222-8222-222222222222'`,
     );
     assert.ok(
       backend.capturePaneCalls.some(call => call.sessionName === 'copilot-restored'),
@@ -315,7 +319,7 @@ async function main(): Promise<void> {
     const command = lastSendKeysFor(backend, 'worker-start');
     assert.equal(
       command,
-      `codex ${BYPASS_FLAG} resume '33333333-3333-4333-8333-333333333333'`,
+      `${smokeCodexCommand} ${BYPASS_FLAG} resume '33333333-3333-4333-8333-333333333333'`,
     );
     assert.ok(
       backend.capturePaneCalls.some(call => call.sessionName === 'worker-start'),
@@ -368,21 +372,213 @@ async function main(): Promise<void> {
 
     try {
       const backend = new FakeBackend();
-      backend.paneOutputs.set('repo-ns_fix-codex-restored', '⏵');
+      backend.paneOutputs.set('worker-restored', '⏵');
       const sm = new SessionManager(backend);
       forceFastSleeps(sm);
 
       const result = await sm.restoreWorker('worker-restored');
       await result.postCreatePromise;
 
-      const command = lastSendKeysFor(backend, 'repo-ns_fix-codex-restored');
+      const command = lastSendKeysFor(backend, 'worker-restored');
       assert.equal(
         command,
-        `codex ${BYPASS_FLAG} resume '44444444-4444-4444-8444-444444444444'`,
+        `${smokeCodexCommand} ${BYPASS_FLAG} resume '44444444-4444-4444-8444-444444444444'`,
       );
+      assert.equal(result.workerInfo.sessionName, 'worker-restored');
       assert.equal(result.workerInfo.sessionId, '44444444-4444-4444-8444-444444444444');
       assert.ok(
-        backend.capturePaneCalls.some(call => call.sessionName === 'repo-ns_fix-codex-restored'),
+        backend.capturePaneCalls.some(call => call.sessionName === 'worker-restored'),
+      );
+    } finally {
+      restoreCoreGit();
+    }
+  }
+
+  {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-worker-slug-collision-repo-'));
+    const fooBarWorktree = fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-worker-foo-bar-'));
+    const fooSlashBarWorktree = fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-worker-foo-slash-bar-'));
+    const now = new Date().toISOString();
+    writeJson(sessionsFile, {
+      copilots: {},
+      workers: {
+        'repo-ns_foo-bar': {
+          sessionName: 'repo-ns_foo-bar',
+          displayName: 'foo-bar',
+          workerId: 10,
+          repo: 'repo',
+          repoRoot,
+          branch: 'foo-bar',
+          slug: 'foo-bar',
+          status: 'running',
+          attached: false,
+          agent: 'codex',
+          workdir: fooBarWorktree,
+          tmuxSession: 'repo-ns_foo-bar',
+          createdAt: now,
+          lastSeenAt: now,
+          sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          copilotSessionName: null,
+        },
+        'repo-ns_foo-bar-2': {
+          sessionName: 'repo-ns_foo-bar-2',
+          displayName: 'foo-bar-2',
+          workerId: 11,
+          repo: 'repo',
+          repoRoot,
+          branch: 'foo/bar',
+          slug: 'foo-bar-2',
+          status: 'stopped',
+          attached: false,
+          agent: 'codex',
+          workdir: fooSlashBarWorktree,
+          tmuxSession: 'repo-ns_foo-bar-2',
+          createdAt: now,
+          lastSeenAt: now,
+          sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          copilotSessionName: null,
+        },
+      },
+      nextWorkerId: 12,
+      updatedAt: now,
+    });
+
+    const restoreCoreGit = patchModule(coreGit, {
+      validateBranchName: () => undefined,
+      getRepoSessionNamespace: () => 'repo-ns',
+      localBranchExists: async (_repoRoot: string, branchName: string) => branchName === 'foo/bar',
+      branchNameToSlug: () => 'foo-bar',
+      getRepoName: () => 'repo',
+      getWorktreeBranch: async (_repoRoot: string, worktreePath: string) => {
+        if (worktreePath === fooBarWorktree) return 'foo-bar';
+        if (worktreePath === fooSlashBarWorktree) return 'foo/bar';
+        return undefined;
+      },
+    });
+
+    try {
+      const backend = new FakeBackend();
+      await backend.createSession('repo-ns_foo-bar', fooBarWorktree);
+      await backend.setSessionAgent('repo-ns_foo-bar', 'codex');
+      backend.paneOutputs.set('repo-ns_foo-bar-2', '⏵');
+      const sm = new SessionManager(backend);
+      forceFastSleeps(sm);
+
+      const result = await sm.createWorker({
+        repoRoot,
+        branchName: 'foo/bar',
+        agentType: 'codex',
+        task: 'resume foo slash bar',
+      });
+      await result.postCreatePromise;
+
+      assert.equal(result.workerInfo.sessionName, 'repo-ns_foo-bar-2');
+      assert.equal(result.workerInfo.slug, 'foo-bar-2');
+      assert.equal(result.workerInfo.workdir, fooSlashBarWorktree);
+      assert.equal(
+        lastSendKeysFor(backend, 'repo-ns_foo-bar-2'),
+        `${smokeCodexCommand} ${BYPASS_FLAG} resume 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'`,
+      );
+      assert.ok(
+        backend.sendMessageCalls.some(call =>
+          call.sessionName === 'repo-ns_foo-bar-2' && call.message === 'resume foo slash bar'
+        ),
+      );
+      assert.equal(
+        backend.sendKeysCalls.some(call =>
+          call.sessionName === 'repo-ns_foo-bar' && call.keys === 'resume foo slash bar'
+        ),
+        false,
+      );
+    } finally {
+      restoreCoreGit();
+    }
+  }
+
+  {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-worker-stale-archive-repo-'));
+    const managedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-worker-stale-archive-managed-'));
+    const currentWorktree = path.join(managedDir, 'foo-bar');
+    fs.mkdirSync(currentWorktree, { recursive: true });
+    const staleWorktree = fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-worker-stale-archive-old-'));
+    const now = new Date().toISOString();
+    writeJson(sessionsFile, {
+      copilots: {},
+      workers: {},
+      nextWorkerId: 20,
+      updatedAt: now,
+    });
+    const archive = readJson<{ entries: Array<Record<string, unknown>> }>(archiveFile, { entries: [] });
+    archive.entries.push({
+      type: 'worker',
+      sessionName: 'repo-ns_foo-bar-2',
+      agentSessionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      archivedAt: now,
+      data: {
+        sessionName: 'repo-ns_foo-bar-2',
+        displayName: 'foo-bar-2',
+        workerId: 19,
+        repo: 'repo',
+        repoRoot,
+        branch: 'foo/bar',
+        slug: 'foo-bar-2',
+        status: 'stopped',
+        attached: false,
+        agent: 'codex',
+        workdir: staleWorktree,
+        tmuxSession: 'repo-ns_foo-bar-2',
+        createdAt: now,
+        lastSeenAt: now,
+        sessionId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        copilotSessionName: null,
+      },
+    });
+    writeJson(archiveFile, archive);
+
+    const restoreCoreGit = patchModule(coreGit, {
+      validateBranchName: () => undefined,
+      getRepoSessionNamespace: () => 'repo-ns',
+      localBranchExists: async (_repoRoot: string, branchName: string) => branchName === 'foo/bar',
+      branchNameToSlug: () => 'foo-bar',
+      getRepoName: () => 'repo',
+      getManagedRepoWorktreesDir: () => managedDir,
+      getInRepoWorktreesDir: () => path.join(managedDir, 'legacy-in-repo'),
+      getLegacyTmuxWorktreesDir: () => path.join(managedDir, 'legacy-tmux'),
+      getWorktreeBranch: async (_repoRoot: string, worktreePath: string) => {
+        if (worktreePath === currentWorktree) return 'foo/bar';
+        if (worktreePath === staleWorktree) return 'foo/bar';
+        return undefined;
+      },
+    });
+
+    try {
+      const backend = new FakeBackend();
+      backend.paneOutputs.set(
+        'repo-ns_foo-bar',
+        'Session: cccccccc-cccc-4ccc-8ccc-cccccccccccc\n⏵',
+      );
+      const sm = new SessionManager(backend);
+      forceFastSleeps(sm);
+
+      const result = await sm.createWorker({
+        repoRoot,
+        branchName: 'foo/bar',
+        agentType: 'codex',
+        task: 'start current branch',
+      });
+      await result.postCreatePromise;
+
+      assert.equal(result.workerInfo.sessionName, 'repo-ns_foo-bar');
+      assert.equal(result.workerInfo.slug, 'foo-bar');
+      assert.equal(result.workerInfo.workdir, currentWorktree);
+      assert.ok(
+        backend.sendKeysCalls.some(call =>
+          call.sessionName === 'repo-ns_foo-bar' && call.keys === `${smokeCodexCommand} ${BYPASS_FLAG}`
+        ),
+      );
+      assert.equal(
+        backend.sendKeysCalls.some(call => call.sessionName === 'repo-ns_foo-bar-2'),
+        false,
       );
     } finally {
       restoreCoreGit();
