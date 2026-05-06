@@ -1,7 +1,7 @@
 import * as os from 'os';
 import * as vscode from 'vscode';
 import { getActiveBackend, MultiplexerBackend } from '../utils/multiplexer';
-import { pickAgentType, AgentType } from '../utils/agentConfig';
+import { getAgentCommand, pickAgentType, AgentType } from '../utils/agentConfig';
 import { TmuxBackendCore } from '../core/tmux';
 import { SessionManager } from '../core/sessionManager';
 
@@ -60,6 +60,7 @@ export async function createCopilotWithAgent(agentType: AgentType): Promise<void
       workdir: os.homedir(),
       agentType,
       sessionName,
+      agentCommand: getAgentCommand(agentType),
     });
 
     sendCopilotOnboarding(backend, copilotInfo.sessionName);
@@ -116,6 +117,7 @@ export async function createCopilot(): Promise<void> {
       agentType,
       sessionName,
       name: nameInput.trim(),
+      agentCommand: getAgentCommand(agentType),
     });
 
     sendCopilotOnboarding(backend, copilotInfo.sessionName);
