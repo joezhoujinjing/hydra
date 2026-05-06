@@ -11,18 +11,18 @@ function main(): void {
     if (process.platform === 'win32') {
       assert.equal(
         plainCommand,
-        "psmux set-option -t 'repo_worker''s-task' mouse off *>$null",
+        "psmux set-option -t 'repo_worker''s-task' mouse on *>$null",
       );
     } else {
       assert.equal(
         plainCommand,
-        "tmux set-option -t 'repo_worker'\\''s-task' mouse off >/dev/null 2>&1 || true",
+        "tmux set-option -t 'repo_worker'\\''s-task' mouse on >/dev/null 2>&1 || true",
       );
 
       process.env.HYDRA_TMUX_SOCKET = 'hydra test socket';
       assert.equal(
         buildTmuxMouseScrollbackCommand('repo_worker'),
-        "tmux '-L' 'hydra test socket' set-option -t 'repo_worker' mouse off >/dev/null 2>&1 || true",
+        "tmux '-L' 'hydra test socket' set-option -t 'repo_worker' mouse on >/dev/null 2>&1 || true",
       );
     }
   } finally {
