@@ -267,6 +267,7 @@
     "compile": "tsc -p ./ && node scripts/postcompile.js",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
+    "verify:shell-quoting": "node scripts/verify-shell-quoting.js",
     "e2e:isolated": "node scripts/e2e-isolated-runner.js",
     "e2e:isolated:shell": "node scripts/e2e-isolated-runner.js --shell --keep",
     "smoke:tmux-attach": "node out/smoke/tmuxAttachSmoke.js",
