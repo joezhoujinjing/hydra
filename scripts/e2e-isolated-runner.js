@@ -153,6 +153,7 @@ function createIsolatedEnvironment(requestedRoot) {
   const shimBinDir = path.join(root, 'bin');
   const tmuxDir = path.join(hydraHome, 'tmux');
   const tmpDir = path.join(root, 'tmp');
+  const zdotdir = path.join(root, 'zdotdir');
   const vscodeUserDataDir = path.join(root, 'vscode-user-data');
   const vscodeUserDir = path.join(vscodeUserDataDir, 'User');
   const vscodeSettingsPath = path.join(vscodeUserDir, 'settings.json');
@@ -170,6 +171,7 @@ function createIsolatedEnvironment(requestedRoot) {
   ensureDir(shimBinDir);
   ensureDir(tmuxDir);
   ensureDir(tmpDir);
+  ensureDir(zdotdir);
   ensureDir(vscodeUserDir);
   ensureSymlink(path.join(homeDir, '.hydra'), hydraHome);
   ensureJsonFile(hydraConfigPath);
@@ -268,12 +270,42 @@ function createIsolatedEnvironment(requestedRoot) {
     ].join('\n'),
   );
 
+  const shellExports = [
+    `export HYDRA_HOME=${shellQuote(hydraHome)}`,
+    `export HYDRA_CONFIG_PATH=${shellQuote(hydraConfigPath)}`,
+    `export HYDRA_TMUX_SOCKET=${shellQuote(tmuxSocket)}`,
+    `export HYDRA_E2E_ROOT=${shellQuote(root)}`,
+    `export TMPDIR=${shellQuote(tmpDir)}`,
+    `export TMP=${shellQuote(tmpDir)}`,
+    `export TEMP=${shellQuote(tmpDir)}`,
+    `export PATH=${shellQuote([hydraBinDir, shimBinDir, process.env.PATH || ''].filter(Boolean).join(':'))}`,
+    'unset TMUX',
+    'unset TMUX_PANE',
+    '',
+  ].join('\n');
+
+  const zshInit = [
+    '# Hydra isolated shell init',
+    '[ -f "$HOME/.zshrc" ] && ZDOTDIR="$HOME" . "$HOME/.zshrc"',
+    shellExports,
+  ].join('\n');
+
+  const bashInit = [
+    '# Hydra isolated shell init',
+    '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"',
+    shellExports,
+  ].join('\n');
+
+  fs.writeFileSync(path.join(zdotdir, '.zshrc'), zshInit, 'utf8');
+  fs.writeFileSync(path.join(zdotdir, '.bashrc'), bashInit, 'utf8');
+
   const env = {
     ...process.env,
     HYDRA_HOME: hydraHome,
     HYDRA_CONFIG_PATH: hydraConfigPath,
     HYDRA_TMUX_SOCKET: tmuxSocket,
     HYDRA_E2E_ROOT: root,
+    ZDOTDIR: zdotdir,
     PATH: [hydraBinDir, shimBinDir, process.env.PATH || ''].filter(Boolean).join(':'),
     TMPDIR: tmpDir,
     TMP: tmpDir,
@@ -290,6 +322,7 @@ function createIsolatedEnvironment(requestedRoot) {
       `export HYDRA_CONFIG_PATH=${shellQuote(hydraConfigPath)}`,
       `export HYDRA_TMUX_SOCKET=${shellQuote(tmuxSocket)}`,
       `export HYDRA_E2E_ROOT=${shellQuote(root)}`,
+      `export ZDOTDIR=${shellQuote(zdotdir)}`,
       `export TMPDIR=${shellQuote(tmpDir)}`,
       `export TMP=${shellQuote(tmpDir)}`,
       `export TEMP=${shellQuote(tmpDir)}`,
@@ -306,6 +339,7 @@ function createIsolatedEnvironment(requestedRoot) {
     homeDir,
     hydraHome,
     hydraConfigPath,
+    zdotdir,
     tmuxSocket,
     vscodeUserDataDir,
     activateScript,

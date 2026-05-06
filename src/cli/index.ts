@@ -8,6 +8,7 @@ import { registerCopilotCommands } from './commands/copilot';
 import { registerArchiveCommands } from './commands/archive';
 import { registerDoctorCommand } from './commands/doctor';
 import { registerWhoamiCommand } from './commands/whoami';
+import { registerTestCommand } from './commands/test';
 
 const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
 
@@ -32,5 +33,6 @@ registerCopilotCommands(program);
 registerArchiveCommands(program);
 registerDoctorCommand(program);
 registerWhoamiCommand(program);
+registerTestCommand(program);
 
 program.parse();

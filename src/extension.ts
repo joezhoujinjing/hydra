@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { CopilotProvider, WorkerProvider, TmuxItem } from './providers/tmuxSessionProvider';
 import { attachCreate } from './commands/attachCreate';
+import { newTask } from './commands/newTask';
 import { removeTask } from './commands/removeTask';
 import { autoAttachOnStartup } from './commands/autoAttach';
 import {
@@ -33,6 +34,7 @@ export function activate(context: vscode.ExtensionContext) {
     copilotView,
     workerView,
     vscode.commands.registerCommand('tmux.attachCreate', attachCreate),
+    vscode.commands.registerCommand('hydra.createWorker', newTask),
     vscode.commands.registerCommand('tmux.removeTask', (item) => removeTask(item)),
     vscode.commands.registerCommand('tmux.refresh', () => { copilotProvider.refresh(); workerProvider.refresh(); }),
     vscode.commands.registerCommand('tmux.attach', attach),
