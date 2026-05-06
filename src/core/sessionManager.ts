@@ -14,6 +14,48 @@ const SESSION_STATE_LOCK_TIMEOUT_MS = 10000;
 const SESSION_STATE_LOCK_RETRY_MS = 50;
 const SESSION_STATE_LOCK_STALE_MS = 120000;
 
+/** Known symlink paths that git may convert to plain text files on Windows. */
+const KNOWN_SYMLINK_PATHS = [
+  '.claude/skills',
+  '.codex/skills',
+  '.gemini/skills',
+  '.sudocode/skills',
+];
+
+/**
+ * On Windows, git converts symlinks to plain text files containing the target path.
+ * This function detects those broken symlinks and replaces them with NTFS junctions
+ * (which don't require admin privileges).
+ */
+function fixWindowsSymlinks(worktreeDir: string): void {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  for (const relPath of KNOWN_SYMLINK_PATHS) {
+    const fullPath = path.join(worktreeDir, relPath);
+    try {
+      const stat = fs.lstatSync(fullPath);
+      if (!stat.isFile()) {
+        continue;
+      }
+      // Git writes the symlink target as the file content
+      const target = fs.readFileSync(fullPath, 'utf-8').trim();
+      if (!target) {
+        continue;
+      }
+      const resolvedTarget = path.resolve(path.dirname(fullPath), target);
+      if (!fs.existsSync(resolvedTarget)) {
+        continue;
+      }
+      fs.unlinkSync(fullPath);
+      fs.symlinkSync(resolvedTarget, fullPath, 'junction');
+    } catch {
+      // Best-effort — skip if anything goes wrong
+    }
+  }
+}
+
 /**
  * Look up a worker's numeric ID from sessions.json.
  * Lightweight standalone function — no SessionManager instance needed.
@@ -335,6 +377,10 @@ export class SessionManager {
 
     // Create worktree
     const worktreePath = await coreGit.addWorktree(repoRoot, branchName, finalSlug, baseBranch);
+
+    // On Windows, git converts symlinks to plain text files containing the target path.
+    // Replace them with NTFS junctions so they work without admin privileges.
+    fixWindowsSymlinks(worktreePath);
 
     let taskFilename: string | undefined;
     if (taskFile) {
