@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { exec } from './exec';
 import { getHydraConfigPath, getHydraHome, getTmuxCommand, toCanonicalPath } from './path';
 import { shellQuote, pwshQuote } from './shell';
@@ -280,11 +283,22 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
 
   async sendMessage(sessionName: string, message: string): Promise<void> {
     const tmuxCommand = getTmuxCommand();
-    // Send message text literally (without Enter) to avoid it being absorbed in bracketed paste
-    await exec(`${tmuxCommand} send-keys -l -t ${shellQuote(sessionName)} ${shellQuote(message)}`);
-    await new Promise(resolve => setTimeout(resolve, 100));
-    // Send Enter separately to submit
-    await exec(`${tmuxCommand} send-keys -t ${shellQuote(sessionName)} Enter`);
+    const bufferName = 'hydra-send';
+    // Write message to a temp file and load it into a tmux buffer.
+    // This avoids shell-quoting issues and ARG_MAX limits that cause
+    // send-keys -l to silently drop the trailing Enter on long or
+    // special-character-heavy messages.
+    const tmpFile = path.join(os.tmpdir(), `hydra-msg-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    try {
+      fs.writeFileSync(tmpFile, message);
+      await exec(`${tmuxCommand} load-buffer -b ${bufferName} ${shellQuote(tmpFile)}`);
+      await exec(`${tmuxCommand} paste-buffer -b ${bufferName} -t ${shellQuote(sessionName)} -d`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      // Send Enter separately to submit
+      await exec(`${tmuxCommand} send-keys -t ${shellQuote(sessionName)} Enter`);
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch { /* best-effort cleanup */ }
+    }
   }
 
   async getSessionInfo(sessionName: string): Promise<SessionStatusInfo> {
