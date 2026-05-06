@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.1] - 2026-05-06
+
+### Fixed
+- Detect agent CLIs reliably on Windows
+- Improve tmux mouse wheel scrolling behavior
+
 ## [0.2.0] - 2026-05-06
 
 ### Added
