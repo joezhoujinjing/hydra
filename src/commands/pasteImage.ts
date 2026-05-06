@@ -98,9 +98,12 @@ async function saveClipboardImage(): Promise<string | null> {
   if (platform === 'linux') {
     return saveClipboardImageLinux();
   }
+  if (platform === 'win32') {
+    return saveClipboardImageWindows();
+  }
 
   vscode.window.showInformationMessage(
-    'Clipboard image paste is currently supported on macOS and Linux only.'
+    'Clipboard image paste is currently supported on macOS, Linux, and Windows only.'
   );
   return null;
 }
@@ -489,6 +492,58 @@ async function saveClipboardImageLinux(): Promise<string | null> {
   }
 
   return null;
+}
+
+/**
+ * Windows: Use PowerShell to read clipboard image via System.Windows.Forms.
+ * Saves the clipboard image as a PNG file.
+ */
+async function saveClipboardImageWindows(): Promise<string | null> {
+  const tmpDir = path.join(os.tmpdir(), 'vscode-tmux-paste');
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+  const tmpFile = path.join(
+    tmpDir,
+    `clipboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
+  );
+
+  return new Promise((resolve) => {
+    const psScript = `
+Add-Type -AssemblyName System.Windows.Forms
+$img = [System.Windows.Forms.Clipboard]::GetImage()
+if ($img) {
+  $img.Save('${tmpFile.replace(/'/g, "''")}', [System.Drawing.Imaging.ImageFormat]::Png)
+  Write-Output 'OK'
+} else {
+  Write-Output 'NO_IMAGE'
+}
+`;
+    const proc = spawn('powershell', ['-NoProfile', '-Command', psScript]);
+    let stdout = '';
+
+    proc.stdout.on('data', (data: Buffer) => {
+      stdout += data.toString();
+    });
+
+    proc.on('close', (code: number | null) => {
+      if (code === 0 && stdout.trim() === 'OK') {
+        tempFiles.push(tmpFile);
+        resolve(tmpFile);
+      } else {
+        try {
+          fs.unlinkSync(tmpFile);
+        } catch {
+          // Ignore cleanup failure
+        }
+        resolve(null);
+      }
+    });
+
+    proc.on('error', () => {
+      resolve(null);
+    });
+  });
 }
 
 /**

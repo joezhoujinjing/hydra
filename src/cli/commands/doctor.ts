@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { execSync } from 'child_process';
 import { existsSync, mkdirSync, constants, accessSync } from 'fs';
-import { join } from 'path';
+import { join, delimiter } from 'path';
 import { getHydraBinDir, getHydraConfigPath, getHydraHome } from '../../core/path';
 import { type OutputOpts } from '../output';
 
@@ -18,7 +18,8 @@ const RESET = '\x1b[0m';
 
 function checkOnPath(cmd: string): boolean {
   try {
-    execSync(`which ${cmd}`, { stdio: 'pipe' });
+    const lookupCmd = process.platform === 'win32' ? 'where' : 'which';
+    execSync(`${lookupCmd} ${cmd}`, { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -53,17 +54,19 @@ export function registerDoctorCommand(program: Command): void {
       const hydraDir = getHydraHome();
       const hydraConfigPath = getHydraConfigPath();
       const hydraBinDir = getHydraBinDir();
-      const hydraBin = join(hydraBinDir, 'hydra');
+      const hydraBin = join(hydraBinDir, process.platform === 'win32' ? 'hydra.cmd' : 'hydra');
 
       // 1. git
       checks.push(checkOnPath('git')
         ? { name: 'git', status: 'pass', message: 'git is installed' }
         : { name: 'git', status: 'fail', message: 'git not found — install from https://git-scm.com' });
 
-      // 2. tmux
-      checks.push(checkOnPath('tmux')
-        ? { name: 'tmux', status: 'pass', message: 'tmux is installed' }
-        : { name: 'tmux', status: 'fail', message: 'tmux not found — install with: brew install tmux' });
+      // 2. tmux (not available on Windows)
+      if (process.platform !== 'win32') {
+        checks.push(checkOnPath('tmux')
+          ? { name: 'tmux', status: 'pass', message: 'tmux is installed' }
+          : { name: 'tmux', status: 'fail', message: 'tmux not found — install with: brew install tmux' });
+      }
 
       // 3. VS Code CLI
       checks.push(checkOnPath('code')
@@ -96,12 +99,15 @@ export function registerDoctorCommand(program: Command): void {
       }
 
       // 7. Hydra bin in PATH
-      const pathDirs = (process.env.PATH || '').split(':');
+      const pathDirs = (process.env.PATH || '').split(delimiter);
       const binInPath = pathDirs.some(d => d === hydraBinDir);
       if (binInPath) {
         checks.push({ name: 'hydra-path', status: 'pass', message: `${hydraBinDir} is in PATH` });
       } else {
-        checks.push({ name: 'hydra-path', status: 'warn', message: `${hydraBinDir} is not in PATH — add to your shell profile:\n    export PATH="${hydraBinDir}:$PATH"` });
+        const pathHint = process.platform === 'win32'
+          ? `$env:PATH = "${hydraBinDir};$env:PATH"`
+          : `export PATH="${hydraBinDir}:$PATH"`;
+        checks.push({ name: 'hydra-path', status: 'warn', message: `${hydraBinDir} is not in PATH — add to your shell profile:\n    ${pathHint}` });
       }
 
       // 8. GitHub CLI

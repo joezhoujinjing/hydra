@@ -149,5 +149,9 @@ export function buildAgentLaunchCommand(
 }
 
 function shellQuoteForDisplay(s: string): string {
+  if (process.platform === 'win32') {
+    // PowerShell double-quote escaping: escape backticks and double-quotes
+    return `"${s.replace(/[`"$]/g, '`$&')}"`;
+  }
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
