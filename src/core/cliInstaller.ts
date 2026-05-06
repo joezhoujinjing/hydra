@@ -4,10 +4,37 @@ import * as os from 'os';
 import { getDefaultHydraHome, getHydraBinDir, getHydraConfig, writeHydraConfig } from './path';
 
 function getWrapperPath(): string {
+  if (process.platform === 'win32') {
+    return path.join(getHydraBinDir(), 'hydra.cmd');
+  }
   return path.join(getHydraBinDir(), 'hydra');
 }
 
+function buildWrapperScriptWindows(): string {
+  return `@echo off
+setlocal EnableDelayedExpansion
+
+set "HYDRA_DEFAULT_HOME=%USERPROFILE%\\.hydra"
+if defined HYDRA_HOME (
+  set "HYDRA_HOME_DIR=%HYDRA_HOME%"
+) else (
+  set "HYDRA_HOME_DIR=%HYDRA_DEFAULT_HOME%"
+)
+
+if defined HYDRA_CONFIG_PATH (
+  set "CONFIG_PATH=%HYDRA_CONFIG_PATH%"
+) else (
+  set "CONFIG_PATH=%HYDRA_HOME_DIR%\\config.json"
+)
+
+node -e "const fs=require('fs'),path=require('path'),os=require('os');function expandHomeDir(p){if(p==='~')return os.homedir();if(p.startsWith('~/')||p.startsWith('~\\\\'))return path.join(os.homedir(),p.slice(2));return p}function resolveConfigPathValue(v,c){if(typeof v!=='string'||!v.trim())return undefined;const e=expandHomeDir(v.trim());const a=path.isAbsolute(e)?e:path.resolve(path.dirname(c),e);return path.normalize(a)}const configPath=process.env.HYDRA_CONFIG_PATH||path.join(process.env.HYDRA_HOME||path.join(os.homedir(),'.hydra'),'config.json');let cfg={};try{if(fs.existsSync(configPath))cfg=JSON.parse(fs.readFileSync(configPath,'utf8'))||{}}catch{}const extPath=typeof(cfg.cli||{}).extensionPath==='string'?cfg.cli.extensionPath:'';if(!extPath||!fs.existsSync(path.join(extPath,'out','cli','index.js'))){console.error('Error: Hydra VS Code extension not found. Open VS Code with Hydra installed.');process.exit(1)}const {spawnSync}=require('child_process');const r=spawnSync(process.execPath,[path.join(extPath,'out','cli','index.js'),...process.argv.slice(2)],{stdio:'inherit',env:{...process.env,HYDRA_HOME:process.env.HYDRA_HOME||path.join(os.homedir(),'.hydra'),HYDRA_CONFIG_PATH:configPath}});if(r.error){console.error(r.error.message);process.exit(1)}process.exit(typeof r.status==='number'?r.status:1)" %*
+`;
+}
+
 function buildWrapperScript(): string {
+  if (process.platform === 'win32') {
+    return buildWrapperScriptWindows();
+  }
   return `#!/bin/sh
 exec node - "$@" <<'NODE'
 const { spawnSync } = require('child_process');
@@ -118,7 +145,7 @@ export function installCli(extensionPath: string, version: string): { installed:
   // Create Hydra CLI directory.
   fs.mkdirSync(binDir, { recursive: true });
 
-  // Write wrapper script
+  // Write wrapper script (mode is ignored on Windows)
   fs.writeFileSync(getWrapperPath(), buildWrapperScript(), { encoding: 'utf-8', mode: 0o755 });
 
   const hydraConfig = getHydraConfig();
@@ -152,6 +179,30 @@ export function ensurePathInShellProfile(): ShellProfileStatus {
 
   const snippet = getShellConfigSnippet();
   const marker = '# Hydra CLI';
+
+  if (process.platform === 'win32') {
+    // On Windows, look for PowerShell profile paths
+    const candidates = [
+      path.join(os.homedir(), 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'),
+      path.join(os.homedir(), 'Documents', 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1'),
+    ];
+    for (const rc of candidates) {
+      const rcDir = path.dirname(rc);
+      if (!fs.existsSync(rcDir)) continue;
+      if (fs.existsSync(rc)) {
+        const content = fs.readFileSync(rc, 'utf-8');
+        if (content.includes(snippet) || content.includes(marker)) return 'already_present';
+        fs.appendFileSync(rc, `\n# Hydra CLI\n${snippet}\n`);
+        return 'added';
+      }
+    }
+    // Create the first profile directory and file
+    const profileDir = path.dirname(candidates[0]);
+    fs.mkdirSync(profileDir, { recursive: true });
+    fs.writeFileSync(candidates[0], `# Hydra CLI\n${snippet}\n`, 'utf-8');
+    return 'added';
+  }
+
   const candidates = [
     path.join(os.homedir(), '.zshrc'),
     path.join(os.homedir(), '.bashrc'),
@@ -181,5 +232,9 @@ export function isCliOnPath(): boolean {
 }
 
 export function getShellConfigSnippet(): string {
-  return `export PATH="${path.join(getDefaultHydraHome(), 'bin')}:$PATH"`;
+  const binDir = path.join(getDefaultHydraHome(), 'bin');
+  if (process.platform === 'win32') {
+    return `$env:PATH = "${binDir};$env:PATH"`;
+  }
+  return `export PATH="${binDir}:$PATH"`;
 }
