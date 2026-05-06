@@ -20,7 +20,17 @@ Release a new version of the Hydra VS Code extension by creating a release PR.
    node -p "require('./package.json').version"
    ```
 
-   Bump the patch number (e.g., 0.1.27 → 0.1.28) unless the user specifies a different bump type (minor/major).
+   Hydra uses the format `0.<minor>.<yyyyddmmhhmm>`:
+   - The **second digit** is the major small-release version. Bump it only when the user requests a "major small release" or when there is a schema/breaking change.
+   - The **patch** is a UTC timestamp `yyyyddmmhhmm` (year, day, month, hour, minute) generated at release time:
+
+     ```bash
+     date -u +%Y%d%m%H%M
+     ```
+
+   Default behavior: keep the current minor, set patch to the current `yyyyddmmhhmm`. If the user asks for a "major small release" bump (or this release contains a schema/breaking change), increment the minor and use the same timestamp for patch.
+
+   Note: the `0.2.x` line was the last to use a sequential patch counter. The first release on the timestamp scheme jumped to `0.3.<yyyyddmmhhmm>`.
 
 2. **Collect commits since last release**
 
