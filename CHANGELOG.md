@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.31] - 2026-05-06
+
+### Added
+- Add isolated Hydra end-to-end test plumbing and scenario runner support (#101, #103)
+
+### Changed
+- Add copilot lifecycle CLI support and Codex/Gemini skill symlinks (#95, #97)
+
+### Fixed
+- Serialize session state updates to avoid worker ID assignment races (#102)
+- Keep Codex bypass sessions working in isolated environments and limit `hydra whoami` to worker worktrees (#99, #100)
+
 ## [0.1.30] - 2026-05-05
 
 ### Added
