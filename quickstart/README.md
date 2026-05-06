@@ -1,6 +1,6 @@
 # Hydra Quickstart Demo
 
-One command. No repo risk. Hydra spins up a temporary sandbox, scaffolds a local demo project, and launches 3 parallel workers so you can see the full workflow in your first few minutes.
+One command. No repo risk. Hydra spins up a temporary sandbox, starts a copilot, and lets that copilot scaffold a local demo project plus 3 parallel workers.
 
 ## Run It
 
@@ -20,14 +20,14 @@ Optional: force a specific agent or reuse a sandbox root.
 The script:
 
 1. Boots `scripts/e2e-isolated-runner.js` and creates an isolated Hydra home under your OS temp directory.
-2. Scaffolds a local TypeScript calculator repo plus a local bare `origin` inside that sandbox.
-3. Installs demo dependencies and pushes `main` to the local remote.
-4. Spawns 3 parallel Hydra workers:
+2. Starts one copilot inside the sandbox.
+3. Hands that copilot a local-only quickstart task.
+4. The copilot creates a local TypeScript calculator repo plus a local bare `origin`.
+5. The copilot spawns 3 parallel Hydra workers:
    - `feat/core` implements the calculator core
    - `feat/cli` builds a Commander-based CLI
    - `feat/tests` writes Vitest coverage
-5. Polls until each worker has pushed its branch inside the sandbox.
-6. Prints the exact paths and follow-up commands to inspect the result.
+6. Prints the exact commands to inspect the copilot and worker sessions.
 
 ## What Gets Created
 
@@ -35,26 +35,28 @@ The run is isolated from your real Hydra home and your current repository.
 
 - `.../home` is the temporary HOME for the sandbox.
 - `.../hydra-home` holds the isolated Hydra state, tmux socket, and worktrees.
-- `.../playground/hydra-demo` is the demo repo you can inspect.
-- `.../playground/hydra-demo-origin.git` is the local bare remote used by the demo.
+- `.../playground` is the copilot work area.
+- `.../playground/hydra-demo` is the demo repo the copilot creates.
+- `.../playground/hydra-demo-origin.git` is the local bare remote the copilot creates.
 
 The sandbox root path is printed when the run starts and again in the final summary.
 
 ## Follow-Up Commands
 
-After the demo finishes, source the generated activation script so `hydra` points at the sandbox:
+After launch, source the generated activation script so `hydra` points at the sandbox:
 
 ```bash
 source /tmp/hydra-.../activate.sh
 hydra list --json
-git -C /tmp/hydra-.../playground/hydra-demo log --oneline --graph --all
+hydra copilot logs hydra-quickstart --lines 80
 ```
 
-To open the demo repo in VS Code with the isolated user-data directory:
+Once the copilot finishes scaffolding the demo repo, inspect it with:
 
 ```bash
 source /tmp/hydra-.../activate.sh
-code --extensionDevelopmentPath=. /tmp/hydra-.../playground/hydra-demo
+git -C /tmp/hydra-.../playground/hydra-demo log --oneline --graph --all
+code --extensionDevelopmentPath=. /tmp/hydra-.../playground
 ```
 
 ## Requirements
@@ -68,7 +70,7 @@ If the Hydra CLI build output is missing, the script runs `npm run compile` auto
 
 ## Cleanup
 
-The quickstart preserves the sandbox by default so you can inspect the worktrees and logs.
+The quickstart preserves the sandbox by default so you can inspect the copilot, worktrees, and logs.
 
 When you are done:
 
@@ -86,6 +88,7 @@ Delete workers one at a time if you want the sidebar state to stay responsive.
 | Issue | Fix |
 |-------|-----|
 | No agent is detected | Re-run with `--agent <name>` or install one of `codex`, `claude`, `gemini` |
+| The copilot seems idle | `source <sandbox>/activate.sh` then run `hydra copilot logs hydra-quickstart --lines 80` |
 | A worker stalls | `source <sandbox>/activate.sh` then run `hydra worker logs <session> --lines 80` |
 | You want a clean rerun in the same sandbox | Re-run with the same `--root`; the script resets the isolated Hydra state first |
 | The CLI build is missing | Run `npm install && npm run compile`, then re-run the quickstart |

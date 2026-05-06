@@ -79,7 +79,7 @@ Want a safe, self-contained tour before pointing Hydra at a real repository?
 ./quickstart/run.sh
 ```
 
-The quickstart boots a temporary isolated Hydra home, scaffolds a local demo repository inside that sandbox, and launches 3 parallel workers against it. No GitHub repo setup required. See [quickstart/README.md](quickstart/README.md) for the full flow.
+The quickstart boots a temporary isolated Hydra home, starts a copilot inside that sandbox, and lets the copilot scaffold a local demo repository plus 3 parallel workers. No GitHub repo setup required. See [quickstart/README.md](quickstart/README.md) for the full flow.
 
 ---
 
