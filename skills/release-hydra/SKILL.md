@@ -14,36 +14,12 @@ Release a new version of the Hydra VS Code extension by creating a release PR.
 
 ## Steps
 
-1. **Determine the current version and next version**
+1. **Determine the next version**
 
-   ```bash
-   node -p "require('./package.json').version"
-   ```
+   Format: `0.<minor>.<yyyymmddNN>` (UTC date + 2-digit in-day counter).
 
-   Hydra uses the format `0.<minor>.<yyyymmddNN>`:
-   - The **second digit** is the major small-release version. Bump it only when the user requests a "major small release" or when there is a schema/breaking change.
-   - The **patch** is `<yyyymmdd><NN>` — today's UTC date followed by a 2-digit in-day counter. `NN` starts at `00` for the first release of the day and increments for each subsequent release that same day.
-
-   Compute the next patch:
-
-   ```bash
-   TODAY=$(date -u +%Y%m%d)
-   CURRENT=$(node -p "require('./package.json').version")
-   CURRENT_MINOR=$(echo "$CURRENT" | cut -d. -f2)
-   CURRENT_PATCH=$(echo "$CURRENT" | cut -d. -f3)
-   # If today's date matches the current patch's date prefix AND the minor is unchanged,
-   # increment the counter; otherwise reset to 00.
-   if [ "${CURRENT_PATCH:0:8}" = "$TODAY" ] && [ "$CURRENT_MINOR" = "<target-minor>" ]; then
-     NN=$(printf "%02d" $((10#${CURRENT_PATCH:8:2} + 1)))
-   else
-     NN="00"
-   fi
-   echo "0.<target-minor>.${TODAY}${NN}"
-   ```
-
-   Default behavior: keep the current minor, set patch as above. If the user asks for a "major small release" bump (or this release contains a schema/breaking change), increment the minor and reset `NN` to `00`.
-
-   Note: the `0.2.x` line was the last to use a sequential patch counter. The first release on the date scheme jumped to `0.3.<yyyymmdd>00`.
+   - Patch: today's `yyyymmdd` + `NN` — `00` for the first release of the day, else increment from the current patch's `NN`.
+   - Minor: bump only on schema/breaking changes (resets `NN` to `00`). The `0.3.x` line is the first on this scheme.
 
 2. **Collect commits since last release**
 
