@@ -50,7 +50,7 @@ interface ActiveIsolatedEnvironment {
 interface ActiveTestEnvironment {
   isolated: ActiveIsolatedEnvironment;
   repoRoot: string;
-  repoName: string;
+  repositoryFullName: string;
 }
 
 interface SessionFileWorkerEntry {
@@ -77,6 +77,7 @@ interface ArchiveState {
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const ISOLATED_RUNNER_PATH = path.join(REPO_ROOT, 'scripts', 'e2e-isolated-runner.js');
+const DEFAULT_E2E_REPOSITORY_NAME = 'hydra-e2e-shared';
 const TEST_PREFIX = 'test-e2e-';
 const SCENARIO_TIMEOUT_MS = 5 * 60 * 1000;
 const POLL_INTERVAL_MS = 5000;
@@ -175,6 +176,53 @@ async function checkPrerequisites(): Promise<void> {
   } catch {
     throw new Error('Prerequisite failed: gh is not authenticated. Run: gh auth login');
   }
+}
+
+function getConfiguredE2ERepository(): string {
+  return process.env.HYDRA_E2E_REPOSITORY?.trim() || DEFAULT_E2E_REPOSITORY_NAME;
+}
+
+async function getE2ERepositoryFullName(): Promise<string> {
+  const configuredRepository = getConfiguredE2ERepository();
+  if (configuredRepository.includes('/')) {
+    return configuredRepository;
+  }
+
+  const login = await exec('gh api user --jq .login');
+  return `${login}/${configuredRepository}`;
+}
+
+async function githubRepositoryExists(repositoryFullName: string): Promise<boolean> {
+  try {
+    await exec(`gh repo view ${shellQuote(repositoryFullName)} --json nameWithOwner >/dev/null`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function prepareE2ERepository(cloneRoot: string): Promise<{ repositoryFullName: string; repoRoot: string }> {
+  const repositoryFullName = await getE2ERepositoryFullName();
+  const repoDirName = repositoryFullName.split('/').pop() || DEFAULT_E2E_REPOSITORY_NAME;
+  const repoRoot = path.join(cloneRoot, repoDirName);
+  const exists = await githubRepositoryExists(repositoryFullName);
+
+  if (exists) {
+    await exec(
+      `gh repo clone ${shellQuote(repositoryFullName)} ${shellQuote(repoDirName)}`,
+      { cwd: cloneRoot },
+    );
+  } else {
+    await exec(
+      `gh repo create ${shellQuote(repositoryFullName)} --private --add-readme --clone`,
+      { cwd: cloneRoot },
+    );
+  }
+
+  await exec('git config user.email "test@hydra.dev"', { cwd: repoRoot });
+  await exec('git config user.name "Hydra E2E"', { cwd: repoRoot });
+
+  return { repositoryFullName, repoRoot };
 }
 
 function captureManagedEnv(): Record<ManagedEnvKey, string | undefined> {
@@ -285,27 +333,20 @@ async function setupTestEnvironment(): Promise<ActiveTestEnvironment> {
   await checkPrerequisites();
 
   const isolated = bootstrapIsolatedEnvironment();
-  const repoName = `hydra-e2e-${generateId()}`;
   const tempRoot = path.join(isolated.context.root, 'tmp');
-  const repoRoot = path.join(tempRoot, repoName);
 
   try {
-    await exec(`gh repo create ${repoName} --private --add-readme --clone`, {
-      cwd: tempRoot,
-    });
-    await exec('git config user.email "test@hydra.dev"', { cwd: repoRoot });
-    await exec('git config user.name "Hydra E2E"', { cwd: repoRoot });
+    const { repositoryFullName, repoRoot } = await prepareE2ERepository(tempRoot);
+    return {
+      isolated,
+      repoRoot,
+      repositoryFullName,
+    };
   } catch (error) {
     restoreManagedEnv(isolated.previousEnv);
     cleanupIsolatedEnvironment(isolated.context.root);
     throw error;
   }
-
-  return {
-    isolated,
-    repoRoot,
-    repoName,
-  };
 }
 
 function launchExtensionDevHost(workspacePath: string): void {
@@ -330,12 +371,6 @@ async function teardownTestEnvironment(): Promise<void> {
       await exec('tmux kill-server');
     } catch {
       // The isolated tmux server may already be gone.
-    }
-
-    try {
-      await exec(`gh repo delete ${environment.repoName} --yes`);
-    } catch {
-      // Best-effort cleanup for remote repositories.
     }
   } finally {
     restoreManagedEnv(environment.isolated.previousEnv);
