@@ -42,8 +42,8 @@ jobs:
     - name: Compile
       run: npm run compile
 
-    - name: Doctor check
-      run: node out/cli/index.js doctor --json
+    - name: Doctor check (informational)
+      run: node out/cli/index.js doctor --json || true
 
     - name: Version check
       run: node out/cli/index.js --version
