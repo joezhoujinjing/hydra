@@ -94,6 +94,13 @@ function isTmuxNoServerError(error: unknown): boolean {
     || (text.includes('error connecting to') && text.includes('no such file or directory'));
 }
 
+function isTmuxMissingSessionError(error: unknown): boolean {
+  const text = getExecFailureText(error).toLowerCase();
+  return text.includes(`can't find session`)
+    || text.includes('no such session')
+    || text.includes('session not found');
+}
+
 export class TmuxUnavailableError extends Error {
   constructor(message: string) {
     super(message);
@@ -155,8 +162,11 @@ export class TmuxBackendCore implements MultiplexerBackendCore {
       const tmuxCommand = getTmuxCommand();
       await exec(`${tmuxCommand} has-session -t ${shellQuote(sessionName)}`);
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if (isTmuxNoServerError(error) || isTmuxMissingSessionError(error)) {
+        return false;
+      }
+      throw new TmuxUnavailableError(`Unable to inspect tmux session "${sessionName}": ${getExecFailureText(error)}`);
     }
   }
 

@@ -421,9 +421,7 @@ export class SessionManager {
   }
 
   async deleteWorker(sessionName: string): Promise<void> {
-    try {
-      await this.backend.killSession(sessionName);
-    } catch { /* Already dead */ }
+    await this.killSessionOrConfirmAbsent(sessionName);
 
     const worker = this.readSessionState().workers[sessionName];
 
@@ -930,6 +928,26 @@ export class SessionManager {
         },
       );
     });
+  }
+
+  private async killSessionOrConfirmAbsent(sessionName: string): Promise<void> {
+    try {
+      await this.backend.killSession(sessionName);
+      return;
+    } catch (error) {
+      let hasLiveSession: boolean;
+      try {
+        hasLiveSession = await this.backend.hasSession(sessionName);
+      } catch {
+        throw error;
+      }
+
+      if (!hasLiveSession) {
+        return;
+      }
+
+      throw error;
+    }
   }
 
   private archiveEntry(
