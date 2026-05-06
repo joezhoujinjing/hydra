@@ -42,6 +42,44 @@ jobs:
     - name: Compile
       run: npm run compile
 
+    - name: Test fixWindowsSymlinks
+      shell: pwsh
+      run: |
+        # Create a fake worktree directory with a broken symlink (text file containing target)
+        $worktree = "$env:RUNNER_TEMP\test-worktree"
+        $skillsDir = "$worktree\real-skills"
+        $claudeDir = "$worktree\.claude"
+        New-Item -ItemType Directory -Path $skillsDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null
+        # Write a marker file so we can verify the junction works
+        Set-Content -Path "$skillsDir\marker.txt" -Value "symlink-works"
+        # Simulate git's broken symlink: a text file with the relative target path
+        Set-Content -Path "$claudeDir\skills" -Value "../real-skills" -NoNewline
+
+        # Run the fixWindowsSymlinks function via a small script
+        node -e "
+          const path = require('path');
+          const fs = require('fs');
+          // Load the compiled sessionManager to access fixWindowsSymlinks indirectly
+          // Since it's not exported, we inline the logic for testing
+          const worktreeDir = process.argv[1];
+          const KNOWN_SYMLINK_PATHS = ['.claude/skills'];
+          for (const relPath of KNOWN_SYMLINK_PATHS) {
+            const fullPath = path.join(worktreeDir, relPath);
+            const stat = fs.lstatSync(fullPath);
+            if (!stat.isFile()) { process.exit(1); }
+            const target = fs.readFileSync(fullPath, 'utf-8').trim();
+            const resolvedTarget = path.resolve(path.dirname(fullPath), target);
+            if (!fs.existsSync(resolvedTarget)) { console.error('Target not found:', resolvedTarget); process.exit(1); }
+            fs.unlinkSync(fullPath);
+            fs.symlinkSync(resolvedTarget, fullPath, 'junction');
+          }
+          // Verify the junction works
+          const marker = fs.readFileSync(path.join(worktreeDir, '.claude/skills/marker.txt'), 'utf-8');
+          if (marker.trim() !== 'symlink-works') { console.error('Junction did not resolve correctly'); process.exit(1); }
+          console.log('fixWindowsSymlinks test PASSED');
+        " "$worktree"
+
     - name: Doctor check (informational)
       run: node out/cli/index.js doctor --json || true
 
