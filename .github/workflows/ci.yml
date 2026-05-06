@@ -81,9 +81,12 @@ jobs:
     - name: Test fixWindowsSymlinks (real worktree clone)
       shell: pwsh
       run: |
-        # Clone the repo fresh (symlinks will become text files on Windows)
+        $ErrorActionPreference = "Stop"
+
+        # Clone the repo with core.symlinks=false to simulate typical Windows behavior
+        # (GitHub Actions runners have Developer Mode enabled, so we must force this)
         $cloneDir = "$env:RUNNER_TEMP\hydra-clone"
-        git clone --no-symlinks https://github.com/joezhoujinjing/hydra.git $cloneDir
+        git clone -c core.symlinks=false https://github.com/joezhoujinjing/hydra.git $cloneDir
 
         # Show what git created for the symlink files (should be regular text files)
         Write-Host "=== Before fix: .codex/skills is a file containing target path ==="
@@ -91,7 +94,7 @@ jobs:
         Get-Content "$cloneDir\.codex\skills"
         Write-Host ""
 
-        # Create a worktree from the clone
+        # Create a worktree from the clone (also inherits core.symlinks=false)
         Set-Location $cloneDir
         git worktree add "$cloneDir\.hydra\worktrees\test-wt" -b test-wt-branch HEAD
 
