@@ -4,12 +4,27 @@ import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
 import { getRepoRootFromPath, localBranchExists } from '../../core/git';
 import { toCanonicalPath, resolveAgentSessionFile } from '../../core/path';
+import { isRegistryManagedPath, resolveRepoIdentifier } from '../../core/repoRegistry';
 import { outputResult, outputError, type OutputOpts } from '../output';
 import { detectCurrentTmuxIdentity, detectIdentity, getWorkerCreationBlockedMessage } from '../identity';
 import { getTelemetry, normalizeAgentForTelemetry } from '../../core/telemetry';
 
 function expandPath(p: string): string {
   return toCanonicalPath(p) || path.resolve(p);
+}
+
+/**
+ * Resolve a `--repo` value to an absolute path.
+ *  - `<owner>/<name>`          → managed clone under ~/.hydra/repos/...
+ *  - absolute path or `~/...`  → expanded as-is (backward compat)
+ *  - URL                        → resolveRepoIdentifier throws with a helpful message
+ */
+function resolveRepoArg(input: string): string {
+  const trimmed = input.trim();
+  if (path.isAbsolute(trimmed) || trimmed.startsWith('~')) {
+    return expandPath(trimmed);
+  }
+  return resolveRepoIdentifier(trimmed);
 }
 
 export function registerWorkerCommands(program: Command): void {
@@ -43,8 +58,9 @@ export function registerWorkerCommands(program: Command): void {
           throw new Error(getWorkerCreationBlockedMessage(identity));
         }
 
-        const repoPath = expandPath(opts.repo);
+        const repoPath = resolveRepoArg(opts.repo);
         const repoRoot = await getRepoRootFromPath(repoPath);
+        const isManagedRepo = isRegistryManagedPath(repoRoot);
 
         // Check if branch exists before create to detect resume
         const branchExisted = await localBranchExists(repoRoot, opts.branch);
@@ -68,6 +84,7 @@ export function registerWorkerCommands(program: Command): void {
           task: opts.task,
           taskFile: opts.taskFile,
           copilotSessionName,
+          fetchMode: isManagedRepo ? 'required' : 'best-effort',
         });
 
         const status = branchExisted ? 'exists' : 'created';

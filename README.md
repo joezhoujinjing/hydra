@@ -106,6 +106,56 @@ A Copilot is your tech lead. It doesn't need a worktree; it lives in your curren
 
 ---
 
+## Repo registry
+
+Tired of cloning a repo by hand, writing down its absolute path, and
+hoping you remembered to pull `main` before spawning a worker? Register
+it once, then refer to it by its `<owner>/<name>`:
+
+```bash
+hydra repo add joezhoujinjing/hydra
+hydra worker create --repo joezhoujinjing/hydra --branch feat/foo
+```
+
+Hydra clones the repo into `~/.hydra/repos/<owner>/<name>/` and treats
+that directory as a clean mirror of `origin/main`. Every `worker create`
+runs `git fetch origin` first, so workers always branch off the latest
+remote — no more "I forgot to pull" drift.
+
+```text
+~/.hydra/
+├── repos/
+│   └── joezhoujinjing/
+│       └── hydra/          ← managed clone (always clean)
+└── worktrees/
+    └── <repo-id>/<slug>/   ← per-worker worktree
+```
+
+### Commands
+
+```bash
+hydra repo add <identifier>     # joezhoujinjing/hydra | https://github.com/... | git@github.com:...
+hydra repo list                 # show registered repos and last-fetched time
+hydra repo fetch <owner/name>   # git fetch origin in the managed clone
+hydra repo fetch --all          # refresh every registered repo
+hydra repo remove <owner/name>  # delete the clone (refuses if worktrees exist; --force to bypass)
+```
+
+### Backward compatibility
+
+`--repo <abs-path>` still works exactly as before. Use the registry for
+new repos and keep your existing dev clones untouched:
+
+```bash
+hydra worker create --repo /Users/me/code/legacy --branch fix/x   # still fine
+```
+
+The registry is currently GitHub-only (https + ssh URLs and the short
+`<owner>/<name>` form). PR B will move worker worktrees under the
+managed clone (`~/.hydra/worktrees/<owner>/<name>/<slug>/`); for now
+they continue to live at the existing path. See [DESIGN.md](DESIGN.md)
+for the full design and open questions.
+
 ## Reference & Documentation
 
 - [**AGENTS.md**](AGENTS.md) — The full "Agent Operating Manual" (CLI reference, internal architecture, and advanced config).

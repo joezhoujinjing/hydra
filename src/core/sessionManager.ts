@@ -148,6 +148,12 @@ export interface CreateWorkerOpts {
   copilotSessionName?: string;
   /** Existing persisted identity to preserve when restoring an archived worker. */
   preservedWorkerInfo?: WorkerInfo;
+  /**
+   * Pre-create fetch behaviour:
+   *   'best-effort' — default, swallow errors (used for ad-hoc abs-path repos)
+   *   'required'    — error out if fetch fails (used for ~/.hydra/repos/-managed repos)
+   */
+  fetchMode?: 'best-effort' | 'required';
 }
 
 export interface CreateCopilotOpts {
@@ -355,8 +361,14 @@ export class SessionManager {
 
     const preservedWorker = opts.preservedWorkerInfo ? savedWorker : undefined;
 
-    // Fetch latest from remote before creating worktree
-    await coreGit.fetchOrigin(repoRoot);
+    // Fetch latest from remote before creating worktree.
+    // Registry-managed repos (~/.hydra/repos/...) demand an up-to-date mirror,
+    // so we surface fetch failures instead of swallowing them silently.
+    if (opts.fetchMode === 'required') {
+      await coreGit.fetchOriginRequired(repoRoot);
+    } else {
+      await coreGit.fetchOrigin(repoRoot);
+    }
 
     // Detect base branch
     const baseBranch = await coreGit.getBaseBranchFromRepo(repoRoot, opts.baseBranchOverride);
