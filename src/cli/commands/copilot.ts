@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
 import { toCanonicalPath, resolveAgentSessionFile } from '../../core/path';
-import { isRegistryManagedPath, resolveRepoIdentifier } from '../../core/repoRegistry';
+import { resolveRepoInput } from '../../core/repoRegistry';
 import { fetchOriginRequired } from '../../core/git';
 import { outputResult, outputError, type OutputOpts } from '../output';
 import { getTelemetry, normalizeAgentForTelemetry } from '../../core/telemetry';
@@ -53,11 +53,9 @@ export function registerCopilotCommands(program: Command): void {
 
         let workdir: string;
         if (opts.repo) {
-          const trimmed = opts.repo.trim();
-          workdir = (path.isAbsolute(trimmed) || trimmed.startsWith('~'))
-            ? expandPath(trimmed)
-            : resolveRepoIdentifier(trimmed);
-          if (isRegistryManagedPath(workdir)) {
+          const resolved = resolveRepoInput(opts.repo);
+          workdir = resolved.path;
+          if (resolved.isManaged) {
             await fetchOriginRequired(workdir);
           }
         } else {

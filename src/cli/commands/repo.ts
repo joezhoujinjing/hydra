@@ -112,8 +112,10 @@ export function registerRepoCommands(program: Command): void {
               return;
             }
           } else {
+            // --no-interactive lands here too (it's what flips `interactive` to
+            // false on a non-TTY), so don't recommend it back to the user.
             throw new Error(
-              'Refusing to remove without confirmation. Pass --yes (or run with --json/--no-interactive) to proceed.',
+              'Refusing to remove without confirmation. Pass --yes to proceed.',
             );
           }
         }

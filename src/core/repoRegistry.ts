@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from './exec';
 import { shellQuote } from './shell';
-import { getHydraReposRoot } from './path';
+import { getHydraReposRoot, toCanonicalPath } from './path';
 import { listWorktrees } from './git';
 
 export interface ParsedRepoIdentifier {
@@ -57,11 +57,31 @@ export function parseRepoIdentifier(input: string): ParsedRepoIdentifier {
   );
 }
 
+/**
+ * Path components that would either resolve outside the registry root
+ * (`.`, `..`, any pure-dot string) or collide with git internals (`.git`).
+ * Rejecting these closes a path-traversal hole: `parseRepoIdentifier("fake/..")`
+ * would otherwise resolve `getRegistryRepoPath("fake", "..")` to the registry
+ * root itself, and `add`/`remove` would operate on it.
+ */
+const UNSAFE_REPO_COMPONENTS = new Set(['.', '..', '.git']);
+
+function isUnsafeRepoComponent(value: string): boolean {
+  if (UNSAFE_REPO_COMPONENTS.has(value)) return true;
+  if (/^\.+$/.test(value)) return true;
+  return false;
+}
+
 function makeParsed(ownerRaw: string, nameRaw: string): ParsedRepoIdentifier {
   const owner = ownerRaw.trim();
   const name = nameRaw.replace(/\.git$/i, '').trim();
   if (!owner || !name) {
     throw new Error('Repo identifier owner and name must be non-empty.');
+  }
+  if (isUnsafeRepoComponent(owner) || isUnsafeRepoComponent(name)) {
+    throw new Error(
+      `Repo identifier "${owner}/${name}" contains an unsafe path component (".", "..", ".git" not allowed).`,
+    );
   }
   return {
     owner,
@@ -98,6 +118,9 @@ export function isRegistryManagedPath(repoPath: string): boolean {
  *   <owner>/<name>     → ~/.hydra/repos/<owner>/<name>/ (must be registered)
  *   <abs-path>         → returned unchanged (backward compat for existing clones)
  *   <git URL>          → throws — caller must run `hydra repo add` first
+ *
+ * NOTE: this helper does NOT route relative paths like `.` or `./foo`. Use
+ * resolveRepoInput() for end-to-end CLI dispatch (path vs identifier).
  */
 export function resolveRepoIdentifier(input: string): string {
   const trimmed = (input ?? '').trim();
@@ -125,11 +148,83 @@ export function resolveRepoIdentifier(input: string): string {
 }
 
 /**
+ * Decide whether a `--repo` value is a filesystem path or a registry identifier.
+ *
+ * Path-like (skip registry parsing, just expand to absolute):
+ *   - absolute paths (`/foo`, `\\server\share`)
+ *   - home-relative (`~`, `~/foo`)
+ *   - explicit relatives (`.`, `..`, `./foo`, `../foo`, `.\\foo`, `..\\foo`)
+ *   - dotfile/dotdir prefixes (`.foo` — treated as path so `--repo .` etc. keep working)
+ *   - Windows drive letters (`C:\\foo`, `D:/bar`)
+ *
+ * Everything else is treated as a registry identifier (short form / URL).
+ *
+ * This rule is what makes the legacy `hydra worker create --repo . --branch foo`
+ * flow keep working alongside the new short-form `--repo joezhoujinjing/hydra`.
+ */
+export function looksLikePathInput(input: string): boolean {
+  const trimmed = (input ?? '').trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('.')) return true;
+  if (trimmed.startsWith('/')) return true;
+  if (trimmed.startsWith('\\')) return true;
+  if (trimmed.startsWith('~')) return true;
+  if (/^[A-Za-z]:[\\/]/.test(trimmed)) return true;
+  return false;
+}
+
+export interface ResolvedRepoInput {
+  /** Absolute filesystem path the input resolved to. */
+  path: string;
+  /** True iff path lives under ~/.hydra/repos/ (caller should require fetch). */
+  isManaged: boolean;
+}
+
+/**
+ * Single dispatch point for `--repo` arguments shared by worker and copilot
+ * create. Routes path-like inputs straight to `path.resolve` and registry
+ * identifiers through `resolveRepoIdentifier`.
+ */
+export function resolveRepoInput(input: string): ResolvedRepoInput {
+  const trimmed = (input ?? '').trim();
+  if (!trimmed) {
+    throw new Error('--repo is required.');
+  }
+
+  let resolvedPath: string;
+  if (looksLikePathInput(trimmed)) {
+    resolvedPath = toCanonicalPath(trimmed) || path.resolve(trimmed);
+  } else {
+    resolvedPath = resolveRepoIdentifier(trimmed);
+  }
+
+  return {
+    path: resolvedPath,
+    isManaged: isRegistryManagedPath(resolvedPath),
+  };
+}
+
+export interface AddRepoOptions {
+  /**
+   * Override the clone URL git will fetch from. Used by tests to drive against
+   * a local file:// origin so the smoke test can exercise the real clone path
+   * without network. Production callers must leave this unset — the canonical
+   * GitHub URL derived from <owner>/<name> is the right thing for users.
+   */
+  cloneUrl?: string;
+}
+
+/**
  * Clone <owner>/<name> into ~/.hydra/repos/<owner>/<name>/ if not already present.
  * Idempotent: if the clone target already exists, returns alreadyExisted=true.
+ *
+ * On clone failure, removes any partial directory git left behind so the next
+ * `repo add` call doesn't trip over "destination path ... already exists and
+ * is not empty".
  */
 export async function addRepo(
   input: string,
+  opts: AddRepoOptions = {},
 ): Promise<{ parsed: ParsedRepoIdentifier; path: string; alreadyExisted: boolean }> {
   const parsed = parseRepoIdentifier(input);
   const repoPath = getRegistryRepoPath(parsed.owner, parsed.name);
@@ -141,9 +236,20 @@ export async function addRepo(
   const ownerDir = path.dirname(repoPath);
   fs.mkdirSync(ownerDir, { recursive: true });
 
-  await exec(
-    `git clone ${shellQuote(parsed.cloneUrl)} ${shellQuote(repoPath)}`,
-  );
+  const cloneUrl = opts.cloneUrl || parsed.cloneUrl;
+
+  try {
+    await exec(
+      `git clone ${shellQuote(cloneUrl)} ${shellQuote(repoPath)}`,
+    );
+  } catch (error) {
+    try {
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup. The original error is what the caller cares about.
+    }
+    throw error;
+  }
 
   return { parsed, path: repoPath, alreadyExisted: false };
 }

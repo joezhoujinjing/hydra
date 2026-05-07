@@ -1,31 +1,12 @@
-import * as path from 'path';
 import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
 import { getRepoRootFromPath, localBranchExists } from '../../core/git';
-import { toCanonicalPath, resolveAgentSessionFile } from '../../core/path';
-import { isRegistryManagedPath, resolveRepoIdentifier } from '../../core/repoRegistry';
+import { resolveAgentSessionFile } from '../../core/path';
+import { resolveRepoInput } from '../../core/repoRegistry';
 import { outputResult, outputError, type OutputOpts } from '../output';
 import { detectCurrentTmuxIdentity, detectIdentity, getWorkerCreationBlockedMessage } from '../identity';
 import { getTelemetry, normalizeAgentForTelemetry } from '../../core/telemetry';
-
-function expandPath(p: string): string {
-  return toCanonicalPath(p) || path.resolve(p);
-}
-
-/**
- * Resolve a `--repo` value to an absolute path.
- *  - `<owner>/<name>`          → managed clone under ~/.hydra/repos/...
- *  - absolute path or `~/...`  → expanded as-is (backward compat)
- *  - URL                        → resolveRepoIdentifier throws with a helpful message
- */
-function resolveRepoArg(input: string): string {
-  const trimmed = input.trim();
-  if (path.isAbsolute(trimmed) || trimmed.startsWith('~')) {
-    return expandPath(trimmed);
-  }
-  return resolveRepoIdentifier(trimmed);
-}
 
 export function registerWorkerCommands(program: Command): void {
   const worker = program
@@ -58,12 +39,12 @@ export function registerWorkerCommands(program: Command): void {
           throw new Error(getWorkerCreationBlockedMessage(identity));
         }
 
-        const repoPath = resolveRepoArg(opts.repo);
-        // Decide registry-managed-ness from the *resolved* (pre-rev-parse) path.
-        // git rev-parse --show-toplevel realpath-resolves the path, which would
-        // turn /var/folders/.../.hydra/repos/... into /private/var/.../.hydra/repos/...
-        // on macOS and miss the comparison against ~/.hydra/repos/.
-        const isManagedRepo = isRegistryManagedPath(repoPath);
+        // Single dispatch helper: handles short-form, abs paths, and explicit
+        // relative paths (`.`, `./foo`, `../foo`). Decides managed-ness against
+        // the resolved (pre-rev-parse) path so the macOS /var → /private/var
+        // realpath flip in `git rev-parse --show-toplevel` doesn't defeat the
+        // comparison against ~/.hydra/repos/.
+        const { path: repoPath, isManaged: isManagedRepo } = resolveRepoInput(opts.repo);
         const repoRoot = await getRepoRootFromPath(repoPath);
 
         // Check if branch exists before create to detect resume

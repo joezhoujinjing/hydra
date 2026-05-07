@@ -44,12 +44,33 @@ Three input forms are accepted:
 | Input form | Behavior |
 | --- | --- |
 | `joezhoujinjing/hydra` | **Recommended.** Resolves to `~/.hydra/repos/joezhoujinjing/hydra/`. Errors with "Run: hydra repo add ..." if not registered. |
-| `/Users/me/code/hydra` | **Backward-compat.** Used as-is. Existing workflows keep working. |
+| `/Users/me/code/hydra`, `.`, `./foo`, `../foo`, `~/foo` | **Backward-compat.** Used as-is. Existing workflows keep working — `hydra worker create --repo . --branch foo` from a clone is still the natural path-based form. |
 | `https://github.com/...` | Rejected with a hint to run `hydra repo add <url>` first. |
 
 Short-form is the canonical default we want users (and agents) to reach
-for. Absolute paths remain supported because lots of people already have
+for. Filesystem paths remain supported because lots of people already have
 "main" clones they actively develop in.
+
+### Path-vs-identifier dispatch rule
+
+`resolveRepoInput()` decides path-vs-identifier with this rule:
+
+> An input is path-like if it starts with `.`, `/`, `\\`, `~`, or matches a
+> Windows drive-letter prefix (`C:\…`, `D:/…`). Otherwise it's a registry
+> identifier and goes through `resolveRepoIdentifier`.
+
+Path-like inputs are routed straight through `path.resolve` (with `~`
+expansion) and never reach the registry parser. That's what keeps `--repo .`
+working while still letting short-form `<owner>/<name>` mean
+"managed clone."
+
+### Path-component safety
+
+Owner and name are restricted to `[A-Za-z0-9._-]+` plus a deny-list of
+unsafe components: `.`, `..`, `.git`, and any pure-dot string (`.`, `..`,
+`...`, …). Without this guard, `parseRepoIdentifier("fake/..")` would
+resolve `getRegistryRepoPath("fake", "..")` to `~/.hydra/repos` itself and
+`add`/`remove` would operate on the registry root.
 
 ## Why a directory layout, not a JSON registry?
 

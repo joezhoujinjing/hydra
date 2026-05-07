@@ -9,9 +9,11 @@ import {
   isRegisteredRepo,
   isRegistryManagedPath,
   listRegisteredRepos,
+  looksLikePathInput,
   parseRepoIdentifier,
   removeRepo,
   resolveRepoIdentifier,
+  resolveRepoInput,
 } from '../core/repoRegistry';
 
 interface SubTest {
@@ -96,6 +98,42 @@ test('parseRepoIdentifier: rejects malformed input', () => {
   assert.throws(() => parseRepoIdentifier('foo/bar/baz'), /Could not parse/i);
 });
 
+// ── Path traversal: `.`, `..`, `.git`, pure-dot strings must be rejected ──
+// Otherwise getRegistryRepoPath("fake", "..") would resolve to ~/.hydra/repos
+// itself, and add/remove would operate on the registry root.
+
+test('parseRepoIdentifier: rejects "foo/.." (path traversal)', () => {
+  assert.throws(() => parseRepoIdentifier('foo/..'), /unsafe path component/i);
+});
+
+test('parseRepoIdentifier: rejects "../foo" (path traversal)', () => {
+  // This first fails the SHORT_FORM_RE because a leading `..` is not an owner;
+  // either parse failure OR the unsafe-component guard is acceptable.
+  assert.throws(() => parseRepoIdentifier('../foo'), /unsafe path component|Could not parse/i);
+});
+
+test('parseRepoIdentifier: rejects "./foo"', () => {
+  assert.throws(() => parseRepoIdentifier('./foo'), /unsafe path component|Could not parse/i);
+});
+
+test('parseRepoIdentifier: rejects "foo/.git"', () => {
+  // ".git" → strips trailing .git → empty name → caught earlier.
+  // We still want to make sure this never silently maps to <owner>/.git.
+  assert.throws(() => parseRepoIdentifier('foo/.git'), /non-empty|unsafe path component/i);
+});
+
+test('parseRepoIdentifier: rejects "foo/."', () => {
+  assert.throws(() => parseRepoIdentifier('foo/.'), /unsafe path component/i);
+});
+
+test('parseRepoIdentifier: rejects "./."', () => {
+  assert.throws(() => parseRepoIdentifier('./.'), /unsafe path component|Could not parse/i);
+});
+
+test('parseRepoIdentifier: rejects pure-dot owner "..../foo"', () => {
+  assert.throws(() => parseRepoIdentifier('..../foo'), /unsafe path component/i);
+});
+
 // ── resolveRepoIdentifier ──
 
 test('resolveRepoIdentifier: absolute path passes through unchanged', () => {
@@ -132,52 +170,155 @@ test('resolveRepoIdentifier: URL throws with helpful message', () => {
   }
 });
 
-// ── addRepo / listRegisteredRepos / fetchRepo / removeRepo ──
+// ── looksLikePathInput / resolveRepoInput: the BC dispatch rule ──
 
-test('addRepo: clones, lists, refetches, and is idempotent', async () => {
+test('looksLikePathInput: classifies path-like inputs', () => {
+  // Path-like
+  assert.equal(looksLikePathInput('.'), true);
+  assert.equal(looksLikePathInput('..'), true);
+  assert.equal(looksLikePathInput('./foo'), true);
+  assert.equal(looksLikePathInput('../foo'), true);
+  assert.equal(looksLikePathInput('.foo'), true);
+  assert.equal(looksLikePathInput('/abs/path'), true);
+  assert.equal(looksLikePathInput('~/foo'), true);
+  assert.equal(looksLikePathInput('C:\\foo'), true);
+  assert.equal(looksLikePathInput('D:/bar'), true);
+  // Identifier-like
+  assert.equal(looksLikePathInput('foo/bar'), false);
+  assert.equal(looksLikePathInput('joezhoujinjing/hydra'), false);
+  assert.equal(looksLikePathInput('https://github.com/foo/bar'), false);
+  assert.equal(looksLikePathInput('git@github.com:foo/bar.git'), false);
+  // Edge cases
+  assert.equal(looksLikePathInput(''), false);
+  assert.equal(looksLikePathInput('   '), false);
+});
+
+test('resolveRepoInput: "." resolves to cwd (BC: --repo . from a git repo)', () => {
+  const env = setupHydraHome();
+  try {
+    const result = resolveRepoInput('.');
+    assert.equal(result.path, path.resolve('.'));
+    assert.equal(result.isManaged, false);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('resolveRepoInput: "./foo" resolves relative to cwd', () => {
+  const env = setupHydraHome();
+  try {
+    const result = resolveRepoInput('./some-subdir');
+    assert.equal(result.path, path.resolve('./some-subdir'));
+    assert.equal(result.isManaged, false);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('resolveRepoInput: abs path classified as path, isManaged=false when outside repos root', () => {
+  const env = setupHydraHome();
+  try {
+    const result = resolveRepoInput('/tmp/some-repo');
+    assert.equal(result.path, '/tmp/some-repo');
+    assert.equal(result.isManaged, false);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('resolveRepoInput: registered short-form returns managed path with isManaged=true', () => {
   const env = setupHydraHome();
   const origin = makeFakeGitOrigin();
   try {
-    // Use the URL directly so we can verify clone success without hitting the network.
-    // parseRepoIdentifier rejects file:// URLs, so register manually using the lower-level helpers
-    // by spoofing as fake/local.
-    const fakeOwner = 'fake';
-    const fakeName = 'local';
     const reposRoot = path.join(process.env.HYDRA_HOME!, 'repos');
-    const repoPath = path.join(reposRoot, fakeOwner, fakeName);
+    const repoPath = path.join(reposRoot, 'fake', 'local');
     fs.mkdirSync(path.dirname(repoPath), { recursive: true });
     execSync(`git clone -q "${origin.dir}" "${repoPath}"`);
 
-    assert.ok(isRegisteredRepo(fakeOwner, fakeName), 'repo should be registered after manual clone');
-    assert.equal(resolveRepoIdentifier(`${fakeOwner}/${fakeName}`), repoPath);
+    const result = resolveRepoInput('fake/local');
+    assert.equal(result.path, repoPath);
+    assert.equal(result.isManaged, true);
+  } finally {
+    origin.cleanup();
+    env.cleanup();
+  }
+});
+
+test('resolveRepoInput: short-form path-traversal attempts are rejected', () => {
+  const env = setupHydraHome();
+  try {
+    assert.throws(() => resolveRepoInput('foo/..'), /unsafe path component/i);
+    assert.throws(() => resolveRepoInput('foo/.git'), /non-empty|unsafe path component/i);
+  } finally {
+    env.cleanup();
+  }
+});
+
+// ── addRepo / listRegisteredRepos / fetchRepo / removeRepo ──
+
+test('addRepo: clones via real CLI path against local origin (no network)', async () => {
+  const env = setupHydraHome();
+  const origin = makeFakeGitOrigin();
+  try {
+    // Drive addRepo's real clone branch using the cloneUrl override — exercises
+    // exec('git clone ...') end-to-end without ever touching github.com.
+    const result = await addRepo('fake/local', { cloneUrl: origin.dir });
+    assert.equal(result.alreadyExisted, false);
+    assert.equal(result.parsed.canonical, 'fake/local');
+    assert.ok(fs.existsSync(path.join(result.path, '.git')));
+    assert.ok(isRegisteredRepo('fake', 'local'));
+    assert.equal(resolveRepoIdentifier('fake/local'), result.path);
 
     const repos = listRegisteredRepos();
     assert.equal(repos.length, 1);
-    assert.equal(repos[0].canonical, `${fakeOwner}/${fakeName}`);
+    assert.equal(repos[0].canonical, 'fake/local');
 
-    // addRepo on an already-cloned repo is a no-op (returns alreadyExisted=true).
-    // We can't reach the GitHub URL parser path with a file:// origin, so test
-    // idempotency via the lower-level entry point.
-    const result = await addRepo(`${fakeOwner}/${fakeName}`).catch(err => err);
-    // addRepo would attempt to clone from https://github.com/fake/local.git, which
-    // doesn't exist — but only if not already-existed. Since the dir exists, it
-    // must short-circuit to alreadyExisted=true without touching the network.
-    if (result instanceof Error) {
-      throw new Error(`addRepo should be idempotent for existing clone, got: ${result.message}`);
-    }
-    assert.equal(result.alreadyExisted, true);
-    assert.equal(result.path, repoPath);
+    // Idempotency: second addRepo no-ops because the directory already exists,
+    // regardless of whether the override is passed.
+    const second = await addRepo('fake/local', { cloneUrl: origin.dir });
+    assert.equal(second.alreadyExisted, true);
+    assert.equal(second.path, result.path);
 
-    // fetchRepo against the file:// origin (was set as origin during clone).
-    await fetchRepo(fakeOwner, fakeName);
-
-    // After fetch, FETCH_HEAD exists.
+    // Fetch against the local origin.
+    await fetchRepo('fake', 'local');
     const refreshed = listRegisteredRepos();
     assert.equal(refreshed[0].lastFetchedAt !== null, true, 'lastFetchedAt should be set after fetch');
 
-    // removeRepo without force: clone is bare clone with only the main worktree, so it succeeds.
-    await removeRepo(`${fakeOwner}/${fakeName}`, { force: true });
-    assert.equal(isRegisteredRepo(fakeOwner, fakeName), false);
+    await removeRepo('fake/local', { force: true });
+    assert.equal(isRegisteredRepo('fake', 'local'), false);
+  } finally {
+    origin.cleanup();
+    env.cleanup();
+  }
+});
+
+test('addRepo: cleans up partial directory when clone fails', async () => {
+  const env = setupHydraHome();
+  const origin = makeFakeGitOrigin();
+  try {
+    const reposRoot = path.join(process.env.HYDRA_HOME!, 'repos');
+    const repoPath = path.join(reposRoot, 'fake', 'partial');
+
+    // First add against a bogus origin → clone fails. Without the cleanup fix,
+    // git would leave a partial directory behind (even on EARLY failure of
+    // "destination path ... already exists" if it pre-created the parent dir).
+    await assert.rejects(
+      addRepo('fake/partial', { cloneUrl: '/this/path/does/not/exist' }),
+      /Command failed|fatal|repository/,
+    );
+    // The repoPath itself must NOT exist after a failed clone, so the next
+    // addRepo doesn't trip "destination path ... already exists and is not
+    // empty".
+    assert.equal(
+      fs.existsSync(repoPath),
+      false,
+      'partial clone directory must be cleaned up on failure',
+    );
+
+    // Second add with a valid override succeeds — proves the cleanup unblocked it.
+    const result = await addRepo('fake/partial', { cloneUrl: origin.dir });
+    assert.equal(result.alreadyExisted, false);
+    assert.ok(fs.existsSync(path.join(result.path, '.git')));
   } finally {
     origin.cleanup();
     env.cleanup();
