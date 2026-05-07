@@ -78,11 +78,17 @@ async function main(): Promise<void> {
   sm['injectCompletionHook'](fakeWorktree, 'codex', hookInfo);
   const codexConfig = JSON.parse(fs.readFileSync(path.join(fakeWorktree, '.codex', 'hooks.json'), 'utf-8'));
   assert.ok(codexConfig.hooks?.Stop, 'Codex config should have Stop hook');
+  assert.equal(codexConfig.hooks.Stop[0].hooks[0].type, 'command');
+  // Verify codex_hooks feature flag is enabled in config.toml
+  const codexToml = fs.readFileSync(path.join(fakeWorktree, '.codex', 'config.toml'), 'utf-8');
+  assert.ok(codexToml.includes('codex_hooks = true'), 'Codex config.toml should enable hooks feature flag');
 
   // Gemini
   sm['injectCompletionHook'](fakeWorktree, 'gemini', hookInfo);
   const geminiConfig = JSON.parse(fs.readFileSync(path.join(fakeWorktree, '.gemini', 'settings.json'), 'utf-8'));
   assert.ok(geminiConfig.hooks?.AfterAgent, 'Gemini config should have AfterAgent hook');
+  assert.equal(geminiConfig.hooks.AfterAgent[0].matcher, '*', 'Gemini hook should have matcher: "*"');
+  assert.equal(geminiConfig.hooks.AfterAgent[0].hooks[0].type, 'command');
 
   // Custom (should produce no config)
   sm['injectCompletionHook'](fakeWorktree, 'custom', hookInfo);

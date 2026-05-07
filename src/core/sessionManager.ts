@@ -1266,12 +1266,14 @@ export class SessionManager {
             'Stop',
             { hooks: [{ type: 'command', command: hookCommand }] },
           );
+          // Codex requires the codex_hooks feature flag to be enabled
+          this.ensureCodexHooksEnabled(path.join(worktreePath, '.codex', 'config.toml'));
           break;
         case 'gemini':
           this.mergeAgentHookConfig(
             path.join(worktreePath, '.gemini', 'settings.json'),
             'AfterAgent',
-            { hooks: [{ type: 'command', command: hookCommand }] },
+            { matcher: '*', hooks: [{ type: 'command', command: hookCommand }] },
           );
           break;
         // custom: no known hook system — skip
@@ -1301,6 +1303,24 @@ export class SessionManager {
     config.hooks[eventName].push(hookEntry);
 
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  }
+
+  private ensureCodexHooksEnabled(configTomlPath: string): void {
+    fs.mkdirSync(path.dirname(configTomlPath), { recursive: true });
+
+    const featureLine = 'codex_hooks = true';
+    if (fs.existsSync(configTomlPath)) {
+      const content = fs.readFileSync(configTomlPath, 'utf-8');
+      if (content.includes(featureLine)) return; // already enabled
+      // Append the feature flag
+      fs.writeFileSync(
+        configTomlPath,
+        content.trimEnd() + '\n\n[features]\n' + featureLine + '\n',
+        'utf-8',
+      );
+    } else {
+      fs.writeFileSync(configTomlPath, '[features]\n' + featureLine + '\n', 'utf-8');
+    }
   }
 
   private buildNotifyScript(info: {
