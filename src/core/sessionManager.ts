@@ -492,21 +492,30 @@ export class SessionManager {
 
     const worker = this.readSessionState().workers[sessionName];
 
-    // Archive before removing
-    if (worker) {
-      this.archiveEntry('worker', worker.sessionName, worker.sessionId, worker);
-    }
-
     if (worker && worker.workdir && worker.repoRoot && fs.existsSync(worker.workdir)) {
       try {
         await coreGit.removeWorktree(worker.repoRoot, worker.workdir);
-      } catch { /* Force removal fallback */ }
+      } catch (error) {
+        await this.updateSessionState((state) => {
+          if (state.workers[sessionName]) {
+            state.workers[sessionName].status = 'stopped';
+            state.workers[sessionName].attached = false;
+            state.updatedAt = new Date().toISOString();
+          }
+        });
+        throw error;
+      }
 
       if (worker.branch) {
         try {
           await exec(`git branch -D ${shellQuote(worker.branch)}`, { cwd: worker.repoRoot });
         } catch { /* Branch may not exist */ }
       }
+    }
+
+    // Archive only after destructive cleanup has succeeded, so failed deletes remain retryable.
+    if (worker) {
+      this.archiveEntry('worker', worker.sessionName, worker.sessionId, worker);
     }
 
     await this.updateSessionState((state) => {
