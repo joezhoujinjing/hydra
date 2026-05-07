@@ -1,0 +1,192 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { exec } from './exec';
+import { getHydraSessionsFile, getTmuxCommand, toCanonicalPath } from './path';
+import { shellQuote } from './shell';
+
+export interface HydraIdentity {
+  role: 'worker' | 'copilot';
+  sessionName: string;
+  displayName: string;
+  agent: string;
+  sessionId: string | null;
+  workdir: string;
+  /** Worker-specific fields */
+  workerId?: number;
+  branch?: string;
+  repo?: string;
+  copilotSessionName?: string | null;
+}
+
+interface RawSession {
+  sessionName?: string;
+  displayName?: string;
+  agent?: string;
+  sessionId?: string | null;
+  workdir?: string;
+  status?: string;
+  workerId?: number;
+  branch?: string;
+  repo?: string;
+  copilotSessionName?: string | null;
+}
+
+interface RawSessionState {
+  copilots?: Record<string, RawSession>;
+  workers?: Record<string, RawSession>;
+}
+
+function isInsidePath(candidate: string, parent: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function readSessionState(): RawSessionState | null {
+  try {
+    const sessionsFile = getHydraSessionsFile();
+    if (!fs.existsSync(sessionsFile)) return null;
+    return JSON.parse(fs.readFileSync(sessionsFile, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function buildCopilotIdentity(copilot: RawSession): HydraIdentity {
+  return {
+    role: 'copilot',
+    sessionName: copilot.sessionName || '',
+    displayName: copilot.displayName || copilot.sessionName || '',
+    agent: copilot.agent || 'unknown',
+    sessionId: copilot.sessionId ?? null,
+    workdir: copilot.workdir || '',
+  };
+}
+
+function buildWorkerIdentity(worker: RawSession): HydraIdentity {
+  return {
+    role: 'worker',
+    sessionName: worker.sessionName || '',
+    displayName: worker.displayName || worker.sessionName || '',
+    agent: worker.agent || 'unknown',
+    sessionId: worker.sessionId ?? null,
+    workdir: worker.workdir || '',
+    workerId: worker.workerId,
+    branch: worker.branch,
+    repo: worker.repo,
+    copilotSessionName: worker.copilotSessionName ?? null,
+  };
+}
+
+function findBestMatch(cwd: string, state: RawSessionState): HydraIdentity | null {
+  let bestIdentity: HydraIdentity | null = null;
+  let bestDepth = -1;
+
+  const consider = (identity: HydraIdentity): void => {
+    if (!identity.workdir) return;
+    const workdir = toCanonicalPath(identity.workdir) || path.resolve(identity.workdir);
+    if (!isInsidePath(cwd, workdir)) return;
+
+    const depth = workdir.length;
+    if (depth > bestDepth) {
+      bestIdentity = { ...identity, workdir: identity.workdir };
+      bestDepth = depth;
+    }
+  };
+
+  for (const copilot of Object.values(state.copilots || {})) {
+    consider(buildCopilotIdentity(copilot));
+  }
+
+  for (const worker of Object.values(state.workers || {})) {
+    consider(buildWorkerIdentity(worker));
+  }
+
+  return bestIdentity;
+}
+
+export function detectIdentityBySessionName(sessionName: string): HydraIdentity | null {
+  const state = readSessionState();
+  if (!state) return null;
+
+  for (const worker of Object.values(state.workers || {})) {
+    if (worker.sessionName === sessionName) {
+      return buildWorkerIdentity(worker);
+    }
+  }
+
+  for (const copilot of Object.values(state.copilots || {})) {
+    if (copilot.sessionName === sessionName) {
+      return buildCopilotIdentity(copilot);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Lightweight identity detection — reads sessions.json (no tmux sync)
+ * and matches cwd against known session workdirs.
+ * Returns null if not running inside a known Hydra session.
+ */
+export function detectIdentity(cwd?: string): HydraIdentity | null {
+  const dir = toCanonicalPath(cwd || process.cwd()) || path.resolve(cwd || process.cwd());
+  const state = readSessionState();
+  if (!state) return null;
+
+  return findBestMatch(dir, state);
+}
+
+async function getCurrentTmuxSessionName(): Promise<string | null> {
+  if (!process.env.TMUX && process.platform !== 'win32') {
+    return null;
+  }
+
+  try {
+    const tmuxCommand = getTmuxCommand();
+    const sessionName = await exec(`${tmuxCommand} display-message -p '#S'`);
+    return sessionName.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function detectCurrentTmuxMetadataIdentity(sessionName: string): Promise<HydraIdentity | null> {
+  try {
+    const tmuxCommand = getTmuxCommand();
+    const role = await exec(`${tmuxCommand} show-options -qv -t ${shellQuote(sessionName)} @hydra-role`);
+    if (role !== 'worker' && role !== 'copilot') {
+      return null;
+    }
+
+    const [workdir, agent] = await Promise.all([
+      exec(`${tmuxCommand} show-options -qv -t ${shellQuote(sessionName)} @workdir`).catch(() => ''),
+      exec(`${tmuxCommand} show-options -qv -t ${shellQuote(sessionName)} @hydra-agent`).catch(() => ''),
+    ]);
+
+    return {
+      role,
+      sessionName,
+      displayName: sessionName,
+      agent: agent || 'unknown',
+      sessionId: null,
+      workdir,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function detectCurrentTmuxIdentity(): Promise<HydraIdentity | null> {
+  const sessionName = await getCurrentTmuxSessionName();
+  if (!sessionName) return null;
+
+  return detectIdentityBySessionName(sessionName)
+    || await detectCurrentTmuxMetadataIdentity(sessionName);
+}
+
+export function getWorkerCreationBlockedMessage(identity: HydraIdentity): string {
+  const parent = identity.role === 'worker' && identity.copilotSessionName
+    ? ` Ask parent copilot "${identity.copilotSessionName}" to create the worker instead.`
+    : ' Ask the parent copilot to create the worker instead.';
+  return `Hydra workers cannot create other workers directly.${parent}`;
+}

@@ -66,6 +66,7 @@ export function classifyError(message: string): number {
     lower.includes('invalid branch name') ||
     lower.includes('required option') ||
     lower.includes('missing required') ||
+    lower.includes('workers cannot create other workers') ||
     lower.includes('validation')
   ) {
     return EXIT_VALIDATION;
