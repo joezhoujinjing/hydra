@@ -9,6 +9,7 @@ import { registerArchiveCommands } from './commands/archive';
 import { registerDoctorCommand } from './commands/doctor';
 import { registerWhoamiCommand } from './commands/whoami';
 import { registerTestCommand } from './commands/test';
+import { peekTelemetry } from '../core/telemetry';
 
 const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
 
@@ -26,6 +27,26 @@ if (!process.stdout.isTTY) {
   program.setOptionValue('json', true);
   program.setOptionValue('interactive', false);
 }
+
+let telemetryFlushed = false;
+process.on('beforeExit', async () => {
+  if (telemetryFlushed) {
+    return;
+  }
+  // Only flush if the command actually instantiated the telemetry client.
+  // Help-only paths and read-only commands never call getTelemetry(), so
+  // they never create ~/.hydra/anonymous-id or print the first-run notice.
+  const client = peekTelemetry();
+  if (!client) {
+    return;
+  }
+  telemetryFlushed = true;
+  try {
+    await client.flush();
+  } catch {
+    // never let telemetry crash the CLI
+  }
+});
 
 registerListCommand(program);
 registerWorkerCommands(program);

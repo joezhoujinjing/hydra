@@ -4,6 +4,7 @@ import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
 import { toCanonicalPath } from '../../core/path';
 import { outputResult, outputError, type OutputOpts } from '../output';
+import { getTelemetry, normalizeAgentForTelemetry } from '../../core/telemetry';
 
 function expandPath(p: string): string {
   const canonical = toCanonicalPath(p);
@@ -53,6 +54,10 @@ export function registerCopilotCommands(program: Command): void {
           sessionName,
         });
 
+        getTelemetry().capture('copilot_created', {
+          agent: normalizeAgentForTelemetry(finalCopilot.agent),
+        });
+
         outputResult(
           {
             status: 'created',
@@ -84,6 +89,8 @@ export function registerCopilotCommands(program: Command): void {
         const backend = new TmuxBackendCore();
         const sm = new SessionManager(backend);
         await sm.deleteCopilot(validatedSessionName);
+
+        getTelemetry().capture('copilot_deleted');
 
         outputResult(
           { status: 'deleted', session: validatedSessionName },
