@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { promises as fsPromises } from 'fs';
 import * as path from 'path';
+import { PostHog } from 'posthog-node';
 import { getHydraHome } from './path';
 
 type ErrnoLike = Error & { code?: string };
@@ -20,6 +21,11 @@ export interface TelemetryBackend {
 const ANONYMOUS_ID_FILENAME = 'anonymous-id';
 const TELEMETRY_LOG_FILENAME = 'telemetry.log';
 const DEFAULT_TIMEOUT_MS = 500;
+// Hard cap on how long TelemetryClient.flush() will await the backend's
+// flush()/shutdown(). A hung HTTP request must never keep the CLI alive
+// past this window; the bounded race below races the backend against an
+// unref'd timer, so process exit is not blocked even if the network stalls.
+const FLUSH_TIMEOUT_MS = 1500;
 const TELEMETRY_README_URL = 'https://github.com/joezhoujinjing/hydra#telemetry';
 
 const FIRST_RUN_NOTICE =
@@ -168,23 +174,93 @@ export class ConsoleBackend implements TelemetryBackend {
   }
 }
 
-// TODO(telemetry-backend): swap this stub for a real implementation once we
-// pick a provider in PR review (PostHog cloud / self-host / Mixpanel / ...).
-// The real backend MUST honor the AbortSignal — abort outstanding HTTP
-// requests when the dispatch timeout fires so we never keep the CLI alive.
-// Do NOT add network code or install posthog-node here yet.
+// PostHog project ingest key. PostHog "phc_" project keys are write-only,
+// public ingestion tokens — same security model as Mixpanel tokens or Sentry
+// DSNs — and are designed to be embedded in distributed clients.
+const POSTHOG_PROJECT_API_KEY = 'phc_wciwVJJYnCTrYiKJtroBkFyDF8xLh6giLZQjhpQ67Dky';
+const POSTHOG_DEFAULT_HOST = 'https://us.i.posthog.com';
+
+interface PostHogClientLike {
+  capture(props: { distinctId: string; event: string; properties?: Record<string, unknown> }): void;
+  flush(): Promise<void>;
+  // posthog-node@5 exposes a public `shutdown()` that drains the queue,
+  // cancels in-flight retries, and tears down resources — the recommended
+  // call for short-lived processes. We prefer it when available and fall
+  // back to flush() so test doubles only need to implement one of the two.
+  shutdown?(shutdownTimeoutMs?: number): Promise<void>;
+}
+
+export type PostHogClientFactory = (apiKey: string, host: string) => PostHogClientLike;
+
+export interface PostHogBackendOptions {
+  apiKey?: string;
+  host?: string;
+  clientFactory?: PostHogClientFactory;
+}
+
 export class PostHogBackend implements TelemetryBackend {
-  capture(_event: string, _properties: TelemetryProperties, _signal?: AbortSignal): void {
-    void _event;
-    void _properties;
-    // TODO: when implementing, pass _signal through to the HTTP client so
-    // that timeouts cancel in-flight requests instead of leaking.
+  private readonly apiKey: string;
+  private readonly host: string;
+  private readonly clientFactory: PostHogClientFactory;
+  private client: PostHogClientLike | null = null;
+
+  constructor(options: PostHogBackendOptions = {}) {
+    this.apiKey = options.apiKey ?? process.env.HYDRA_POSTHOG_API_KEY ?? POSTHOG_PROJECT_API_KEY;
+    this.host = options.host ?? process.env.HYDRA_POSTHOG_HOST ?? POSTHOG_DEFAULT_HOST;
+    this.clientFactory = options.clientFactory ?? defaultPostHogClientFactory;
+  }
+
+  capture(event: string, properties: TelemetryProperties, _signal?: AbortSignal): void {
+    // posthog-node@5 does not accept an AbortSignal on capture() — capture is
+    // synchronous enqueue + async background flush. The TelemetryClient
+    // wrapper still bounds total wait via its 500ms timeout, so a stuck
+    // network request cannot keep the CLI alive past flush().
     void _signal;
+    try {
+      const client = this.ensureClient();
+      const { anonymous_id, ...rest } = properties as { anonymous_id?: unknown } & TelemetryProperties;
+      const distinctId = typeof anonymous_id === 'string' && anonymous_id ? anonymous_id : 'anonymous';
+      client.capture({ distinctId, event, properties: rest });
+    } catch {
+      // never throw from a backend
+    }
   }
 
   async flush(): Promise<void> {
-    // TODO: drain the in-memory event queue when the real backend lands.
+    if (!this.client) {
+      return;
+    }
+    try {
+      if (typeof this.client.shutdown === 'function') {
+        await this.client.shutdown();
+      } else {
+        await this.client.flush();
+      }
+    } catch {
+      // best-effort
+    }
   }
+
+  private ensureClient(): PostHogClientLike {
+    if (!this.client) {
+      this.client = this.clientFactory(this.apiKey, this.host);
+    }
+    return this.client;
+  }
+}
+
+function defaultPostHogClientFactory(apiKey: string, host: string): PostHogClientLike {
+  // CLI-tuned config: every event matters and we exit fast, so disable
+  // batching (flushAt: 1) and the periodic timer (flushInterval: 0) so a
+  // single explicit flush() drains the queue without leaving a refed timer
+  // that would prevent process exit. requestTimeout caps each underlying
+  // HTTP request so a stalled network can't outlive the wrapper race.
+  return new PostHog(apiKey, {
+    host,
+    flushAt: 1,
+    flushInterval: 0,
+    requestTimeout: FLUSH_TIMEOUT_MS,
+  });
 }
 
 export interface TelemetryClientOptions {
@@ -212,9 +288,7 @@ export function selectBackend(): TelemetryBackend {
   if (process.env.HYDRA_TELEMETRY_DEBUG === '1') {
     return new ConsoleBackend();
   }
-  // No real backend wired up yet — default to NullBackend until a provider
-  // is chosen in PR review. After that lands, switch this to PostHogBackend.
-  return new NullBackend();
+  return new PostHogBackend();
 }
 
 export class TelemetryClient {
@@ -251,8 +325,16 @@ export class TelemetryClient {
       await Promise.allSettled(pending);
     }
     if (this.backend.flush) {
+      // Race the backend's flush against an unref'd timer so a hung HTTP
+      // request can never keep the CLI alive past FLUSH_TIMEOUT_MS. If the
+      // timer wins, the in-flight request is left to drain in the
+      // background; the unref means it won't block process exit.
+      const timeoutPromise = new Promise<void>(resolve => {
+        const timer = setTimeout(resolve, FLUSH_TIMEOUT_MS);
+        timer.unref?.();
+      });
       try {
-        await this.backend.flush();
+        await Promise.race([Promise.resolve(this.backend.flush()), timeoutPromise]);
       } catch {
         // never propagate — flush is best-effort
       }

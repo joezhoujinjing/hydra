@@ -133,11 +133,16 @@ Hydra ships with an anonymous telemetry framework so we can understand which fea
 - Session names or session IDs.
 - Hostname, username, IP, MAC address, or any other PII.
 
+**Where events go**
+- Events are sent to [PostHog Cloud (US)](https://us.i.posthog.com) via the `posthog-node` SDK. The project's ingest API key is embedded in the build — PostHog `phc_` project keys are write-only, public ingestion tokens (same security model as Mixpanel project tokens or Sentry DSNs) and are intended to ship inside distributed clients.
+
 **Opt out**
 - Set `HYDRA_TELEMETRY=0` (or `off`) in your environment. No events will be sent and no anonymous ID will be created.
-- Inspect events locally with `HYDRA_TELEMETRY_DEBUG=1`, which writes JSON-line events to `~/.hydra/telemetry.log` instead of sending them anywhere.
+- Inspect events locally with `HYDRA_TELEMETRY_DEBUG=1`, which writes JSON-line events to `~/.hydra/telemetry.log` instead of sending them anywhere. This overrides the PostHog backend and keeps every event on disk.
 
-The current release ships with the framework only — no events leave your machine until a backend is wired up in a follow-up PR.
+**Override the destination**
+- `HYDRA_POSTHOG_API_KEY=<your-key>` — point Hydra at a different PostHog project (e.g. self-hosted PostHog, or a test project for verification).
+- `HYDRA_POSTHOG_HOST=<https://...>` — change the ingest host (defaults to `https://us.i.posthog.com`; use `https://eu.i.posthog.com` for EU cloud or your self-hosted URL).
 
 ## License
 [MIT](LICENSE.md) — Built with ❤️ for the future of AI-native development.
