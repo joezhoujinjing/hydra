@@ -1,11 +1,57 @@
 import * as vscode from 'vscode';
 import { getRepoRoot } from '../utils/git';
 import { getActiveBackend } from '../utils/multiplexer';
-import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem } from '../providers/tmuxSessionProvider';
+import { InactiveWorktreeItem, InactiveDetailItem, TmuxItem, TmuxSessionItem } from '../providers/tmuxSessionProvider';
 import { createRepoSessionPrefixConfig, isWorkdirInRepo } from '../utils/sessionCompatibility';
 import { SessionManager } from '../core/sessionManager';
 import { TmuxBackendCore } from '../core/tmux';
 import { ensureBackendInstalled } from './ensureBackendInstalled';
+
+/**
+ * Open a VS Code terminal that runs `ssh -t <host> tmux attach -t <session>`
+ * for a remote worker. Hydra speaks plain ssh — the alias must already work
+ * (`~/.ssh/config` / `gcloud compute config-ssh`). If the host is unreachable
+ * the terminal will simply show the ssh stderr and exit.
+ *
+ * Windows: the published Hydra extension targets darwin/linux for now; on
+ * win32 we fall back to PowerShell which can also exec `ssh ...` directly,
+ * so the same shape works.
+ */
+function attachRemoteSession(host: string, sessionName: string): vscode.Terminal {
+  // Single-quote the session name for the remote shell. Host is never quoted —
+  // ssh treats it as an opaque alias and accepts at most user@host syntax,
+  // neither of which contains shell metacharacters in practice.
+  const escSession = sessionName.replace(/'/g, "'\\''");
+  const remoteCmd = `tmux attach -t '${escSession}'`;
+  const sshArgs = [
+    '-t',
+    '-o', 'ServerAliveInterval=10',
+    '-o', 'ServerAliveCountMax=3',
+    host,
+    remoteCmd,
+  ];
+
+  const terminal = vscode.window.createTerminal({
+    name: `[hydra] remote ${sessionName}`,
+    shellPath: 'ssh',
+    shellArgs: sshArgs,
+    iconPath: new vscode.ThemeIcon('cloud'),
+    location: { viewColumn: vscode.ViewColumn.Active },
+    // Scrub VS Code shell-integration env vars so they don't leak into the
+    // ssh process (ssh itself ignores them, but `SendEnv` / `LANG` interplay
+    // can confuse some sshd configs). Matches the hygiene we already do on
+    // the local tmux attach path in src/utils/tmuxBackend.ts.
+    env: {
+      'TERM': 'xterm-256color',
+      'TERM_PROGRAM': null,
+      'TERM_PROGRAM_VERSION': null,
+      'VSCODE_SHELL_INTEGRATION': null,
+      'VSCODE_INJECTION': null,
+    },
+  });
+  terminal.show();
+  return terminal;
+}
 
 async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
   const backend = getActiveBackend();
@@ -32,6 +78,14 @@ async function findSessionsForWorkspace(repoRoot: string): Promise<string[]> {
 }
 
 async function handleTreeViewItem(item: TmuxItem): Promise<void> {
+    // Remote workers route through ssh — local tmux doesn't have the session
+    // and never will. Dispatch BEFORE the local-listSessions probe so we don't
+    // spuriously hit the "session not found, try to start" fallback below.
+    if (item instanceof TmuxSessionItem && item.remote && item.sessionName) {
+        attachRemoteSession(item.remote.host, item.sessionName);
+        return;
+    }
+
     const backend = getActiveBackend();
     const sessionName = item.sessionName || item.label;
 

@@ -162,6 +162,58 @@ for the full design and open questions.
 - [**Examples**](examples/) — Real-world scenarios like [Parity Ports](examples/parity-port.md) and [gRPC Generation](examples/grpc-generation.md).
 - [**Changelog**](CHANGELOG.md) — See what's new in the latest version.
 
+## Remote workers (preview)
+
+Run a worker in a tmux session on a different machine reached over SSH. Useful when you want a beefier box to do the heavy lifting while you keep the orchestrator on your laptop.
+
+```bash
+hydra worker create \
+  --remote claude-remote-test.us-west1-a.nexi-lab-888 \
+  --repo /home/sean/myrepo \
+  --branch feat/remote-experiment \
+  --agent claude
+
+hydra worker logs   <session> --lines 30
+hydra worker send   <session> "fix the failing test"
+hydra worker attach <session>      # interactive: ssh -t <host> tmux attach
+hydra worker delete <session>
+hydra list --json                   # remote workers appear with `remote: { host }`
+```
+
+**Prerequisites (one-time setup):**
+
+1. The remote machine has `tmux` and your agent (`claude`/`codex`/`gemini`) on PATH **for non-interactive SSH**. Hydra does **not** install them.
+   - **Watch out:** non-interactive `ssh <host> command` does **not** source `~/.profile` / `~/.bashrc`, so user-installed binaries in `~/.local/bin` (the default for `claude`'s installer, `npm install -g`, NVM-installed Node, pyenv, etc.) are invisible to Hydra's preflight. Verify with `ssh <host> 'command -v claude'` — if that returns empty, symlink the binary into a system PATH:
+     ```bash
+     ssh <host> "sudo ln -s ~/.local/bin/claude /usr/local/bin/claude"
+     ```
+     Phase 2 ([#129](https://github.com/joezhoujinjing/hydra/issues/129)) will wrap remote commands in `bash -lc` so this isn't needed.
+2. The repo is already cloned at `--repo` on the remote. Hydra does **not** sync code.
+3. `ssh <host>` resolves without prompts. The simplest way:
+   - Plain SSH: add an entry to `~/.ssh/config` with your `Host`, `User`, `IdentityFile`.
+   - GCP VMs: run `gcloud compute config-ssh` once — it generates an alias like
+     `<vm>.<zone>.<project>` that wraps `gcloud compute ssh --tunnel-through-iap`.
+     Then `ssh <vm>.<zone>.<project>` and `hydra worker create --remote <vm>.<zone>.<project>` both work.
+
+**Live-status contract:** `hydra list` shows the **last-known** status of each remote worker — it deliberately does **not** SSH-probe each remote on every call (that would slow `hydra list` to a crawl on networks with many hosts). Pretty output marks remote rows with `(status unverified)`. To verify a worker is actually alive, run `hydra worker logs <session>` — that round-trips through SSH and will surface a clear `RemoteSshError` if the host is unreachable.
+
+**Sidebar integration:** remote workers appear in the VS Code sidebar under their repo group with a ☁ cloud icon and a `(remote: <host>)` suffix. Clicking the row opens a terminal that runs `ssh -t <host> tmux attach -t <session>` — the same path `hydra worker attach` uses on the CLI. Local probes (git status, PR badge, CPU usage) are skipped for remote rows since the workdir lives on the remote.
+
+**Other phase-1 deferrals — fail-fast, not silent:**
+
+- `hydra worker stop` / `start` / `rename` for remote workers throw a clear "not yet supported (Epic #129 phase 2)" error rather than misbehaving on the local filesystem.
+- `--repo` must be an absolute path on the remote (e.g. `/home/sean/repo`). `~` is **not** shell-expanded on the remote, so the CLI rejects `~/repo` with a hint to use the absolute form.
+
+**MVP limitations (Epic [#129](https://github.com/joezhoujinjing/hydra/issues/129) phase 1):**
+
+- No initial `--task` / `--task-file` injection on remote workers — use `hydra worker send` after create.
+- No completion-hook injection on remote workers (the local hook scripts assume a local tmux socket).
+- No code sync; you clone the repo on the remote yourself.
+- No copilot-on-remote; only workers.
+- No registry sync between hosts; each machine has its own `sessions.json`.
+- No live-status probe in `hydra list` — see contract above.
+- `worker stop` / `start` / `rename` deferred to phase 2 (fail with explicit error today).
+
 ## Requirements
 - **tmux** — The engine of persistence.
 - **git** — The foundation of isolation.
