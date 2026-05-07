@@ -277,7 +277,8 @@
     "smoke:telemetry": "node out/smoke/telemetrySmoke.js",
     "smoke:telemetry-e2e": "node out/smoke/telemetryE2eSmoke.js",
     "smoke:telemetry-posthog-real": "node out/smoke/telemetryPostHogRealSmoke.js",
-    "test": "npm run compile && npm run smoke:tmux-attach && npm run smoke:codex-bypass && npm run smoke:worker-delete && npm run smoke:telemetry && npm run smoke:telemetry-e2e"
+    "smoke:session-file-resolve": "node out/smoke/sessionFileResolveSmoke.js",
+    "test": "npm run compile && npm run smoke:tmux-attach && npm run smoke:codex-bypass && npm run smoke:worker-delete && npm run smoke:telemetry && npm run smoke:telemetry-e2e && npm run smoke:session-file-resolve"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

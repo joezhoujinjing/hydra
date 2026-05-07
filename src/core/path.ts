@@ -19,16 +19,95 @@ export function toCanonicalPath(targetPath?: string): string | undefined {
 }
 
 /**
- * Resolves the Claude Code session JSONL file for a given workdir + sessionId.
- * Claude Code stores transcripts at `~/.claude/projects/<encoded-workdir>/<sessionId>.jsonl`,
- * where the encoded workdir replaces `/` and `.` characters with `-`.
- * Returns null for non-Claude agents, missing sessionId, or when the file does not exist.
+ * Resolves the on-disk transcript file for a given agent session.
+ *   - claude:  ~/.claude/projects/<encoded-workdir>/<sessionId>.jsonl
+ *              (workdir encoded by replacing `/` and `.` with `-`)
+ *   - codex:   ~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<sessionId>.jsonl
+ *              (located via a recursive scan; sessionId required, workdir unused)
+ *   - gemini:  ~/.gemini/tmp/<projectName>/logs.json
+ *              (projectName looked up by workdir in ~/.gemini/projects.json;
+ *              the file is per-project and may contain multiple sessions)
+ * Returns null when the agent is unknown, required inputs are missing, or the
+ * file does not exist.
  */
 export function resolveAgentSessionFile(agent: string, workdir: string, sessionId: string | null): string | null {
-  if (!sessionId || agent !== 'claude' || !workdir) return null;
+  switch (agent) {
+    case 'claude':
+      return resolveClaudeSessionFile(workdir, sessionId);
+    case 'codex':
+      return resolveCodexSessionFile(sessionId);
+    case 'gemini':
+      return resolveGeminiSessionFile(workdir);
+    default:
+      return null;
+  }
+}
+
+function resolveClaudeSessionFile(workdir: string, sessionId: string | null): string | null {
+  if (!workdir || !sessionId) return null;
   const encoded = workdir.replace(/[/.]/g, '-');
   const file = path.join(os.homedir(), '.claude', 'projects', encoded, `${sessionId}.jsonl`);
   return fs.existsSync(file) ? file : null;
+}
+
+function resolveCodexSessionFile(sessionId: string | null): string | null {
+  if (!sessionId) return null;
+  const root = path.join(os.homedir(), '.codex', 'sessions');
+  if (!fs.existsSync(root)) return null;
+  const suffix = `-${sessionId}.jsonl`;
+
+  // Walk ~/.codex/sessions/YYYY/MM/DD/ for a file named rollout-*-<sessionId>.jsonl.
+  // Newest dates first so the common case (recent session) hits early.
+  const stack: string[] = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    const subdirs: string[] = [];
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        subdirs.push(entry.name);
+      } else if (
+        entry.isFile()
+        && entry.name.startsWith('rollout-')
+        && entry.name.endsWith(suffix)
+      ) {
+        return path.join(dir, entry.name);
+      }
+    }
+    // Push subdirs in ascending order so the largest (newest) is popped first.
+    subdirs.sort();
+    for (const name of subdirs) {
+      stack.push(path.join(dir, name));
+    }
+  }
+  return null;
+}
+
+function resolveGeminiSessionFile(workdir: string): string | null {
+  if (!workdir) return null;
+  const projectsFile = path.join(os.homedir(), '.gemini', 'projects.json');
+  if (!fs.existsSync(projectsFile)) return null;
+
+  let projects: Record<string, string>;
+  try {
+    const raw = JSON.parse(fs.readFileSync(projectsFile, 'utf-8'));
+    const map = raw?.projects;
+    if (!map || typeof map !== 'object') return null;
+    projects = map as Record<string, string>;
+  } catch {
+    return null;
+  }
+
+  const projectName = projects[workdir];
+  if (!projectName) return null;
+
+  const logsFile = path.join(os.homedir(), '.gemini', 'tmp', projectName, 'logs.json');
+  return fs.existsSync(logsFile) ? logsFile : null;
 }
 
 export interface HydraCliConfig {
