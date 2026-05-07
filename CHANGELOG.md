@@ -4,6 +4,7 @@
 
 ### Changed
 - Adopt date-based versioning: `0.<minor>.<yyyymmddNN>` (UTC date + in-day counter); minor bumps only on schema/breaking changes
+- demo: end-to-end remote worker created this PR (Epic #129 phase 1)
 
 ## [0.2.2] - 2026-05-06
 
