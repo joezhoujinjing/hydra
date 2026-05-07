@@ -19,6 +19,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -252,6 +253,27 @@ async function testInvalidUuidIsReplaced(): Promise<void> {
   });
 }
 
+async function testNonV4UuidIsReplaced(): Promise<void> {
+  // A syntactically valid v3 UUID must still be replaced — we only persist
+  // UUIDv4 values, both because the docs claim v4 and because v3/v5 UUIDs
+  // are derived from a name+namespace and would not be anonymous.
+  const v3Uuid = '00000000-0000-3000-8000-000000000000';
+  await withTempHome(async hydraHome => {
+    const telemetry = await import('../core/telemetry');
+    telemetry.resetTelemetryForTesting();
+
+    fs.mkdirSync(hydraHome, { recursive: true });
+    const idPath = path.join(hydraHome, 'anonymous-id');
+    fs.writeFileSync(idPath, `${v3Uuid}\n`, 'utf-8');
+
+    const id = telemetry.getAnonymousId();
+    assert.notEqual(id, v3Uuid, 'a v3 UUID must not be reused');
+    assert.match(id, UUID_V4_RE, 'replacement must be a UUIDv4');
+    const onDisk = fs.readFileSync(idPath, 'utf-8').trim();
+    assert.equal(onDisk, id, 'replacement must be persisted');
+  });
+}
+
 async function testEexistRace(): Promise<void> {
   await withTempHome(async hydraHome => {
     const telemetry = await import('../core/telemetry');
@@ -435,6 +457,96 @@ async function testNormalizeAgent(): Promise<void> {
   assert.equal(telemetry.normalizeAgentForTelemetry('   '), 'unknown');
 }
 
+async function testHydraDirIsTightened(): Promise<void> {
+  if (process.platform === 'win32') {
+    return; // POSIX-only: Windows does not honor numeric modes
+  }
+  await withTempHome(async hydraHome => {
+    const telemetry = await import('../core/telemetry');
+    telemetry.resetTelemetryForTesting();
+
+    fs.mkdirSync(hydraHome, { recursive: true, mode: 0o755 });
+    fs.chmodSync(hydraHome, 0o755);
+    const before = fs.statSync(hydraHome).mode & 0o777;
+    assert.equal(before, 0o755, 'precondition: dir starts at 0o755');
+
+    telemetry.getAnonymousId();
+    const after = fs.statSync(hydraHome).mode & 0o777;
+    assert.equal(
+      after,
+      0o700,
+      `existing ~/.hydra dir must be tightened to 0o700 (got 0o${after.toString(8)})`,
+    );
+  });
+}
+
+async function testPeekTelemetryStaysNullWithoutCapture(): Promise<void> {
+  await withTempHome(async () => {
+    const telemetry = await import('../core/telemetry');
+    telemetry.resetTelemetryForTesting();
+
+    assert.equal(telemetry.peekTelemetry(), null, 'fresh process should have no client');
+
+    // Reading anonymous id directly is a low-level helper and does not
+    // count as "command captured an event".
+    telemetry.getAnonymousId();
+    assert.equal(
+      telemetry.peekTelemetry(),
+      null,
+      'getAnonymousId must NOT instantiate the shared client',
+    );
+
+    telemetry.getTelemetry().capture('worker_created', { agent: 'claude' });
+    assert.notEqual(
+      telemetry.peekTelemetry(),
+      null,
+      'after capture(), peekTelemetry must return the client',
+    );
+
+    await telemetry.getTelemetry().flush();
+  });
+}
+
+async function testHelpDoesNotCreateAnonymousId(): Promise<void> {
+  // Spawn a fresh node process and invoke the CLI's --help. With no
+  // capture site reached, the beforeExit handler must skip flush and the
+  // anonymous-id file must not exist.
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-help-'));
+  const hydraHome = path.join(tempHome, '.hydra');
+  const cliPath = path.resolve(__dirname, '..', 'cli', 'index.js');
+  try {
+    const result = spawnSync(process.execPath, [cliPath, '--help'], {
+      env: {
+        ...process.env,
+        HOME: tempHome,
+        HYDRA_HOME: hydraHome,
+        // Worst case: debug enabled. With the lazy beforeExit fix, even
+        // this should not trigger anonymous-id creation on a help-only run.
+        HYDRA_TELEMETRY_DEBUG: '1',
+        HYDRA_TELEMETRY: '',
+      },
+      encoding: 'utf-8',
+    });
+    assert.equal(result.status, 0, `hydra --help should exit 0 (got ${result.status})\n${result.stderr ?? ''}`);
+    assert.equal(
+      fs.existsSync(path.join(hydraHome, 'anonymous-id')),
+      false,
+      `anonymous-id must NOT be created on a help-only run (stderr=${result.stderr ?? ''})`,
+    );
+    assert.equal(
+      fs.existsSync(path.join(hydraHome, 'telemetry.log')),
+      false,
+      'telemetry.log must NOT be created on a help-only run',
+    );
+  } finally {
+    try {
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    } catch {
+      // best-effort cleanup
+    }
+  }
+}
+
 async function testGeneratedUuidIsRfcShape(): Promise<void> {
   await withTempHome(async () => {
     const telemetry = await import('../core/telemetry');
@@ -451,7 +563,11 @@ async function main(): Promise<void> {
     ['testOptOutForcesNullBackend', testOptOutForcesNullBackend],
     ['testAnonymousIdLifecycle', testAnonymousIdLifecycle],
     ['testInvalidUuidIsReplaced', testInvalidUuidIsReplaced],
+    ['testNonV4UuidIsReplaced', testNonV4UuidIsReplaced],
     ['testEexistRace', testEexistRace],
+    ['testHydraDirIsTightened', testHydraDirIsTightened],
+    ['testPeekTelemetryStaysNullWithoutCapture', testPeekTelemetryStaysNullWithoutCapture],
+    ['testHelpDoesNotCreateAnonymousId', testHelpDoesNotCreateAnonymousId],
     ['testFirstRunNoticeFiresOnce', testFirstRunNoticeFiresOnce],
     ['testCaptureIsNonBlocking', testCaptureIsNonBlocking],
     ['testFlushAwaitsInflight', testFlushAwaitsInflight],

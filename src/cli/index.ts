@@ -9,7 +9,7 @@ import { registerArchiveCommands } from './commands/archive';
 import { registerDoctorCommand } from './commands/doctor';
 import { registerWhoamiCommand } from './commands/whoami';
 import { registerTestCommand } from './commands/test';
-import { getTelemetry } from '../core/telemetry';
+import { peekTelemetry } from '../core/telemetry';
 
 const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
 
@@ -33,9 +33,16 @@ process.on('beforeExit', async () => {
   if (telemetryFlushed) {
     return;
   }
+  // Only flush if the command actually instantiated the telemetry client.
+  // Help-only paths and read-only commands never call getTelemetry(), so
+  // they never create ~/.hydra/anonymous-id or print the first-run notice.
+  const client = peekTelemetry();
+  if (!client) {
+    return;
+  }
   telemetryFlushed = true;
   try {
-    await getTelemetry().flush();
+    await client.flush();
   } catch {
     // never let telemetry crash the CLI
   }

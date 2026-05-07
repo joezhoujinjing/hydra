@@ -26,7 +26,8 @@ const FIRST_RUN_NOTICE =
   'Hydra collects anonymous usage stats to improve the tool. ' +
   `Set HYDRA_TELEMETRY=0 to opt out. See ${TELEMETRY_README_URL}.`;
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// UUIDv4 only: position 14 must be `4`, position 19 must be 8/9/a/b.
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const KNOWN_AGENTS = new Set(['claude', 'codex', 'gemini']);
 
@@ -48,13 +49,20 @@ function readPersistedAnonymousId(idPath: string): string | null {
     throw err;
   }
   const trimmed = raw.trim();
-  return UUID_REGEX.test(trimmed) ? trimmed : null;
+  return UUID_V4_REGEX.test(trimmed) ? trimmed : null;
 }
 
 function ensureHydraDir(): string {
   const home = getHydraHome();
-  if (!fs.existsSync(home)) {
-    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  // Tighten an already-existing directory too. Best-effort: chmod can fail
+  // on shared/CI filesystems (EPERM), Windows (no POSIX modes), or when
+  // we are not the owner — none of which should crash the CLI.
+  try {
+    fs.chmodSync(home, 0o700);
+  } catch {
+    // ignore — we will still return the directory and let downstream
+    // writes fail loudly if the permissions actually prevent them.
   }
   return home;
 }
@@ -301,6 +309,16 @@ export function getTelemetry(): TelemetryClient {
   if (!sharedClient) {
     sharedClient = new TelemetryClient();
   }
+  return sharedClient;
+}
+
+/**
+ * Returns the active client only if `getTelemetry()` has already been called
+ * this process. Lets `beforeExit` skip the flush (and the implicit
+ * anonymous-id creation) on commands that never captured an event — e.g.
+ * `hydra --help`, `hydra list`, etc.
+ */
+export function peekTelemetry(): TelemetryClient | null {
   return sharedClient;
 }
 
