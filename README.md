@@ -71,6 +71,18 @@ Imagine you're porting 40 features from an old codebase. Doing it alone is a wee
 
 ---
 
+## First Five Minutes
+
+Want a safe, self-contained tour before pointing Hydra at a real repository?
+
+```bash
+./quickstart/run.sh
+```
+
+The quickstart boots a temporary isolated Hydra home, starts a copilot inside that sandbox, and lets the copilot scaffold a local demo repository plus 3 parallel workers. No GitHub repo setup required. See [quickstart/README.md](quickstart/README.md) for the full flow.
+
+---
+
 ## Quick Start (60 Seconds)
 
 1. **Install:** Search for **"Hydra Code"** in the VS Code Marketplace.
