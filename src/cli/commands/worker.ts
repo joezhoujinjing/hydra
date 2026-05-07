@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
 import { getRepoRootFromPath, localBranchExists } from '../../core/git';
-import { toCanonicalPath } from '../../core/path';
+import { toCanonicalPath, resolveAgentSessionFile } from '../../core/path';
 import { outputResult, outputError, type OutputOpts } from '../output';
 import { detectCurrentTmuxIdentity, detectIdentity, getWorkerCreationBlockedMessage } from '../identity';
 import { getTelemetry, normalizeAgentForTelemetry } from '../../core/telemetry';
@@ -220,10 +220,17 @@ export function registerWorkerCommands(program: Command): void {
         }
 
         const backend = new TmuxBackendCore();
-        const output = await backend.capturePane(sessionName, lines);
+        const sm = new SessionManager(backend);
+        const [output, worker] = await Promise.all([
+          backend.capturePane(sessionName, lines),
+          sm.getWorker(sessionName),
+        ]);
+        const sessionFile = worker
+          ? resolveAgentSessionFile(worker.agent, worker.workdir, worker.sessionId)
+          : null;
 
         outputResult(
-          { session: sessionName, lines, output },
+          { session: sessionName, lines, output, sessionId: worker?.sessionId ?? null, sessionFile },
           globalOpts,
           () => process.stdout.write(output),
         );

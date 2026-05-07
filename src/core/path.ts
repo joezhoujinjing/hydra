@@ -18,6 +18,19 @@ export function toCanonicalPath(targetPath?: string): string | undefined {
   return path.normalize(path.resolve(expanded));
 }
 
+/**
+ * Resolves the Claude Code session JSONL file for a given workdir + sessionId.
+ * Claude Code stores transcripts at `~/.claude/projects/<encoded-workdir>/<sessionId>.jsonl`,
+ * where the encoded workdir replaces `/` and `.` characters with `-`.
+ * Returns null for non-Claude agents, missing sessionId, or when the file does not exist.
+ */
+export function resolveAgentSessionFile(agent: string, workdir: string, sessionId: string | null): string | null {
+  if (!sessionId || agent !== 'claude' || !workdir) return null;
+  const encoded = workdir.replace(/[/.]/g, '-');
+  const file = path.join(os.homedir(), '.claude', 'projects', encoded, `${sessionId}.jsonl`);
+  return fs.existsSync(file) ? file : null;
+}
+
 export interface HydraCliConfig {
   extensionPath?: string;
   version?: string;

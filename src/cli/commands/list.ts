@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
+import { resolveAgentSessionFile } from '../../core/path';
 import { outputResult, outputError, type OutputOpts } from '../output';
 
 export function registerListCommand(program: Command): void {
@@ -27,6 +28,8 @@ export function registerListCommand(program: Command): void {
             status: c.status,
             attached: c.attached,
             workdir: c.workdir || null,
+            sessionId: c.sessionId,
+            sessionFile: resolveAgentSessionFile(c.agent, c.workdir, c.sessionId),
             agentSessionId: c.sessionId,
           })),
           workers: workers.map(w => ({
@@ -40,6 +43,8 @@ export function registerListCommand(program: Command): void {
             attached: w.attached,
             workdir: w.workdir || null,
             copilotSessionName: w.copilotSessionName || null,
+            sessionId: w.sessionId,
+            sessionFile: resolveAgentSessionFile(w.agent, w.workdir, w.sessionId),
             agentSessionId: w.sessionId,
           })),
           count: copilots.length + workers.length,

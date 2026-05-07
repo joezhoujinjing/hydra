@@ -2,7 +2,7 @@ import * as path from 'path';
 import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
-import { toCanonicalPath } from '../../core/path';
+import { toCanonicalPath, resolveAgentSessionFile } from '../../core/path';
 import { outputResult, outputError, type OutputOpts } from '../output';
 import { getTelemetry, normalizeAgentForTelemetry } from '../../core/telemetry';
 
@@ -168,10 +168,18 @@ export function registerCopilotCommands(program: Command): void {
         }
 
         const backend = new TmuxBackendCore();
-        const output = await backend.capturePane(sessionName, lines);
+        const sm = new SessionManager(backend);
+        const [output, state] = await Promise.all([
+          backend.capturePane(sessionName, lines),
+          sm.sync(),
+        ]);
+        const copilot = state.copilots[sessionName];
+        const sessionFile = copilot
+          ? resolveAgentSessionFile(copilot.agent, copilot.workdir, copilot.sessionId)
+          : null;
 
         outputResult(
-          { session: sessionName, lines, output },
+          { session: sessionName, lines, output, sessionId: copilot?.sessionId ?? null, sessionFile },
           globalOpts,
           () => process.stdout.write(output),
         );
