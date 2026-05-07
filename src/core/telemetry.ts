@@ -21,6 +21,11 @@ export interface TelemetryBackend {
 const ANONYMOUS_ID_FILENAME = 'anonymous-id';
 const TELEMETRY_LOG_FILENAME = 'telemetry.log';
 const DEFAULT_TIMEOUT_MS = 500;
+// Hard cap on how long TelemetryClient.flush() will await the backend's
+// flush()/shutdown(). A hung HTTP request must never keep the CLI alive
+// past this window; the bounded race below races the backend against an
+// unref'd timer, so process exit is not blocked even if the network stalls.
+const FLUSH_TIMEOUT_MS = 1500;
 const TELEMETRY_README_URL = 'https://github.com/joezhoujinjing/hydra#telemetry';
 
 const FIRST_RUN_NOTICE =
@@ -178,6 +183,11 @@ const POSTHOG_DEFAULT_HOST = 'https://us.i.posthog.com';
 interface PostHogClientLike {
   capture(props: { distinctId: string; event: string; properties?: Record<string, unknown> }): void;
   flush(): Promise<void>;
+  // posthog-node@5 exposes a public `shutdown()` that drains the queue,
+  // cancels in-flight retries, and tears down resources — the recommended
+  // call for short-lived processes. We prefer it when available and fall
+  // back to flush() so test doubles only need to implement one of the two.
+  shutdown?(shutdownTimeoutMs?: number): Promise<void>;
 }
 
 export type PostHogClientFactory = (apiKey: string, host: string) => PostHogClientLike;
@@ -221,7 +231,11 @@ export class PostHogBackend implements TelemetryBackend {
       return;
     }
     try {
-      await this.client.flush();
+      if (typeof this.client.shutdown === 'function') {
+        await this.client.shutdown();
+      } else {
+        await this.client.flush();
+      }
     } catch {
       // best-effort
     }
@@ -239,11 +253,13 @@ function defaultPostHogClientFactory(apiKey: string, host: string): PostHogClien
   // CLI-tuned config: every event matters and we exit fast, so disable
   // batching (flushAt: 1) and the periodic timer (flushInterval: 0) so a
   // single explicit flush() drains the queue without leaving a refed timer
-  // that would prevent process exit.
+  // that would prevent process exit. requestTimeout caps each underlying
+  // HTTP request so a stalled network can't outlive the wrapper race.
   return new PostHog(apiKey, {
     host,
     flushAt: 1,
     flushInterval: 0,
+    requestTimeout: FLUSH_TIMEOUT_MS,
   });
 }
 
@@ -309,8 +325,16 @@ export class TelemetryClient {
       await Promise.allSettled(pending);
     }
     if (this.backend.flush) {
+      // Race the backend's flush against an unref'd timer so a hung HTTP
+      // request can never keep the CLI alive past FLUSH_TIMEOUT_MS. If the
+      // timer wins, the in-flight request is left to drain in the
+      // background; the unref means it won't block process exit.
+      const timeoutPromise = new Promise<void>(resolve => {
+        const timer = setTimeout(resolve, FLUSH_TIMEOUT_MS);
+        timer.unref?.();
+      });
       try {
-        await this.backend.flush();
+        await Promise.race([Promise.resolve(this.backend.flush()), timeoutPromise]);
       } catch {
         // never propagate — flush is best-effort
       }

@@ -18,6 +18,8 @@
  *   9. PostHogBackend.capture() forwards the right shape to the SDK
  *      (distinctId from anonymous_id, no anonymous_id duplicated as a prop).
  *  10. PostHogBackend honors HYDRA_POSTHOG_API_KEY and HYDRA_POSTHOG_HOST.
+ *  11. TelemetryClient.flush() returns within ~1500ms even when the backend
+ *      flush() never resolves (bounded race against an unref'd timer).
  *
  * Run:  node out/smoke/telemetrySmoke.js
  */
@@ -548,6 +550,52 @@ async function testFlushAwaitsInflight(): Promise<void> {
   });
 }
 
+async function testFlushTimeoutOnHungBackend(): Promise<void> {
+  await withTempHome(async () => {
+    const telemetry = await import('../core/telemetry');
+    telemetry.resetTelemetryForTesting();
+
+    // Backend whose flush() never resolves — simulates a stuck HTTP
+    // request after the SDK's request timeout fails to fire. The
+    // TelemetryClient.flush() race must still return within ~1500ms.
+    const hungBackend: import('../core/telemetry').TelemetryBackend = {
+      capture(): void {
+        /* no-op */
+      },
+      flush: () => new Promise<void>(() => {
+        /* never resolves */
+      }),
+    };
+
+    const client = new telemetry.TelemetryClient({
+      backend: hungBackend,
+      anonymousId: 'fixed-test-id',
+      hydraVersion: '0.0.0-test',
+    });
+    client.capture('worker_created', { agent: 'claude' });
+
+    // Bounded race uses an unref'd timer so it doesn't add a refed handle
+    // in production — the SDK's in-flight HTTP socket already keeps the
+    // event loop alive long enough for the timer to fire. In this isolated
+    // test there's no such handle, so we hold a refed watchdog for the
+    // duration of the assertion to mimic that condition.
+    const watchdog = setTimeout(() => {
+      /* refed; cleared below */
+    }, 5_000);
+    try {
+      const start = Date.now();
+      await client.flush();
+      const elapsed = Date.now() - start;
+      assert.ok(
+        elapsed < 2500,
+        `flush() must return within ~1500ms even with a hung backend (elapsed=${elapsed}ms)`,
+      );
+    } finally {
+      clearTimeout(watchdog);
+    }
+  });
+}
+
 async function testNormalizeAgent(): Promise<void> {
   const telemetry = await import('../core/telemetry');
   for (const known of ['claude', 'codex', 'gemini']) {
@@ -680,6 +728,7 @@ async function main(): Promise<void> {
     ['testFirstRunNoticeFiresOnce', testFirstRunNoticeFiresOnce],
     ['testCaptureIsNonBlocking', testCaptureIsNonBlocking],
     ['testFlushAwaitsInflight', testFlushAwaitsInflight],
+    ['testFlushTimeoutOnHungBackend', testFlushTimeoutOnHungBackend],
     ['testNormalizeAgent', testNormalizeAgent],
     ['testGeneratedUuidIsRfcShape', testGeneratedUuidIsRfcShape],
   ];
