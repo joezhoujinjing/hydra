@@ -5,6 +5,7 @@ import { validateBranchName, localBranchExists, getRepoRoot } from '../utils/git
 import { pickAgentType } from '../utils/agentConfig';
 import { getActiveBackend } from '../utils/multiplexer';
 import { ensureBackendInstalled } from './ensureBackendInstalled';
+import { detectIdentity, getWorkerCreationBlockedMessage } from '../core/sessionIdentity';
 
 function getBaseBranchOverride(): string | undefined {
   const hydraOverride = vscode.workspace.getConfiguration('hydra').get<string>('baseBranch');
@@ -25,6 +26,11 @@ export async function newTask(): Promise<void> {
   let repoRoot: string;
   try {
     repoRoot = getRepoRoot();
+    const identity = detectIdentity(repoRoot);
+    if (identity?.role === 'worker') {
+      vscode.window.showErrorMessage(getWorkerCreationBlockedMessage(identity));
+      return;
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     vscode.window.showErrorMessage(`Failed to create worker: ${message}`);

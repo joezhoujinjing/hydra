@@ -29,6 +29,8 @@ The user says something like:
 
 ### Creating workers
 
+Only copilots create workers. If you are running inside a Hydra worker workdir and need more parallel help, ask the parent copilot to create and assign another worker instead of running `hydra worker create` yourself.
+
 1. **Parse the user's request** to extract:
    - **repo**: A path or short name (e.g., "sudocode", "hydra", "~/code/foo")
    - **branch**: The git branch to create (e.g., "feat/auth", "fix/bug-123")
@@ -130,6 +132,7 @@ When acting as a **copilot** (orchestrating multiple workers), follow this workf
 
 **Rules:**
 - Never implement code directly — always delegate to workers
+- Workers must not create other workers directly; they should ask the parent copilot when more parallel work is needed
 - Be specific in task prompts — include file paths, function names, and acceptance criteria
 - Parallelize independent work — two non-conflicting tasks = two workers
 - Review before shipping — always read the full diff before creating a PR

@@ -169,6 +169,7 @@ gh pr create -R <owner>/<repo> --head <branch> --title "<title>" --body "<body>"
 ## Rules
 
 - **One branch per worker** — don't reuse sessions for unrelated tasks
+- **Copilot owns worker creation** — workers must not run `hydra worker create`; if more parallel work is needed, ask the parent copilot to create and assign another worker
 - **Be specific in tasks** — include file paths, function names, and acceptance criteria
 - **Parallelize independent work** — two non-conflicting tasks = two workers
 - **Review before shipping** — always read the full diff before creating a PR

@@ -5,7 +5,7 @@ import { SessionManager } from '../../core/sessionManager';
 import { getRepoRootFromPath, localBranchExists } from '../../core/git';
 import { toCanonicalPath } from '../../core/path';
 import { outputResult, outputError, type OutputOpts } from '../output';
-import { detectIdentity } from '../identity';
+import { detectCurrentTmuxIdentity, detectIdentity, getWorkerCreationBlockedMessage } from '../identity';
 
 function expandPath(p: string): string {
   return toCanonicalPath(p) || path.resolve(p);
@@ -37,6 +37,11 @@ export function registerWorkerCommands(program: Command): void {
     }) => {
       const globalOpts = program.opts() as OutputOpts;
       try {
+        const identity = await detectCurrentTmuxIdentity() || detectIdentity();
+        if (identity?.role === 'worker') {
+          throw new Error(getWorkerCreationBlockedMessage(identity));
+        }
+
         const repoPath = expandPath(opts.repo);
         const repoRoot = await getRepoRootFromPath(repoPath);
 
@@ -49,7 +54,6 @@ export function registerWorkerCommands(program: Command): void {
         // Auto-detect parent copilot if --copilot not explicitly set
         let copilotSessionName = opts.copilot;
         if (!copilotSessionName) {
-          const identity = detectIdentity();
           if (identity?.role === 'copilot') {
             copilotSessionName = identity.sessionName;
           }

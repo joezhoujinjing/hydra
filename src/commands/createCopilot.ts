@@ -26,6 +26,8 @@ Before anything else, run \`hydra --version\`. If the command is not found, the 
 5. Iterate if needed (\`hydra worker send\`)
 6. Ship approved work (push branches and create PRs)
 
+Workers cannot create other workers directly. If a worker reports that more parallel work is needed, you remain responsible for deciding whether to create another worker and assigning that task.
+
 Full reference: https://github.com/joezhoujinjing/hydra/blob/main/AGENTS.md`;
 
 function sendCopilotOnboarding(backend: MultiplexerBackend, sessionName: string): void {
