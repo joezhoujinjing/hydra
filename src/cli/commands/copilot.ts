@@ -3,6 +3,8 @@ import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
 import { toCanonicalPath, resolveAgentSessionFile } from '../../core/path';
+import { resolveRepoInput } from '../../core/repoRegistry';
+import { fetchOriginRequired } from '../../core/git';
 import { outputResult, outputError, type OutputOpts } from '../output';
 import { getTelemetry, normalizeAgentForTelemetry } from '../../core/telemetry';
 
@@ -37,18 +39,31 @@ export function registerCopilotCommands(program: Command): void {
     .command('create')
     .description('Create a new copilot')
     .option('--workdir <path>', 'Working directory for the copilot', process.cwd())
+    .option('--repo <identifier>', 'Run inside a registered repo: <owner/name> or absolute path (overrides --workdir)')
     .option('--agent <type>', 'Agent type (claude, codex, gemini)', 'claude')
     .option('--name <name>', 'Display name for the copilot session')
     .option('--session <name>', 'Explicit tmux session name')
-    .action(async (opts: { workdir: string; agent: string; name?: string; session?: string }) => {
+    .action(async (opts: { workdir: string; repo?: string; agent: string; name?: string; session?: string }) => {
       const globalOpts = program.opts() as OutputOpts;
       try {
         const backend = new TmuxBackendCore();
         const sm = new SessionManager(backend);
         const requestedSession = opts.session || opts.name || `hydra-copilot-${opts.agent}`;
         const sessionName = backend.sanitizeSessionName(requestedSession);
+
+        let workdir: string;
+        if (opts.repo) {
+          const resolved = resolveRepoInput(opts.repo);
+          workdir = resolved.path;
+          if (resolved.isManaged) {
+            await fetchOriginRequired(workdir);
+          }
+        } else {
+          workdir = expandPath(opts.workdir);
+        }
+
         const finalCopilot = await sm.createCopilotAndFinalize({
-          workdir: expandPath(opts.workdir),
+          workdir,
           agentType: opts.agent,
           name: opts.name,
           sessionName,

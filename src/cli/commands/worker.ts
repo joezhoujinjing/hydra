@@ -1,16 +1,12 @@
-import * as path from 'path';
 import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
 import { getRepoRootFromPath, localBranchExists } from '../../core/git';
-import { toCanonicalPath, resolveAgentSessionFile } from '../../core/path';
+import { resolveAgentSessionFile } from '../../core/path';
+import { resolveRepoInput } from '../../core/repoRegistry';
 import { outputResult, outputError, type OutputOpts } from '../output';
 import { detectCurrentTmuxIdentity, detectIdentity, getWorkerCreationBlockedMessage } from '../identity';
 import { getTelemetry, normalizeAgentForTelemetry } from '../../core/telemetry';
-
-function expandPath(p: string): string {
-  return toCanonicalPath(p) || path.resolve(p);
-}
 
 export function registerWorkerCommands(program: Command): void {
   const worker = program
@@ -43,7 +39,12 @@ export function registerWorkerCommands(program: Command): void {
           throw new Error(getWorkerCreationBlockedMessage(identity));
         }
 
-        const repoPath = expandPath(opts.repo);
+        // Single dispatch helper: handles short-form, abs paths, and explicit
+        // relative paths (`.`, `./foo`, `../foo`). Decides managed-ness against
+        // the resolved (pre-rev-parse) path so the macOS /var → /private/var
+        // realpath flip in `git rev-parse --show-toplevel` doesn't defeat the
+        // comparison against ~/.hydra/repos/.
+        const { path: repoPath, isManaged: isManagedRepo } = resolveRepoInput(opts.repo);
         const repoRoot = await getRepoRootFromPath(repoPath);
 
         // Check if branch exists before create to detect resume
@@ -68,6 +69,7 @@ export function registerWorkerCommands(program: Command): void {
           task: opts.task,
           taskFile: opts.taskFile,
           copilotSessionName,
+          fetchMode: isManagedRepo ? 'required' : 'best-effort',
         });
 
         const status = branchExisted ? 'exists' : 'created';

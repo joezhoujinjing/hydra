@@ -197,6 +197,7 @@ export interface HydraResolvedPaths {
   hydraSessionsFile: string;
   hydraArchiveFile: string;
   hydraWorktreesRoot: string;
+  hydraReposRoot: string;
 }
 
 export function getDefaultHydraHome(): string {
@@ -269,6 +270,7 @@ export function getHydraPaths(): HydraResolvedPaths {
     hydraSessionsFile: path.join(hydraHome, 'sessions.json'),
     hydraArchiveFile: path.join(hydraHome, 'archive.json'),
     hydraWorktreesRoot: path.join(hydraHome, 'worktrees'),
+    hydraReposRoot: path.join(hydraHome, 'repos'),
   };
 }
 
@@ -304,6 +306,10 @@ export function getHydraArchiveFile(): string {
 
 export function getHydraWorktreesRoot(): string {
   return getHydraPaths().hydraWorktreesRoot;
+}
+
+export function getHydraReposRoot(): string {
+  return getHydraPaths().hydraReposRoot;
 }
 
 export function getIsolatedEnv(): Record<string, string | undefined> {
