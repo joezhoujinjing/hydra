@@ -30,7 +30,7 @@ To test the extension in a VS Code Extension Development Host, use the `/test-hy
 │   ├── resources/          # Agent instruction templates
 │   └── utils/              # tmux, git, session utilities
 ├── out/                    # Compiled output
-├── skills/                 # Skill definitions (SSOT, surfaced via .claude/skills, .codex/skills, and .gemini/skills)
+├── skills/                 # Skill definitions (SSOT, surfaced via .claude/skills, .codex/skills, .gemini/skills, and .sudocode/skills)
 └── resources/              # Icons and assets
 ```
 

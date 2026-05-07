@@ -7,7 +7,7 @@ export type { AgentType } from '../core/types';
 export { AGENT_LABELS, DEFAULT_AGENT_COMMANDS, buildAgentLaunchCommand } from '../core/agentConfig';
 
 export async function detectAvailableAgents(): Promise<AgentType[]> {
-  const agents: AgentType[] = ['claude', 'codex', 'gemini'];
+  const agents: AgentType[] = ['claude', 'codex', 'gemini', 'sudocode'];
   const results = await Promise.all(agents.map(async (agent) => {
     const cmd = getAgentCommand(agent);
     const binary = cmd.split(/\s+/)[0];
@@ -29,6 +29,7 @@ export function getAgentCommand(agentType: string): string {
       claude: 'claude',
       codex: 'codex',
       gemini: 'gemini',
+      sudocode: 'scode',
     });
   return commands[agentType] || agentType;
 }

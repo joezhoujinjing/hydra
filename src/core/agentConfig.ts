@@ -1,11 +1,11 @@
 import { AgentType } from './types';
 
 export const AGENT_LABELS: Record<AgentType, string> = {
-  claude: 'Claude', codex: 'Codex', gemini: 'Gemini', custom: 'Custom',
+  claude: 'Claude', codex: 'Codex', gemini: 'Gemini', sudocode: 'Sudocode', custom: 'Custom',
 };
 
 export const DEFAULT_AGENT_COMMANDS: Record<string, string> = {
-  claude: 'claude', codex: 'codex', gemini: 'gemini',
+  claude: 'claude', codex: 'codex', gemini: 'gemini', sudocode: 'scode',
 };
 
 /** Per-agent flag to enable full auto-approve (skip all permission prompts) */
@@ -13,6 +13,7 @@ export const AGENT_YOLO_FLAGS: Record<string, string> = {
   claude: '--dangerously-skip-permissions',
   codex: '--dangerously-bypass-approvals-and-sandbox',
   gemini: '--yolo',
+  sudocode: '--dangerously-skip-permissions',
 };
 
 /**
@@ -46,6 +47,12 @@ export const AGENT_SESSION_CAPTURE: Partial<Record<string, SessionCaptureConfig>
     readyDelayMs: 15000,
     captureDelayMs: 2000,
   },
+  sudocode: {
+    statusCommand: '/status',
+    sessionIdPattern: /Session\s+(session-\d+-\d+)/,
+    readyDelayMs: 8000,
+    captureDelayMs: 2000,
+  },
 };
 
 /** Delay (ms) for Claude before sending task (agent needs time to start) — used as fallback timeout */
@@ -63,6 +70,7 @@ export const AGENT_READY_PATTERNS: Record<string, RegExp> = {
   claude: /⏵/,
   codex: /⏵/,
   gemini: /⏵/,
+  sudocode: /❯/,
 };
 
 /**
@@ -103,6 +111,9 @@ export function buildAgentResumeCommand(
     case 'claude': {
       return appendCommandArgs(agentBinary, `--resume ${quotedSessionId}`);
     }
+    case 'sudocode': {
+      return appendCommandArgs(agentBinary, `--resume ${quotedSessionId}`);
+    }
     case 'codex': {
       const command = ensureCommandFlag(agentBinary, AGENT_YOLO_FLAGS.codex);
       return appendCommandArgs(command, 'resume', quotedSessionId);
@@ -140,6 +151,7 @@ export function buildAgentLaunchCommand(
         ? appendCommandArgs(command, shellQuoteForDisplay(task))
         : command;
     case 'gemini':
+    case 'sudocode':
       return task
         ? appendCommandArgs(command, shellQuoteForDisplay(task))
         : command;

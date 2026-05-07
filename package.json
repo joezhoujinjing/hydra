@@ -96,7 +96,12 @@
       },
       {
         "view": "hydraCopilots",
-        "contents": "No supported agents found on PATH.\nInstall [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), or [Gemini CLI](https://github.com/google-gemini/gemini-cli).",
+        "contents": "[Start Copilot (Sudocode)](command:hydra.startCopilotSudocode)",
+        "when": "hydra.sudocodeAvailable"
+      },
+      {
+        "view": "hydraCopilots",
+        "contents": "No supported agents found on PATH.\nInstall [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [Sudocode](https://sudocode.ai).",
         "when": "hydra.noAgentsAvailable"
       }
     ],
@@ -174,6 +179,10 @@
       {
         "command": "hydra.startCopilotGemini",
         "title": "Hydra: Start Copilot (Gemini)"
+      },
+      {
+        "command": "hydra.startCopilotSudocode",
+        "title": "Hydra: Start Copilot (Sudocode)"
       }
     ],
     "keybindings": [
@@ -212,6 +221,7 @@
             "claude",
             "codex",
             "gemini",
+            "sudocode",
             "custom"
           ],
           "default": "claude",
@@ -222,7 +232,8 @@
           "default": {
             "claude": "claude",
             "codex": "codex",
-            "gemini": "gemini"
+            "gemini": "gemini",
+            "sudocode": "scode"
           },
           "markdownDescription": "Map of agent type to shell command used to launch the agent."
         }
