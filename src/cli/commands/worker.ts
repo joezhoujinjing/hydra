@@ -59,8 +59,12 @@ export function registerWorkerCommands(program: Command): void {
         }
 
         const repoPath = resolveRepoArg(opts.repo);
+        // Decide registry-managed-ness from the *resolved* (pre-rev-parse) path.
+        // git rev-parse --show-toplevel realpath-resolves the path, which would
+        // turn /var/folders/.../.hydra/repos/... into /private/var/.../.hydra/repos/...
+        // on macOS and miss the comparison against ~/.hydra/repos/.
+        const isManagedRepo = isRegistryManagedPath(repoPath);
         const repoRoot = await getRepoRootFromPath(repoPath);
-        const isManagedRepo = isRegistryManagedPath(repoRoot);
 
         // Check if branch exists before create to detect resume
         const branchExisted = await localBranchExists(repoRoot, opts.branch);
