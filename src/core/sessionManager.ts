@@ -319,6 +319,11 @@ export class SessionManager {
     return state.workers[sessionName];
   }
 
+  async getCopilot(sessionName: string): Promise<CopilotInfo | undefined> {
+    const state = await this.sync();
+    return state.copilots[sessionName];
+  }
+
   // ── Worker Lifecycle ──
 
   async createWorker(opts: CreateWorkerOpts): Promise<CreateWorkerResult> {

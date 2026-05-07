@@ -21,9 +21,12 @@ export function toCanonicalPath(targetPath?: string): string | undefined {
 /**
  * Resolves the on-disk transcript file for a given agent session.
  *   - claude:  ~/.claude/projects/<encoded-workdir>/<sessionId>.jsonl
- *              (workdir encoded by replacing `/` and `.` with `-`)
+ *              (workdir encoded by replacing `/`, `\`, `.`, `:`, and whitespace
+ *              with `-`, mirroring Claude Code's own slugify behavior on POSIX
+ *              and Windows)
  *   - codex:   ~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<sessionId>.jsonl
- *              (located via a recursive scan; sessionId required, workdir unused)
+ *              (UUIDv7 sessionIds let us probe the date directory in O(1);
+ *              falls back to a recursive scan otherwise)
  *   - gemini:  ~/.gemini/tmp/<projectName>/logs.json
  *              (projectName looked up by workdir in ~/.gemini/projects.json;
  *              the file is per-project and may contain multiple sessions)
@@ -45,17 +48,66 @@ export function resolveAgentSessionFile(agent: string, workdir: string, sessionI
 
 function resolveClaudeSessionFile(workdir: string, sessionId: string | null): string | null {
   if (!workdir || !sessionId) return null;
-  const encoded = workdir.replace(/[/.]/g, '-');
+  const encoded = encodeClaudeWorkdir(workdir);
   const file = path.join(os.homedir(), '.claude', 'projects', encoded, `${sessionId}.jsonl`);
   return fs.existsSync(file) ? file : null;
+}
+
+/**
+ * Encodes a workdir into Claude Code's project directory slug. Replaces path
+ * separators (`/`, `\`), drive-letter colons, dots, and whitespace with `-`
+ * so the rule works for both POSIX (`/Users/x/.foo`) and Windows
+ * (`C:\Users\x\proj`) workdirs.
+ */
+export function encodeClaudeWorkdir(workdir: string): string {
+  return workdir.replace(/[/\\.:\s]/g, '-');
 }
 
 function resolveCodexSessionFile(sessionId: string | null): string | null {
   if (!sessionId) return null;
   const root = path.join(os.homedir(), '.codex', 'sessions');
   if (!fs.existsSync(root)) return null;
-  const suffix = `-${sessionId}.jsonl`;
 
+  // Fast path: codex uses UUIDv7 ids whose first 48 bits encode unix ms, and
+  // it partitions storage by UTC date — so we can usually probe a single dir
+  // instead of walking the whole tree.
+  const direct = probeCodexDateDir(root, sessionId);
+  if (direct) return direct;
+
+  return scanCodexSessions(root, sessionId);
+}
+
+function probeCodexDateDir(root: string, sessionId: string): string | null {
+  const compact = sessionId.replace(/-/g, '');
+  // UUIDv7: 13th hex character (after dashes stripped) is the version `7`.
+  if (compact.length < 13 || compact[12] !== '7') return null;
+  const ms = parseInt(compact.slice(0, 12), 16);
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return null;
+
+  const yyyy = String(d.getUTCFullYear()).padStart(4, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const dir = path.join(root, yyyy, mm, dd);
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const suffix = `-${sessionId}.jsonl`;
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.startsWith('rollout-') && entry.name.endsWith(suffix)) {
+      return path.join(dir, entry.name);
+    }
+  }
+  return null;
+}
+
+function scanCodexSessions(root: string, sessionId: string): string | null {
+  const suffix = `-${sessionId}.jsonl`;
   // Walk ~/.codex/sessions/YYYY/MM/DD/ for a file named rollout-*-<sessionId>.jsonl.
   // Newest dates first so the common case (recent session) hits early.
   const stack: string[] = [root];
@@ -103,7 +155,21 @@ function resolveGeminiSessionFile(workdir: string): string | null {
     return null;
   }
 
-  const projectName = projects[workdir];
+  // Gemini stores keys produced by Node's path.resolve(); incoming workdirs may
+  // have trailing slashes or differ in casing on case-insensitive filesystems.
+  // Try an exact lookup first, then fall back to a normalized comparison.
+  let projectName: string | undefined = projects[workdir];
+  if (!projectName) {
+    const normalizedTarget = toCanonicalPath(workdir);
+    if (normalizedTarget) {
+      for (const [key, value] of Object.entries(projects)) {
+        if (toCanonicalPath(key) === normalizedTarget) {
+          projectName = value;
+          break;
+        }
+      }
+    }
+  }
   if (!projectName) return null;
 
   const logsFile = path.join(os.homedir(), '.gemini', 'tmp', projectName, 'logs.json');

@@ -169,11 +169,10 @@ export function registerCopilotCommands(program: Command): void {
 
         const backend = new TmuxBackendCore();
         const sm = new SessionManager(backend);
-        const [output, state] = await Promise.all([
+        const [output, copilot] = await Promise.all([
           backend.capturePane(sessionName, lines),
-          sm.sync(),
+          sm.getCopilot(sessionName),
         ]);
-        const copilot = state.copilots[sessionName];
         const sessionFile = copilot
           ? resolveAgentSessionFile(copilot.agent, copilot.workdir, copilot.sessionId)
           : null;
