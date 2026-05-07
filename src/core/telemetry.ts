@@ -1,53 +1,135 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import * as path from 'path';
 import { getHydraHome } from './path';
+
+type ErrnoLike = Error & { code?: string };
 
 export type TelemetryProperties = Record<string, unknown>;
 
 export interface TelemetryBackend {
-  capture(event: string, properties: TelemetryProperties): void | Promise<void>;
+  capture(
+    event: string,
+    properties: TelemetryProperties,
+    signal?: AbortSignal,
+  ): void | Promise<void>;
+  flush?(): Promise<void>;
 }
 
 const ANONYMOUS_ID_FILENAME = 'anonymous-id';
 const TELEMETRY_LOG_FILENAME = 'telemetry.log';
 const DEFAULT_TIMEOUT_MS = 500;
+const TELEMETRY_README_URL = 'https://github.com/joezhoujinjing/hydra#telemetry';
 
 const FIRST_RUN_NOTICE =
   'Hydra collects anonymous usage stats to improve the tool. ' +
-  'Set HYDRA_TELEMETRY=0 to opt out. See <link to README>.';
+  `Set HYDRA_TELEMETRY=0 to opt out. See ${TELEMETRY_README_URL}.`;
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const KNOWN_AGENTS = new Set(['claude', 'codex', 'gemini']);
+
+export function normalizeAgentForTelemetry(agent: string | undefined | null): string {
+  if (typeof agent !== 'string' || !agent.trim()) {
+    return 'unknown';
+  }
+  return KNOWN_AGENTS.has(agent) ? agent : 'custom';
+}
+
+function readPersistedAnonymousId(idPath: string): string | null {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(idPath, 'utf-8');
+  } catch (err) {
+    if ((err as ErrnoLike).code === 'ENOENT') {
+      return null;
+    }
+    throw err;
+  }
+  const trimmed = raw.trim();
+  return UUID_REGEX.test(trimmed) ? trimmed : null;
+}
+
+function ensureHydraDir(): string {
+  const home = getHydraHome();
+  if (!fs.existsSync(home)) {
+    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  }
+  return home;
+}
 
 export function getAnonymousId(): string {
-  const idPath = path.join(getHydraHome(), ANONYMOUS_ID_FILENAME);
+  const home = ensureHydraDir();
+  const idPath = path.join(home, ANONYMOUS_ID_FILENAME);
 
-  try {
-    const existing = fs.readFileSync(idPath, 'utf-8').trim();
-    if (existing) {
-      return existing;
-    }
-  } catch {
-    // file missing or unreadable — fall through to generation
+  const existing = readPersistedAnonymousId(idPath);
+  if (existing) {
+    return existing;
   }
 
-  const id = crypto.randomUUID();
-  try {
-    fs.mkdirSync(path.dirname(idPath), { recursive: true });
-    fs.writeFileSync(idPath, `${id}\n`, 'utf-8');
+  // Either missing or invalid. If a stale file exists, drop it so the
+  // exclusive-create write below can succeed.
+  if (fs.existsSync(idPath)) {
     try {
-      process.stderr.write(`${FIRST_RUN_NOTICE}\n`);
+      fs.unlinkSync(idPath);
     } catch {
-      // never block the CLI on a failed stderr write
+      // best-effort; the wx write below may still race a concurrent writer
     }
-  } catch {
-    // best-effort: even if we cannot persist, return an in-memory id so
-    // downstream callers do not crash. The next run will try again.
   }
-  return id;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const candidate = crypto.randomUUID();
+    try {
+      fs.writeFileSync(idPath, `${candidate}\n`, { flag: 'wx', mode: 0o600 });
+      try {
+        process.stderr.write(`${FIRST_RUN_NOTICE}\n`);
+      } catch {
+        // never block the CLI on a failed stderr write
+      }
+      return candidate;
+    } catch (err) {
+      const code = (err as ErrnoLike).code;
+      if (code !== 'EEXIST') {
+        throw err;
+      }
+      // A concurrent process won the create race. Prefer their id if it is
+      // valid; otherwise replace the bad file and retry once.
+      const concurrent = readPersistedAnonymousId(idPath);
+      if (concurrent) {
+        return concurrent;
+      }
+      try {
+        fs.unlinkSync(idPath);
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
+  // Could not persist (filesystem hostile). Return an ephemeral id so the
+  // caller is not blocked; next run will retry.
+  return crypto.randomUUID();
+}
+
+function safeGetAnonymousId(): string {
+  try {
+    return getAnonymousId();
+  } catch {
+    return '';
+  }
 }
 
 export class NullBackend implements TelemetryBackend {
-  capture(): void {
-    // intentional no-op
+  capture(_event: string, _properties: TelemetryProperties, _signal?: AbortSignal): void {
+    // intentional no-op; ignores AbortSignal
+    void _event;
+    void _properties;
+    void _signal;
+  }
+
+  async flush(): Promise<void> {
+    // nothing buffered
   }
 }
 
@@ -58,23 +140,42 @@ export class ConsoleBackend implements TelemetryBackend {
     this.logPath = logPath ?? path.join(getHydraHome(), TELEMETRY_LOG_FILENAME);
   }
 
-  capture(event: string, properties: TelemetryProperties): void {
+  async capture(
+    event: string,
+    properties: TelemetryProperties,
+    _signal?: AbortSignal,
+  ): Promise<void> {
+    void _signal; // local file write is fast; abort is best-effort and not honored
     const line = `${JSON.stringify({
       event,
       properties,
       timestamp: new Date().toISOString(),
     })}\n`;
-    fs.mkdirSync(path.dirname(this.logPath), { recursive: true });
-    fs.appendFileSync(this.logPath, line, 'utf-8');
+    await fsPromises.mkdir(path.dirname(this.logPath), { recursive: true });
+    await fsPromises.appendFile(this.logPath, line, 'utf-8');
+  }
+
+  async flush(): Promise<void> {
+    // appendFile is awaited per-event; nothing additional to drain
   }
 }
 
 // TODO(telemetry-backend): swap this stub for a real implementation once we
 // pick a provider in PR review (PostHog cloud / self-host / Mixpanel / ...).
+// The real backend MUST honor the AbortSignal — abort outstanding HTTP
+// requests when the dispatch timeout fires so we never keep the CLI alive.
 // Do NOT add network code or install posthog-node here yet.
 export class PostHogBackend implements TelemetryBackend {
-  capture(): void {
-    // stub — intentionally no network calls
+  capture(_event: string, _properties: TelemetryProperties, _signal?: AbortSignal): void {
+    void _event;
+    void _properties;
+    // TODO: when implementing, pass _signal through to the HTTP client so
+    // that timeouts cancel in-flight requests instead of leaking.
+    void _signal;
+  }
+
+  async flush(): Promise<void> {
+    // TODO: drain the in-memory event queue when the real backend lands.
   }
 }
 
@@ -95,14 +196,6 @@ function loadPackageVersion(): string {
   }
 }
 
-function safeGetAnonymousId(): string {
-  try {
-    return getAnonymousId();
-  } catch {
-    return '';
-  }
-}
-
 export function selectBackend(): TelemetryBackend {
   const optOut = (process.env.HYDRA_TELEMETRY ?? '').trim().toLowerCase();
   if (optOut === '0' || optOut === 'off' || optOut === 'false') {
@@ -120,6 +213,7 @@ export class TelemetryClient {
   private readonly backend: TelemetryBackend;
   private readonly timeoutMs: number;
   private readonly defaults: TelemetryProperties;
+  private readonly inflight = new Set<Promise<void>>();
 
   constructor(options: TelemetryClientOptions = {}) {
     this.backend = options.backend ?? selectBackend();
@@ -135,38 +229,68 @@ export class TelemetryClient {
   }
 
   capture(event: string, properties: TelemetryProperties = {}): void {
-    const payload: TelemetryProperties = { ...this.defaults, ...properties };
-    // Schedule on the next tick so capture() always returns synchronously.
-    setImmediate(() => {
-      this.dispatch(event, payload);
+    // Auto-attached props win — callers cannot override hydra_version,
+    // platform, node_version, or anonymous_id by passing them as props.
+    const payload: TelemetryProperties = { ...properties, ...this.defaults };
+    const tracker = this.scheduleDispatch(event, payload);
+    this.inflight.add(tracker);
+    void tracker.finally(() => this.inflight.delete(tracker));
+  }
+
+  async flush(): Promise<void> {
+    const pending = Array.from(this.inflight);
+    if (pending.length > 0) {
+      await Promise.allSettled(pending);
+    }
+    if (this.backend.flush) {
+      try {
+        await this.backend.flush();
+      } catch {
+        // never propagate — flush is best-effort
+      }
+    }
+  }
+
+  private scheduleDispatch(event: string, properties: TelemetryProperties): Promise<void> {
+    return new Promise<void>(resolve => {
+      // setImmediate so capture() always returns synchronously.
+      setImmediate(() => {
+        this.dispatch(event, properties).then(resolve, resolve);
+      });
     });
   }
 
-  private dispatch(event: string, properties: TelemetryProperties): void {
-    let resolved = false;
-    const timer = setTimeout(() => {
-      resolved = true;
-    }, this.timeoutMs);
-    if (typeof timer.unref === 'function') {
-      timer.unref();
-    }
-
-    const finalize = (): void => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timer);
-      }
-    };
+  private async dispatch(event: string, properties: TelemetryProperties): Promise<void> {
+    const controller = new AbortController();
+    // Keep the timer refed so it actually fires when a backend hangs and
+    // there is no other refed work in the event loop. We always
+    // clearTimeout in the finally block, so a fast backend never costs
+    // the CLI extra wall-clock time.
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const result = this.backend.capture(event, properties);
+      const result = this.backend.capture(event, properties, controller.signal);
       if (result && typeof (result as Promise<unknown>).then === 'function') {
-        (result as Promise<unknown>).then(finalize, finalize);
-      } else {
-        finalize();
+        await new Promise<void>(resolve => {
+          let settled = false;
+          const settle = (): void => {
+            if (!settled) {
+              settled = true;
+              resolve();
+            }
+          };
+          Promise.resolve(result).then(settle, settle);
+          if (controller.signal.aborted) {
+            settle();
+          } else {
+            controller.signal.addEventListener('abort', settle, { once: true });
+          }
+        });
       }
     } catch {
-      finalize();
+      // backends must not crash the CLI
+    } finally {
+      clearTimeout(timer);
     }
   }
 }

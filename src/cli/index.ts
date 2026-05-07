@@ -9,6 +9,7 @@ import { registerArchiveCommands } from './commands/archive';
 import { registerDoctorCommand } from './commands/doctor';
 import { registerWhoamiCommand } from './commands/whoami';
 import { registerTestCommand } from './commands/test';
+import { getTelemetry } from '../core/telemetry';
 
 const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
 
@@ -26,6 +27,19 @@ if (!process.stdout.isTTY) {
   program.setOptionValue('json', true);
   program.setOptionValue('interactive', false);
 }
+
+let telemetryFlushed = false;
+process.on('beforeExit', async () => {
+  if (telemetryFlushed) {
+    return;
+  }
+  telemetryFlushed = true;
+  try {
+    await getTelemetry().flush();
+  } catch {
+    // never let telemetry crash the CLI
+  }
+});
 
 registerListCommand(program);
 registerWorkerCommands(program);

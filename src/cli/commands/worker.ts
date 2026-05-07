@@ -6,7 +6,7 @@ import { getRepoRootFromPath, localBranchExists } from '../../core/git';
 import { toCanonicalPath } from '../../core/path';
 import { outputResult, outputError, type OutputOpts } from '../output';
 import { detectCurrentTmuxIdentity, detectIdentity, getWorkerCreationBlockedMessage } from '../identity';
-import { getTelemetry } from '../../core/telemetry';
+import { getTelemetry, normalizeAgentForTelemetry } from '../../core/telemetry';
 
 function expandPath(p: string): string {
   return toCanonicalPath(p) || path.resolve(p);
@@ -74,7 +74,7 @@ export function registerWorkerCommands(program: Command): void {
 
         getTelemetry().capture(
           branchExisted ? 'worker_resumed' : 'worker_created',
-          { agent: workerInfo.agent },
+          { agent: normalizeAgentForTelemetry(workerInfo.agent) },
         );
 
         outputResult(
