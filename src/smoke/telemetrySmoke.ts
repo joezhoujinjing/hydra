@@ -2,7 +2,8 @@
  * Smoke test: telemetry framework.
  *
  * Verifies:
- *   1. NullBackend is the default and `capture` never throws.
+ *   1. PostHogBackend is the default; ConsoleBackend on debug; NullBackend
+ *      on opt-out — and `capture()` never throws regardless.
  *   2. ConsoleBackend appends a JSON line to telemetry.log and auto-attached
  *      props cannot be overridden by callers.
  *   3. HYDRA_TELEMETRY=0 (and "off"/"false") forces NullBackend even with
@@ -14,6 +15,9 @@
  *   6. The first-run stderr notice fires exactly once.
  *   7. flush() awaits all in-flight capture() calls.
  *   8. normalizeAgentForTelemetry allowlists agent names.
+ *   9. PostHogBackend.capture() forwards the right shape to the SDK
+ *      (distinctId from anonymous_id, no anonymous_id duplicated as a prop).
+ *  10. PostHogBackend honors HYDRA_POSTHOG_API_KEY and HYDRA_POSTHOG_HOST.
  *
  * Run:  node out/smoke/telemetrySmoke.js
  */
@@ -74,10 +78,6 @@ async function withTempHome(fn: (hydraHome: string) => Promise<void>): Promise<v
   }
 }
 
-function flushImmediates(): Promise<void> {
-  return new Promise(resolve => setImmediate(resolve));
-}
-
 function captureStderr(): { restore: () => string } {
   const original = process.stderr.write.bind(process.stderr) as typeof process.stderr.write;
   let captured = '';
@@ -95,28 +95,132 @@ function captureStderr(): { restore: () => string } {
   };
 }
 
-async function testNullBackendDefault(): Promise<void> {
-  await withTempHome(async hydraHome => {
+async function testPostHogBackendIsDefault(): Promise<void> {
+  await withTempHome(async () => {
     const telemetry = await import('../core/telemetry');
     telemetry.resetTelemetryForTesting();
 
     const backend = telemetry.selectBackend();
-    assert.ok(backend instanceof telemetry.NullBackend, 'default backend should be NullBackend');
-
-    const client = new telemetry.TelemetryClient();
-    assert.doesNotThrow(() => client.capture('test_event', { foo: 'bar' }));
-
-    await flushImmediates();
-    assert.equal(
-      fs.existsSync(path.join(hydraHome, 'telemetry.log')),
-      false,
-      'NullBackend must not write a telemetry.log',
+    assert.ok(
+      backend instanceof telemetry.PostHogBackend,
+      'default backend should be PostHogBackend (no opt-out, no debug)',
     );
+  });
+}
+
+async function testPostHogBackendCaptureShape(): Promise<void> {
+  await withTempHome(async () => {
+    const telemetry = await import('../core/telemetry');
+    telemetry.resetTelemetryForTesting();
+
+    interface CapturedCall {
+      distinctId: string;
+      event: string;
+      properties?: Record<string, unknown>;
+    }
+    const calls: CapturedCall[] = [];
+    let flushCount = 0;
+    let factoryArgs: { apiKey: string; host: string } | null = null;
+    const fakeClient = {
+      capture(props: CapturedCall): void {
+        calls.push(props);
+      },
+      async flush(): Promise<void> {
+        flushCount += 1;
+      },
+    };
+
+    const backend = new telemetry.PostHogBackend({
+      apiKey: 'phc_test_key',
+      host: 'https://test.posthog.example',
+      clientFactory: (apiKey, host) => {
+        factoryArgs = { apiKey, host };
+        return fakeClient;
+      },
+    });
+
+    const client = new telemetry.TelemetryClient({
+      backend,
+      anonymousId: '11111111-2222-4333-8444-555555555555',
+      hydraVersion: '0.0.0-test',
+    });
+    client.capture('worker_created', { agent: 'claude' });
+    await client.flush();
+
+    assert.equal(calls.length, 1, 'expected exactly one PostHog capture call');
+    const [first] = calls;
+    assert.equal(first.event, 'worker_created');
     assert.equal(
-      fs.existsSync(path.join(hydraHome, 'anonymous-id')),
-      false,
-      'NullBackend must not generate an anonymous-id file',
+      first.distinctId,
+      '11111111-2222-4333-8444-555555555555',
+      'distinctId must come from anonymous_id',
     );
+    assert.equal(first.properties?.agent, 'claude');
+    assert.equal(first.properties?.hydra_version, '0.0.0-test');
+    assert.equal(first.properties?.platform, process.platform);
+    assert.equal(first.properties?.node_version, process.version);
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(first.properties ?? {}, 'anonymous_id'),
+      false,
+      'anonymous_id must NOT be duplicated as a property — PostHog already keys by distinctId',
+    );
+    assert.ok(flushCount >= 1, 'backend.flush() must drain the client');
+    assert.deepEqual(
+      factoryArgs,
+      { apiKey: 'phc_test_key', host: 'https://test.posthog.example' },
+      'factory must receive the configured apiKey and host',
+    );
+  });
+}
+
+async function testPostHogBackendEnvOverrides(): Promise<void> {
+  await withTempHome(async () => {
+    const previousKey = process.env.HYDRA_POSTHOG_API_KEY;
+    const previousHost = process.env.HYDRA_POSTHOG_HOST;
+    process.env.HYDRA_POSTHOG_API_KEY = 'phc_env_key';
+    process.env.HYDRA_POSTHOG_HOST = 'https://eu.i.posthog.example';
+    try {
+      const telemetry = await import('../core/telemetry');
+      telemetry.resetTelemetryForTesting();
+
+      let factoryArgs: { apiKey: string; host: string } | null = null;
+      const backend = new telemetry.PostHogBackend({
+        clientFactory: (apiKey, host) => {
+          factoryArgs = { apiKey, host };
+          return {
+            capture(): void {
+              /* noop */
+            },
+            async flush(): Promise<void> {
+              /* noop */
+            },
+          };
+        },
+      });
+      const client = new telemetry.TelemetryClient({
+        backend,
+        anonymousId: 'fixed-test-id',
+        hydraVersion: '0.0.0-test',
+      });
+      client.capture('worker_created', { agent: 'claude' });
+      await client.flush();
+      assert.deepEqual(
+        factoryArgs,
+        { apiKey: 'phc_env_key', host: 'https://eu.i.posthog.example' },
+        'HYDRA_POSTHOG_API_KEY and HYDRA_POSTHOG_HOST must override the embedded defaults',
+      );
+    } finally {
+      if (previousKey === undefined) {
+        delete process.env.HYDRA_POSTHOG_API_KEY;
+      } else {
+        process.env.HYDRA_POSTHOG_API_KEY = previousKey;
+      }
+      if (previousHost === undefined) {
+        delete process.env.HYDRA_POSTHOG_HOST;
+      } else {
+        process.env.HYDRA_POSTHOG_HOST = previousHost;
+      }
+    }
   });
 }
 
@@ -482,6 +586,9 @@ async function testHydraDirIsTightened(): Promise<void> {
 
 async function testPeekTelemetryStaysNullWithoutCapture(): Promise<void> {
   await withTempHome(async () => {
+    // The lazy-instantiation contract is independent of backend; pin to
+    // NullBackend so this test never attempts a real PostHog network call.
+    process.env.HYDRA_TELEMETRY = '0';
     const telemetry = await import('../core/telemetry');
     telemetry.resetTelemetryForTesting();
 
@@ -558,7 +665,9 @@ async function testGeneratedUuidIsRfcShape(): Promise<void> {
 
 async function main(): Promise<void> {
   const tests: Array<[string, () => Promise<void>]> = [
-    ['testNullBackendDefault', testNullBackendDefault],
+    ['testPostHogBackendIsDefault', testPostHogBackendIsDefault],
+    ['testPostHogBackendCaptureShape', testPostHogBackendCaptureShape],
+    ['testPostHogBackendEnvOverrides', testPostHogBackendEnvOverrides],
     ['testConsoleBackendWritesJsonLine', testConsoleBackendWritesJsonLine],
     ['testOptOutForcesNullBackend', testOptOutForcesNullBackend],
     ['testAnonymousIdLifecycle', testAnonymousIdLifecycle],
