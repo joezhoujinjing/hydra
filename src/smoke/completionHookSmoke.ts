@@ -32,9 +32,13 @@ async function main(): Promise<void> {
   // Redirect Hydra state to a temp directory so we don't pollute the real one
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-smoke-hook-'));
   const origHome = process.env.HOME;
+  const origHydraHome = process.env.HYDRA_HOME;
+  const origHydraConfigPath = process.env.HYDRA_CONFIG_PATH;
   process.env.HOME = tempHome;
 
   const hydraDir = path.join(tempHome, '.hydra');
+  process.env.HYDRA_HOME = hydraDir;
+  process.env.HYDRA_CONFIG_PATH = path.join(hydraDir, 'config.json');
   const sessionsFile = path.join(hydraDir, 'sessions.json');
 
   // Seed a minimal sessions.json so readSessionState doesn't fail
@@ -79,16 +83,37 @@ async function main(): Promise<void> {
   const codexConfig = JSON.parse(fs.readFileSync(path.join(fakeWorktree, '.codex', 'hooks.json'), 'utf-8'));
   assert.ok(codexConfig.hooks?.Stop, 'Codex config should have Stop hook');
   assert.equal(codexConfig.hooks.Stop[0].hooks[0].type, 'command');
+  assert.ok(
+    codexConfig.hooks.Stop[0].hooks[0].command.includes("printf '{}'"),
+    'Codex hook should emit JSON on stdout',
+  );
   // Verify codex_hooks feature flag is enabled in config.toml
   const codexToml = fs.readFileSync(path.join(fakeWorktree, '.codex', 'config.toml'), 'utf-8');
   assert.ok(codexToml.includes('codex_hooks = true'), 'Codex config.toml should enable hooks feature flag');
+
+  // Verify existing Codex [features] table is updated instead of duplicated
+  const codexTomlPath = path.join(fakeWorktree, '.codex', 'config.toml');
+  fs.writeFileSync(codexTomlPath, '[features]\nexperimental = true\n\n[model]\nname = "gpt-5"\n');
+  sm['ensureCodexHooksEnabled'](codexTomlPath);
+  const mergedCodexToml = fs.readFileSync(codexTomlPath, 'utf-8');
+  assert.equal((mergedCodexToml.match(/^\[features\]$/gm) || []).length, 1);
+  assert.ok(
+    mergedCodexToml.includes('[features]\ncodex_hooks = true\nexperimental = true\n\n[model]'),
+    `Codex config.toml should merge into existing [features], got:\n${mergedCodexToml}`,
+  );
 
   // Gemini
   sm['injectCompletionHook'](fakeWorktree, 'gemini', hookInfo);
   const geminiConfig = JSON.parse(fs.readFileSync(path.join(fakeWorktree, '.gemini', 'settings.json'), 'utf-8'));
   assert.ok(geminiConfig.hooks?.AfterAgent, 'Gemini config should have AfterAgent hook');
   assert.equal(geminiConfig.hooks.AfterAgent[0].matcher, '*', 'Gemini hook should have matcher: "*"');
+  assert.equal(geminiConfig.hooks.AfterAgent[0].hooks[0].name, 'hydra-notify-copilot');
   assert.equal(geminiConfig.hooks.AfterAgent[0].hooks[0].type, 'command');
+  assert.equal(geminiConfig.hooks.AfterAgent[0].hooks[0].timeout, 5000);
+  assert.ok(
+    geminiConfig.hooks.AfterAgent[0].hooks[0].command.includes("printf '{}'"),
+    'Gemini hook should emit JSON on stdout',
+  );
 
   // Custom (should produce no config)
   sm['injectCompletionHook'](fakeWorktree, 'custom', hookInfo);
@@ -130,13 +155,51 @@ async function main(): Promise<void> {
     );
     await sleep(500);
 
-    // Write a test-specific script that targets our test copilot
+    // Write test-specific hook configs that target our test copilot
+    const runtimeWorktree = path.join(tempHome, 'runtime-worktree');
+    fs.mkdirSync(runtimeWorktree, { recursive: true });
     const testInfo = { ...hookInfo, copilotSessionName: COPILOT_SESSION };
-    sm['injectCompletionHook'](fakeWorktree, 'claude', testInfo);
-    const testScriptPath = path.join(hydraDir, 'hooks', `notify-${testInfo.sessionName}.sh`);
+    sm['injectCompletionHook'](runtimeWorktree, 'claude', testInfo);
+    sm['injectCompletionHook'](runtimeWorktree, 'codex', testInfo);
+    sm['injectCompletionHook'](runtimeWorktree, 'gemini', testInfo);
 
-    // Execute the notification script directly
-    execSync(`sh ${sq(testScriptPath)}`, { timeout: 5000, env: { ...process.env, HOME: tempHome } });
+    const runtimeClaudeConfig = JSON.parse(
+      fs.readFileSync(path.join(runtimeWorktree, '.claude', 'settings.json'), 'utf-8'),
+    );
+    const runtimeCodexConfig = JSON.parse(
+      fs.readFileSync(path.join(runtimeWorktree, '.codex', 'hooks.json'), 'utf-8'),
+    );
+    const runtimeGeminiConfig = JSON.parse(
+      fs.readFileSync(path.join(runtimeWorktree, '.gemini', 'settings.json'), 'utf-8'),
+    );
+
+    const hookCommands = [
+      {
+        agent: 'claude',
+        command: runtimeClaudeConfig.hooks.Stop[0].hooks[0].command,
+        expectedStdout: '',
+      },
+      {
+        agent: 'codex',
+        command: runtimeCodexConfig.hooks.Stop[0].hooks[0].command,
+        expectedStdout: '{}',
+      },
+      {
+        agent: 'gemini',
+        command: runtimeGeminiConfig.hooks.AfterAgent[0].hooks[0].command,
+        expectedStdout: '{}',
+      },
+    ];
+
+    // Execute the exact command each agent hook config would run.
+    for (const { agent, command, expectedStdout } of hookCommands) {
+      const stdout = execSync(command, {
+        encoding: 'utf-8',
+        timeout: 5000,
+        env: { ...process.env, HOME: tempHome },
+      });
+      assert.equal(stdout, expectedStdout, `${agent} hook stdout should match agent contract`);
+    }
 
     await sleep(1000);
 
@@ -160,8 +223,13 @@ async function main(): Promise<void> {
     killSession(COPILOT_SESSION);
   }
 
-  // Restore HOME
+  // Restore environment
   if (origHome) process.env.HOME = origHome;
+  else delete process.env.HOME;
+  if (origHydraHome) process.env.HYDRA_HOME = origHydraHome;
+  else delete process.env.HYDRA_HOME;
+  if (origHydraConfigPath) process.env.HYDRA_CONFIG_PATH = origHydraConfigPath;
+  else delete process.env.HYDRA_CONFIG_PATH;
   fs.rmSync(tempHome, { recursive: true, force: true });
 
   console.log('completionHookSmoke: ok');

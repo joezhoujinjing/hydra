@@ -280,7 +280,7 @@ export class SessionManager {
     const { repoRoot, branchName } = opts;
     let { task, taskFile } = opts;
     const agentType = opts.agentType || 'claude';
-    const agentCommand = await this.resolveAgentCommand(opts.agentCommand || DEFAULT_AGENT_COMMANDS[agentType] || agentType);
+    let agentCommand = await this.resolveAgentCommand(opts.agentCommand || DEFAULT_AGENT_COMMANDS[agentType] || agentType);
 
     const validationError = coreGit.validateBranchName(branchName);
     if (validationError) {
@@ -345,16 +345,22 @@ export class SessionManager {
 
     // Inject agent completion hook (must be before agent launch so it reads the config)
     const sessionName = this.backend.buildSessionName(repoSessionNamespace, finalSlug);
-    if (opts.notifyCopilot !== false && opts.copilotSessionName && (task || taskFile)) {
+    const copilotSessionName = opts.copilotSessionName;
+    const shouldNotifyCopilot = opts.notifyCopilot !== false && !!copilotSessionName && !!(task || taskFile);
+    if (shouldNotifyCopilot) {
       const peekState = this.readSessionState();
       const workerId = peekState.workers[sessionName]?.workerId ?? peekState.nextWorkerId;
       this.injectCompletionHook(worktreePath, agentType, {
-        copilotSessionName: opts.copilotSessionName,
+        copilotSessionName,
         sessionName,
         workerId,
         displayName: finalSlug,
         branch: branchName,
       });
+      if (agentType === 'codex') {
+        const scriptPath = path.join(getHydraHome(), 'hooks', `notify-${sessionName}.sh`);
+        agentCommand = this.withCodexCompletionHookOverrides(agentCommand, repoRoot, scriptPath);
+      }
     }
 
     // Create tmux session + set metadata
@@ -1249,7 +1255,7 @@ export class SessionManager {
       const scriptPath = path.join(hooksDir, `notify-${info.sessionName}.sh`);
       fs.writeFileSync(scriptPath, this.buildNotifyScript(info), { mode: 0o755 });
 
-      const hookCommand = `sh ${shellQuote(scriptPath)}`;
+      const hookCommand = this.buildNotifyHookCommand(scriptPath, agentType);
 
       // 2. Merge the completion hook into the agent's config
       switch (agentType) {
@@ -1273,7 +1279,15 @@ export class SessionManager {
           this.mergeAgentHookConfig(
             path.join(worktreePath, '.gemini', 'settings.json'),
             'AfterAgent',
-            { matcher: '*', hooks: [{ type: 'command', command: hookCommand }] },
+            {
+              matcher: '*',
+              hooks: [{
+                name: 'hydra-notify-copilot',
+                type: 'command',
+                command: hookCommand,
+                timeout: 5000,
+              }],
+            },
           );
           break;
         // custom: no known hook system — skip
@@ -1309,18 +1323,92 @@ export class SessionManager {
     fs.mkdirSync(path.dirname(configTomlPath), { recursive: true });
 
     const featureLine = 'codex_hooks = true';
-    if (fs.existsSync(configTomlPath)) {
-      const content = fs.readFileSync(configTomlPath, 'utf-8');
-      if (content.includes(featureLine)) return; // already enabled
-      // Append the feature flag
-      fs.writeFileSync(
-        configTomlPath,
-        content.trimEnd() + '\n\n[features]\n' + featureLine + '\n',
-        'utf-8',
-      );
-    } else {
-      fs.writeFileSync(configTomlPath, '[features]\n' + featureLine + '\n', 'utf-8');
+    const content = fs.existsSync(configTomlPath)
+      ? fs.readFileSync(configTomlPath, 'utf-8')
+      : '';
+    if (/^\s*codex_hooks\s*=\s*true\s*(?:#.*)?$/m.test(content)) {
+      return;
     }
+
+    const lines = content ? content.split(/\r?\n/) : [];
+    let featuresStart = -1;
+    let featuresEnd = lines.length;
+
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*\[features\]\s*(?:#.*)?$/.test(lines[i])) {
+        featuresStart = i;
+        for (let j = i + 1; j < lines.length; j++) {
+          if (/^\s*\[[^\]]+\]\s*(?:#.*)?$/.test(lines[j])) {
+            featuresEnd = j;
+            break;
+          }
+        }
+        break;
+      }
+    }
+
+    if (featuresStart >= 0) {
+      for (let i = featuresStart + 1; i < featuresEnd; i++) {
+        if (/^\s*codex_hooks\s*=/.test(lines[i])) {
+          lines[i] = featureLine;
+          fs.writeFileSync(configTomlPath, lines.join('\n').replace(/\n*$/, '\n'), 'utf-8');
+          return;
+        }
+      }
+      lines.splice(featuresStart + 1, 0, featureLine);
+      fs.writeFileSync(configTomlPath, lines.join('\n').replace(/\n*$/, '\n'), 'utf-8');
+      return;
+    }
+
+    const prefix = content.trimEnd();
+    const nextContent = (prefix ? `${prefix}\n\n` : '') + `[features]\n${featureLine}\n`;
+    fs.writeFileSync(configTomlPath, nextContent, 'utf-8');
+  }
+
+  private buildNotifyHookCommand(scriptPath: string, agentType: string): string {
+    const command = `sh ${shellQuote(scriptPath)}`;
+    switch (agentType) {
+      case 'codex':
+        // Codex Stop hooks expect JSON on stdout. The notification remains
+        // best-effort, and the hook command reports a successful no-op payload.
+        return `${command} >/dev/null; printf '{}'`;
+      case 'gemini':
+        // Gemini hooks expect JSON on stdout. The notification remains
+        // best-effort, and the hook command reports a successful no-op payload.
+        return `${command} >/dev/null; printf '{}'`;
+      default:
+        return command;
+    }
+  }
+
+  private withCodexCompletionHookOverrides(agentCommand: string, repoRoot: string, scriptPath: string): string {
+    const trustRoots = new Set([repoRoot]);
+    try {
+      trustRoots.add(fs.realpathSync(repoRoot));
+    } catch {
+      // Fall back to the original path when realpath is unavailable.
+    }
+
+    const projects = [...trustRoots]
+      .map((trustRoot) => `${JSON.stringify(trustRoot)}={trust_level="trusted"}`)
+      .join(',');
+    const hookCommand = this.buildNotifyHookCommand(scriptPath, 'codex');
+    const hooksConfig = [
+      'hooks={Stop=[{hooks=[{',
+      'type="command",',
+      `command=${JSON.stringify(hookCommand)}`,
+      '}]}]}',
+    ].join('');
+
+    return [
+      agentCommand.trim(),
+      '-c',
+      shellQuote('features.codex_hooks=true'),
+      '-c',
+      shellQuote(`projects={${projects}}`),
+      '-c',
+      shellQuote(hooksConfig),
+    ].join(' ');
   }
 
   private buildNotifyScript(info: {
