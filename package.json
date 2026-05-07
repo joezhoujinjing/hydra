@@ -273,7 +273,9 @@
     "smoke:tmux-attach": "node out/smoke/tmuxAttachSmoke.js",
     "smoke:identity": "node out/smoke/sessionIdentitySmoke.js",
     "smoke:codex-bypass": "node out/smoke/codexBypassSmoke.js",
-    "smoke:worker-delete": "node out/smoke/workerDeleteFailClosedSmoke.js"
+    "smoke:worker-delete": "node out/smoke/workerDeleteFailClosedSmoke.js",
+    "smoke:telemetry": "node out/smoke/telemetrySmoke.js",
+    "test": "npm run compile && npm run smoke:telemetry"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
