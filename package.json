@@ -131,6 +131,11 @@
         "title": "Open in New Window"
       },
       {
+        "command": "tmux.reviewChanges",
+        "title": "Review Changes",
+        "icon": "$(diff)"
+      },
+      {
         "command": "tmux.copyPath",
         "title": "Copy Path"
       },
@@ -248,9 +253,19 @@
       ],
       "view/item/context": [
         {
+          "command": "tmux.reviewChanges",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem')",
+          "group": "1_open@1"
+        },
+        {
+          "command": "tmux.openWorktree",
+          "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem')",
+          "group": "1_open@2"
+        },
+        {
           "command": "tmux.attach",
           "when": "(view == hydraCopilots || view == hydraWorkers) && (viewItem == 'workerItem' || viewItem == 'inactiveWorkerItem' || viewItem == 'copilotItem')",
-          "group": "1_open"
+          "group": "1_open@3"
         },
         {
           "command": "tmux.copyPath",
