@@ -13,6 +13,7 @@ import { getActiveBackend, HydraRole } from '../utils/multiplexer';
 import { getHydraEditorLocation } from '../utils/hydraEditorGroup';
 import { exec } from '../utils/exec';
 import { ensureBackendInstalled } from './ensureBackendInstalled';
+import { openChangesReview } from './reviewChanges';
 
 function getWorktreePath(item: TmuxItem): string | undefined {
   if (item instanceof CopilotItem) return item.worktreePath;
@@ -100,7 +101,17 @@ export async function openWorktree(item: TmuxItem): Promise<void> {
 }
 
 export async function reviewChanges(item: TmuxItem): Promise<void> {
-  await openWorktree(item);
+  const worktreePath = getWorktreePath(item);
+  if (!worktreePath) {
+    vscode.window.showErrorMessage('Worktree path not found');
+    return;
+  }
+
+  try {
+    await openChangesReview(worktreePath);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Failed to review changes: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function copyPath(item: TmuxItem): Promise<void> {
