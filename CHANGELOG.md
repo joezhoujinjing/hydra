@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.2026050801] - 2026-05-08
+
+### Added
+- Worker completion notifications via native Claude, Codex, and Gemini hooks, with per-message arming so direct worker chats do not notify the copilot
+- Worker change review action and review-focused diff UX in the Hydra sidebar
+
+### Fixed
+- Harden completion hook configuration and notification delivery across supported agents
+
 ## [0.3.2026050800] - 2026-05-08
 
 ### Added
