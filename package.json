@@ -225,6 +225,11 @@
             "gemini": "gemini"
           },
           "markdownDescription": "Map of agent type to shell command used to launch the agent."
+        },
+        "hydra.notifyCopilotOnWorkerComplete": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Automatically notify the parent copilot when a worker finishes its task. The notification is sent as a message to the copilot's tmux session."
         }
       }
     },
@@ -273,6 +278,7 @@
     "smoke:tmux-attach": "node out/smoke/tmuxAttachSmoke.js",
     "smoke:identity": "node out/smoke/sessionIdentitySmoke.js",
     "smoke:codex-bypass": "node out/smoke/codexBypassSmoke.js",
+    "smoke:completion-hook": "node out/smoke/completionHookSmoke.js",
     "smoke:worker-delete": "node out/smoke/workerDeleteFailClosedSmoke.js",
     "smoke:telemetry": "node out/smoke/telemetrySmoke.js",
     "smoke:telemetry-e2e": "node out/smoke/telemetryE2eSmoke.js",
@@ -280,7 +286,7 @@
     "smoke:session-file-resolve": "node out/smoke/sessionFileResolveSmoke.js",
     "smoke:cli-session-fields": "node out/smoke/cliSessionFieldsSmoke.js",
     "smoke:repo-registry": "node out/smoke/repoRegistrySmoke.js",
-    "test": "npm run compile && npm run smoke:tmux-attach && npm run smoke:codex-bypass && npm run smoke:worker-delete && npm run smoke:telemetry && npm run smoke:telemetry-e2e && npm run smoke:session-file-resolve && npm run smoke:cli-session-fields && npm run smoke:repo-registry"
+    "test": "npm run compile && npm run smoke:tmux-attach && npm run smoke:codex-bypass && npm run smoke:completion-hook && npm run smoke:worker-delete && npm run smoke:telemetry && npm run smoke:telemetry-e2e && npm run smoke:session-file-resolve && npm run smoke:cli-session-fields && npm run smoke:repo-registry"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

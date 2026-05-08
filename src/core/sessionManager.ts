@@ -146,6 +146,8 @@ export interface CreateWorkerOpts {
   resumeSessionId?: string;
   /** Session name of the copilot that spawned this worker. */
   copilotSessionName?: string;
+  /** Whether to notify the parent copilot when the worker completes (default: true). */
+  notifyCopilot?: boolean;
   /** Existing persisted identity to preserve when restoring an archived worker. */
   preservedWorkerInfo?: WorkerInfo;
   /**
@@ -325,6 +327,12 @@ export class SessionManager {
     return state.workers[sessionName];
   }
 
+  armCompletionNotification(sessionName: string): void {
+    const hooksDir = path.join(getHydraHome(), 'hooks');
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.closeSync(fs.openSync(this.getNotifyPendingPath(sessionName), 'w'));
+  }
+
   async getCopilot(sessionName: string): Promise<CopilotInfo | undefined> {
     const state = await this.sync();
     return state.copilots[sessionName];
@@ -338,7 +346,7 @@ export class SessionManager {
     const { repoRoot, branchName } = opts;
     let { task, taskFile } = opts;
     const agentType = opts.agentType || 'claude';
-    const agentCommand = await this.resolveAgentCommand(opts.agentCommand || DEFAULT_AGENT_COMMANDS[agentType] || agentType);
+    let agentCommand = await this.resolveAgentCommand(opts.agentCommand || DEFAULT_AGENT_COMMANDS[agentType] || agentType);
 
     const validationError = coreGit.validateBranchName(branchName);
     if (validationError) {
@@ -356,7 +364,17 @@ export class SessionManager {
       { includeArchive: !!opts.preservedWorkerInfo },
     );
     if (branchExists) {
-      return this.resumeWorker(repoRoot, branchName, repoSessionNamespace, agentType, agentCommand, task, savedWorker);
+      return this.resumeWorker(
+        repoRoot,
+        branchName,
+        repoSessionNamespace,
+        agentType,
+        agentCommand,
+        task,
+        savedWorker,
+        opts.copilotSessionName,
+        opts.notifyCopilot !== false,
+      );
     }
 
     const preservedWorker = opts.preservedWorkerInfo ? savedWorker : undefined;
@@ -423,6 +441,26 @@ export class SessionManager {
     const sessionName = preservedWorker?.worker.sessionName && preservedWorker.worker.slug === finalSlug
       ? preservedWorker.worker.sessionName
       : this.backend.buildSessionName(repoSessionNamespace, finalSlug);
+    const copilotSessionName = opts.copilotSessionName;
+    const shouldNotifyCopilot = opts.notifyCopilot !== false && !!copilotSessionName && !!(task || taskFile);
+    if (shouldNotifyCopilot) {
+      const peekState = this.readSessionState();
+      const workerId = peekState.workers[sessionName]?.workerId ??
+        preservedWorker?.worker.workerId ??
+        peekState.nextWorkerId;
+      this.injectCompletionHook(worktreePath, agentType, {
+        copilotSessionName,
+        sessionName,
+        workerId,
+        displayName: finalSlug,
+        branch: branchName,
+      });
+      if (agentType === 'codex') {
+        const scriptPath = path.join(getHydraHome(), 'hooks', `notify-${sessionName}.sh`);
+        agentCommand = this.withCodexCompletionHookOverrides(agentCommand, repoRoot, scriptPath);
+      }
+    }
+
     await this.backend.createSession(sessionName, worktreePath);
     await this.backend.setSessionWorkdir(sessionName, worktreePath);
     await this.backend.setSessionRole(sessionName, 'worker');
@@ -498,7 +536,7 @@ export class SessionManager {
         await this.waitForReadyAndCaptureSessionId(sessionName, agentType, sessionId);
       }
       // Phase 2: Send task prompt (only after sessions.json is up to date)
-      await this.sendInitialPrompt(sessionName, task);
+      await this.sendInitialPrompt(sessionName, task, shouldNotifyCopilot);
     })(), sessionName, 'worker startup');
 
     return { workerInfo, postCreatePromise };
@@ -1297,10 +1335,257 @@ export class SessionManager {
   private async sendInitialPrompt(
     sessionName: string,
     task?: string,
+    notifyCopilot = false,
   ): Promise<void> {
     if (task) {
+      if (notifyCopilot) {
+        this.armCompletionNotification(sessionName);
+      }
       await this.backend.sendMessage(sessionName, task);
     }
+  }
+
+  // ── Completion hook injection ──
+
+  /**
+   * Metadata needed to build the completion notification hook.
+   * Gathered before updateSessionState so the hook is in place before the agent starts.
+   */
+  private injectCompletionHook(
+    worktreePath: string,
+    agentType: string,
+    info: {
+      copilotSessionName: string;
+      sessionName: string;
+      workerId: number;
+      displayName: string;
+      branch: string;
+    },
+  ): void {
+    try {
+      // 1. Write the notification shell script
+      const hooksDir = path.join(getHydraHome(), 'hooks');
+      fs.mkdirSync(hooksDir, { recursive: true });
+
+      const scriptPath = path.join(hooksDir, `notify-${info.sessionName}.sh`);
+      fs.writeFileSync(scriptPath, this.buildNotifyScript(info), { mode: 0o755 });
+
+      const hookCommand = this.buildNotifyHookCommand(scriptPath, agentType);
+
+      // 2. Merge the completion hook into the agent's config
+      switch (agentType) {
+        case 'claude':
+          this.mergeAgentHookConfig(
+            path.join(worktreePath, '.claude', 'settings.json'),
+            'Stop',
+            { hooks: [{ type: 'command', command: hookCommand, async: true }] },
+          );
+          break;
+        case 'codex':
+          this.mergeAgentHookConfig(
+            path.join(worktreePath, '.codex', 'hooks.json'),
+            'Stop',
+            { hooks: [{ type: 'command', command: hookCommand }] },
+          );
+          // Codex requires the codex_hooks feature flag to be enabled
+          this.ensureCodexHooksEnabled(path.join(worktreePath, '.codex', 'config.toml'));
+          break;
+        case 'gemini':
+          this.mergeAgentHookConfig(
+            path.join(worktreePath, '.gemini', 'settings.json'),
+            'AfterAgent',
+            {
+              matcher: '*',
+              hooks: [{
+                name: 'hydra-notify-copilot',
+                type: 'command',
+                command: hookCommand,
+                timeout: 5000,
+              }],
+            },
+          );
+          break;
+        // custom: no known hook system — skip
+      }
+    } catch {
+      // Best-effort — don't fail worker creation if hook injection fails
+    }
+  }
+
+  private mergeAgentHookConfig(
+    configPath: string,
+    eventName: string,
+    hookEntry: Record<string, unknown>,
+  ): void {
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let config: any = {};
+    try {
+      if (fs.existsSync(configPath)) {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      }
+    } catch { /* start fresh */ }
+
+    if (!config.hooks) config.hooks = {};
+    if (!Array.isArray(config.hooks[eventName])) config.hooks[eventName] = [];
+    config.hooks[eventName].push(hookEntry);
+
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  }
+
+  private ensureCodexHooksEnabled(configTomlPath: string): void {
+    fs.mkdirSync(path.dirname(configTomlPath), { recursive: true });
+
+    const featureLine = 'codex_hooks = true';
+    const content = fs.existsSync(configTomlPath)
+      ? fs.readFileSync(configTomlPath, 'utf-8')
+      : '';
+    if (/^\s*codex_hooks\s*=\s*true\s*(?:#.*)?$/m.test(content)) {
+      return;
+    }
+
+    const lines = content ? content.split(/\r?\n/) : [];
+    let featuresStart = -1;
+    let featuresEnd = lines.length;
+
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*\[features\]\s*(?:#.*)?$/.test(lines[i])) {
+        featuresStart = i;
+        for (let j = i + 1; j < lines.length; j++) {
+          if (/^\s*\[[^\]]+\]\s*(?:#.*)?$/.test(lines[j])) {
+            featuresEnd = j;
+            break;
+          }
+        }
+        break;
+      }
+    }
+
+    if (featuresStart >= 0) {
+      for (let i = featuresStart + 1; i < featuresEnd; i++) {
+        if (/^\s*codex_hooks\s*=/.test(lines[i])) {
+          lines[i] = featureLine;
+          fs.writeFileSync(configTomlPath, lines.join('\n').replace(/\n*$/, '\n'), 'utf-8');
+          return;
+        }
+      }
+      lines.splice(featuresStart + 1, 0, featureLine);
+      fs.writeFileSync(configTomlPath, lines.join('\n').replace(/\n*$/, '\n'), 'utf-8');
+      return;
+    }
+
+    const prefix = content.trimEnd();
+    const nextContent = (prefix ? `${prefix}\n\n` : '') + `[features]\n${featureLine}\n`;
+    fs.writeFileSync(configTomlPath, nextContent, 'utf-8');
+  }
+
+  private buildNotifyHookCommand(scriptPath: string, agentType: string): string {
+    const command = `sh ${shellQuote(scriptPath)}`;
+    switch (agentType) {
+      case 'codex':
+        // Codex Stop hooks expect JSON on stdout. The notification remains
+        // best-effort, and the hook command reports a successful no-op payload.
+        return `${command} >/dev/null; printf '{}'`;
+      case 'gemini':
+        // Gemini hooks expect JSON on stdout. The notification remains
+        // best-effort, and the hook command reports a successful no-op payload.
+        return `${command} >/dev/null; printf '{}'`;
+      default:
+        return command;
+    }
+  }
+
+  private withCodexCompletionHookOverrides(agentCommand: string, repoRoot: string, scriptPath: string): string {
+    const trustRoots = new Set([repoRoot]);
+    try {
+      trustRoots.add(fs.realpathSync(repoRoot));
+    } catch {
+      // Fall back to the original path when realpath is unavailable.
+    }
+
+    const projects = [...trustRoots]
+      .map((trustRoot) => `${JSON.stringify(trustRoot)}={trust_level="trusted"}`)
+      .join(',');
+    const hookCommand = this.buildNotifyHookCommand(scriptPath, 'codex');
+    const hooksConfig = [
+      'hooks={Stop=[{hooks=[{',
+      'type="command",',
+      `command=${JSON.stringify(hookCommand)}`,
+      '}]}]}',
+    ].join('');
+
+    return [
+      agentCommand.trim(),
+      '-c',
+      shellQuote('features.codex_hooks=true'),
+      '-c',
+      shellQuote(`projects={${projects}}`),
+      '-c',
+      shellQuote(hooksConfig),
+    ].join(' ');
+  }
+
+  private buildNotifyScript(info: {
+    copilotSessionName: string;
+    sessionName: string;
+    workerId: number;
+    displayName: string;
+    branch: string;
+  }): string {
+    const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+    const pendingPath = this.getNotifyPendingPath(info.sessionName);
+    return [
+      '#!/bin/sh',
+      '# Auto-generated by Hydra: parent copilot completion notification.',
+      '',
+      `COPILOT=${sq(info.copilotSessionName)}`,
+      `SESSION=${sq(info.sessionName)}`,
+      `WORKER_ID=${sq(String(info.workerId))}`,
+      `NAME=${sq(info.displayName)}`,
+      `BRANCH=${sq(info.branch)}`,
+      `PENDING=${sq(pendingPath)}`,
+      'LOCKDIR="${PENDING}.lock"',
+      '',
+      '# Only Hydra-armed copilot messages should notify on completion.',
+      '[ -f "$PENDING" ] || exit 0',
+      'if ! mkdir "$LOCKDIR" 2>/dev/null; then',
+      '  exit 0',
+      'fi',
+      'cleanup() { rm -rf "$LOCKDIR"; }',
+      'trap cleanup EXIT HUP INT TERM',
+      '[ -f "$PENDING" ] || exit 0',
+      '',
+      '# Resolve tmux command (honors HYDRA_TMUX_SOCKET if set)',
+      't=tmux',
+      'if [ -n "$HYDRA_TMUX_SOCKET" ]; then',
+      '  case "$HYDRA_TMUX_SOCKET" in',
+      '    /*|./*|../*) t="tmux -S $HYDRA_TMUX_SOCKET" ;;',
+      '    *) t="tmux -L $HYDRA_TMUX_SOCKET" ;;',
+      '  esac',
+      'fi',
+      '',
+      '# Only notify if copilot session still exists',
+      '$t has-session -t "$COPILOT" 2>/dev/null || exit 0',
+      '',
+      'MSG="Worker #${WORKER_ID} (${NAME}) has completed. Branch: ${BRANCH}. Use \\`hydra worker logs ${SESSION}\\` to review output."',
+      '',
+      '# Use load-buffer/paste-buffer to avoid the Enter-swallow issue (see PR #122)',
+      'f=$(mktemp) || exit 0',
+      'printf \'%s\' "$MSG" > "$f"',
+      'b="hydra-$$"',
+      'if $t load-buffer -b "$b" "$f" 2>/dev/null \\',
+      '  && $t paste-buffer -b "$b" -t "$COPILOT" -d 2>/dev/null \\',
+      '  && sleep 0.1 \\',
+      '  && $t send-keys -t "$COPILOT" Enter 2>/dev/null; then',
+      '  rm -f "$PENDING"',
+      'fi',
+      'rm -f "$f"',
+    ].join('\n') + '\n';
+  }
+
+  private getNotifyPendingPath(sessionName: string): string {
+    return path.join(getHydraHome(), 'hooks', `notify-${sessionName}.pending`);
   }
 
   /**
@@ -1557,10 +1842,17 @@ export class SessionManager {
     agentCommand: string,
     task?: string,
     savedWorkerMatch?: SavedWorkerMatch,
+    copilotSessionName?: string,
+    notifyCopilot = false,
   ): Promise<CreateWorkerResult> {
     const savedWorker = savedWorkerMatch?.worker;
     const slug = savedWorker?.slug || coreGit.branchNameToSlug(branchName, this.backend);
     const sessionName = savedWorker?.sessionName || this.backend.buildSessionName(repoSessionNamespace, slug);
+    const existingWorkerState = this.readSessionState().workers[sessionName] || savedWorker;
+    const shouldNotifyCopilot = notifyCopilot &&
+      !!copilotSessionName &&
+      !!task &&
+      existingWorkerState?.copilotSessionName === copilotSessionName;
 
     const isRunning = await this.backend.hasSession(sessionName);
     if (isRunning) {
@@ -1576,6 +1868,9 @@ export class SessionManager {
       }
 
       if (task) {
+        if (shouldNotifyCopilot) {
+          this.armCompletionNotification(sessionName);
+        }
         await this.backend.sendKeys(sessionName, task);
       }
 
@@ -1655,7 +1950,7 @@ export class SessionManager {
         // Skip Phase 1 (sessionId already known). Phase 2 only: send task if provided.
         postCreatePromise = (async () => {
           await this.waitForAgentReady(sessionName, agentType);
-          await this.sendInitialPrompt(sessionName, task);
+          await this.sendInitialPrompt(sessionName, task, shouldNotifyCopilot);
         })();
       } else {
         // ── Fresh start: Phase 1 (capture sessionId) → Phase 2 (send task) ──
@@ -1665,7 +1960,7 @@ export class SessionManager {
         sessionId = preAssignedSessionId;
         postCreatePromise = (async () => {
           await this.waitForReadyAndCaptureSessionId(sessionName, agentType, preAssignedSessionId);
-          await this.sendInitialPrompt(sessionName, task);
+          await this.sendInitialPrompt(sessionName, task, shouldNotifyCopilot);
         })();
       }
 

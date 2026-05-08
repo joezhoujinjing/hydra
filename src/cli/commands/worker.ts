@@ -23,6 +23,8 @@ export function registerWorkerCommands(program: Command): void {
     .option('--task <prompt>', 'Task prompt for the agent')
     .option('--task-file <path>', 'Path to a file containing the task description')
     .option('--copilot <session>', 'Session name of the parent copilot (auto-detected if inside a copilot)')
+    .option('--notify-copilot', 'Notify parent copilot when worker completes (default: true)', true)
+    .option('--no-notify-copilot', 'Disable completion notification to parent copilot')
     .action(async (opts: {
       repo: string;
       branch: string;
@@ -31,6 +33,7 @@ export function registerWorkerCommands(program: Command): void {
       task?: string;
       taskFile?: string;
       copilot?: string;
+      notifyCopilot: boolean;
     }) => {
       const globalOpts = program.opts() as OutputOpts;
       try {
@@ -69,6 +72,7 @@ export function registerWorkerCommands(program: Command): void {
           task: opts.task,
           taskFile: opts.taskFile,
           copilotSessionName,
+          notifyCopilot: opts.notifyCopilot,
           fetchMode: isManagedRepo ? 'required' : 'best-effort',
         });
 
@@ -249,6 +253,7 @@ export function registerWorkerCommands(program: Command): void {
       const globalOpts = program.opts() as OutputOpts;
       try {
         const backend = new TmuxBackendCore();
+        const identity = detectIdentity();
 
         if (opts.all) {
           // When --all, first positional is the message, second is undefined/empty
@@ -263,6 +268,9 @@ export function registerWorkerCommands(program: Command): void {
 
           const sent: string[] = [];
           for (const worker of running) {
+            if (identity?.role === 'copilot' && worker.copilotSessionName === identity.sessionName) {
+              sm.armCompletionNotification(worker.sessionName);
+            }
             await backend.sendMessage(worker.sessionName, message);
             sent.push(worker.sessionName);
           }
@@ -280,6 +288,11 @@ export function registerWorkerCommands(program: Command): void {
         } else {
           const session = sessionOrMessage;
           const message = messageOrUndefined;
+          const sm = new SessionManager(backend);
+          const worker = await sm.getWorker(session);
+          if (identity?.role === 'copilot' && worker?.copilotSessionName === identity.sessionName) {
+            sm.armCompletionNotification(session);
+          }
           await backend.sendMessage(session, message);
 
           outputResult(
