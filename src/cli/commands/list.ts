@@ -46,6 +46,7 @@ export function registerListCommand(program: Command): void {
             sessionId: w.sessionId,
             sessionFile: resolveAgentSessionFile(w.agent, w.workdir, w.sessionId),
             agentSessionId: w.sessionId,
+            remote: w.remote ? { host: w.remote.host, statusVerified: false } : null,
           })),
           count: copilots.length + workers.length,
         };
@@ -103,7 +104,11 @@ export function registerListCommand(program: Command): void {
                 const branch = w.branch ? ` (${w.branch})` : '';
                 const name = w.displayName || w.slug || w.sessionName || w.tmuxSession;
                 const num = w.workerId != null ? `#${w.workerId} ` : '';
-                console.log(`    ${statusIcon} ${num}${name}${branch}  [${w.agent}]${attached}`);
+                // Remote workers' status is last-known, not live — `hydra list`
+                // never SSH-probes. Make that visible inline so users don't
+                // mistake a stale "running" for a verified one.
+                const remoteSuffix = w.remote ? ` (remote: ${w.remote.host}; status unverified)` : '';
+                console.log(`    ${statusIcon} ${num}${name}${branch}  [${w.agent}]${attached}${remoteSuffix}`);
                 if (w.workdir) console.log(`      workdir: ${w.workdir}`);
               }
             }

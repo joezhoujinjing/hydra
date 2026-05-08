@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { MultiplexerBackendCore } from './types';
 import * as coreGit from './git';
 import { ensureHydraGlobalConfig } from './hydraGlobalConfig';
@@ -8,6 +8,7 @@ import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMAND
 import { exec, resolveCommandPath } from './exec';
 import { getHydraArchiveFile, getHydraHome, getHydraSessionsFile, toCanonicalPath } from './path';
 import { shellQuote } from './shell';
+import { RemoteTmuxBackend } from './remoteTmux';
 
 const POST_CREATE_TIMEOUT_MS = AGENT_READY_TIMEOUT_MS + 15000;
 const SESSION_STATE_LOCK_TIMEOUT_MS = 10000;
@@ -56,6 +57,23 @@ function fixWindowsSymlinks(worktreeDir: string): void {
   }
 }
 
+/** POSIX basename for remote (always /) paths. */
+function pathBasename(p: string): string {
+  const trimmed = p.replace(/\/+$/, '');
+  const idx = trimmed.lastIndexOf('/');
+  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
+}
+
+/** Same sanitization rule TmuxBackendCore.sanitizeSessionName uses. */
+function sanitizeForSession(name: string): string {
+  return name.replace(/[/\\\s.:]/g, '-');
+}
+
+/** Short hash for collision-resistant session-name namespacing. */
+function shortHash(value: string): string {
+  return createHash('sha1').update(value).digest('hex').slice(0, 7);
+}
+
 /**
  * Look up a worker's numeric ID from sessions.json.
  * Lightweight standalone function — no SessionManager instance needed.
@@ -94,6 +112,15 @@ export interface WorkerInfo {
   sessionId: string | null;
   /** Session name of the copilot that spawned this worker, if any. */
   copilotSessionName: string | null;
+  /**
+   * Set when this worker runs on a remote machine reached over SSH.
+   * Local workers leave this field undefined.
+   *
+   * For remote workers, `repoRoot` and `workdir` are paths on the remote host
+   * — never on the local filesystem. Subcommands (logs, send, attach, delete)
+   * route through {@link RemoteTmuxBackend} when this is set.
+   */
+  remote?: { host: string };
 }
 
 export interface CopilotInfo {
@@ -221,6 +248,13 @@ export class SessionManager {
         // Backfill workerId for workers created before this feature
         if (worker.workerId == null) {
           worker.workerId = state.nextWorkerId++;
+        }
+        if (worker.remote) {
+          // Remote workers are not in the local tmux server. We don't probe
+          // the remote on every sync (would slow `hydra list` to a crawl),
+          // so we trust the last-known status. Liveness is verified
+          // on-demand by the per-command dispatch.
+          continue;
         }
         const live = liveSessionMap.get(worker.sessionName);
         if (live) {
@@ -543,9 +577,14 @@ export class SessionManager {
   }
 
   async deleteWorker(sessionName: string): Promise<void> {
-    await this.killSessionOrConfirmAbsent(sessionName);
-
     const worker = this.readSessionState().workers[sessionName];
+
+    if (worker?.remote) {
+      await this.deleteRemoteWorker(worker);
+      return;
+    }
+
+    await this.killSessionOrConfirmAbsent(sessionName);
 
     if (worker && worker.workdir && worker.repoRoot && fs.existsSync(worker.workdir)) {
       try {
@@ -581,7 +620,236 @@ export class SessionManager {
     });
   }
 
+  // ── Remote worker lifecycle (MVP — Epic #129 phase 1) ──
+  //
+  // Remote workers run in a tmux session on a host reachable via SSH. Hydra
+  // does NOT provision the remote (no code sync, no agent install) and does
+  // NOT inject completion hooks (cross-host hook delivery is its own design
+  // problem — see TODO in createRemoteWorker).
+
+  /**
+   * Create a worker on a remote host. The repo must already exist at
+   * `opts.remoteRepoPath` on the remote machine.
+   */
+  async createRemoteWorker(opts: {
+    host: string;
+    remoteRepoPath: string;
+    branchName: string;
+    agentType: string;
+    agentBinary: string;
+    baseBranch?: string;
+    copilotSessionName?: string | null;
+  }): Promise<WorkerInfo> {
+    ensureHydraGlobalConfig();
+
+    const validationError = coreGit.validateBranchName(opts.branchName);
+    if (validationError) {
+      throw new Error(validationError);
+    }
+
+    const remote = new RemoteTmuxBackend(opts.host);
+
+    // ── Preflight ──
+    await remote.preflight(opts.agentBinary);
+    if (!await remote.repoExists(opts.remoteRepoPath)) {
+      throw new Error(
+        `Remote repo "${opts.remoteRepoPath}" not found on ${opts.host} (or is not a git repo). ` +
+        `Clone it on the remote first; Hydra MVP does not sync code.`,
+      );
+    }
+
+    // ── Slug + session name ──
+    // We can't reuse the local repo-namespace logic (that hashes a local
+    // path); instead we hash host+remoteRepoPath so two remote repos with
+    // the same basename don't collide.
+    const repoBaseName = sanitizeForSession(pathBasename(opts.remoteRepoPath)) || 'remote';
+    const slug = sanitizeForSession(opts.branchName);
+    const namespaceHash = shortHash(`${opts.host}:${opts.remoteRepoPath}`);
+    const sessionName = `${repoBaseName}-${namespaceHash}_${slug}`;
+
+    // Reject if the local registry or remote tmux already has this session.
+    const existing = this.readSessionState().workers[sessionName];
+    if (existing) {
+      throw new Error(`Worker "${sessionName}" already exists in registry`);
+    }
+    if (await remote.hasSession(sessionName)) {
+      throw new Error(
+        `Remote tmux session "${sessionName}" already exists on ${opts.host}. ` +
+        `Kill it (\`ssh ${opts.host} tmux kill-session -t ${sessionName}\`) or pick a different branch.`,
+      );
+    }
+
+    // ── Worktree + tmux session on remote ──
+    const worktreePath = `${opts.remoteRepoPath.replace(/\/+$/, '')}/.hydra-worktrees/${slug}`;
+    await remote.addWorktree(opts.remoteRepoPath, opts.branchName, worktreePath, opts.baseBranch);
+
+    const launchCmd = buildAgentLaunchCommand(
+      opts.agentType,
+      opts.agentBinary,
+      undefined,
+      opts.agentType === 'claude' ? randomUUID() : undefined,
+    );
+
+    try {
+      await remote.newSession(sessionName, worktreePath, launchCmd);
+    } catch (err) {
+      // Best-effort cleanup of the worktree we just created.
+      await remote.removeWorktree(opts.remoteRepoPath, worktreePath).catch(() => {});
+      await remote.deleteBranch(opts.remoteRepoPath, opts.branchName).catch(() => {});
+      throw err;
+    }
+
+    // TODO(#129 phase 2): inject completion hooks on the remote. The local
+    // hook scripts assume a local tmux socket; remote hook delivery needs
+    // its own design (probably a small daemon or polling-based status).
+
+    const now = new Date().toISOString();
+    return this.updateSessionState((state) => {
+      const workerId = state.nextWorkerId++;
+      const nextWorker: WorkerInfo = {
+        sessionName,
+        displayName: slug,
+        workerId,
+        repo: repoBaseName,
+        repoRoot: opts.remoteRepoPath,
+        branch: opts.branchName,
+        slug,
+        status: 'running',
+        attached: false,
+        agent: opts.agentType,
+        workdir: worktreePath,
+        tmuxSession: sessionName,
+        createdAt: now,
+        lastSeenAt: now,
+        sessionId: null,
+        copilotSessionName: opts.copilotSessionName ?? null,
+        remote: { host: opts.host },
+      };
+      state.workers[sessionName] = nextWorker;
+      state.updatedAt = now;
+      return nextWorker;
+    });
+  }
+
+  /**
+   * Tear down a remote worker: kill the remote tmux session, remove the
+   * remote worktree, delete the remote branch (best-effort), then drop the
+   * registry entry.
+   *
+   * Critical invariant — registry is preserved on transport failure:
+   *   If `kill-session` or `remove-worktree` raises a {@link RemoteSshError}
+   *   (i.e. SSH itself couldn't reach the host, NOT just "session not found"
+   *   exit 1), we leave the registry entry intact so the user can retry. The
+   *   alternative — silently archive a still-running remote worker — leaves
+   *   tmux + worktree orphaned with no recovery path from `hydra list`.
+   *
+   *   `delete-branch` failures are downgraded to warnings: branches are
+   *   recoverable, and the user usually only cares that tmux + worktree are
+   *   gone (which they are by the time deleteBranch runs).
+   *
+   * On any transport failure we throw with a LOUD manual-cleanup message so
+   * operators know exactly what to type if Hydra can't reach the host again.
+   */
+  async deleteRemoteWorker(worker: WorkerInfo): Promise<void> {
+    if (!worker.remote) {
+      throw new Error(`Worker "${worker.sessionName}" is not a remote worker`);
+    }
+
+    const remote = new RemoteTmuxBackend(worker.remote.host);
+    const host = worker.remote.host;
+    const warnings: string[] = [];
+
+    // ── Step 1: kill remote tmux session ──
+    // killSession uses allowNonZeroExit, so "no such session" exit 1 RESOLVES
+    // (not throws). Anything that throws here is therefore a transport failure
+    // (SSH exit 255 / unreachable / auth) — abort and keep the registry entry
+    // so the user can retry once the network is back.
+    try {
+      await remote.killSession(worker.sessionName);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Remote delete aborted: cannot reach ${host} to kill tmux session.\n` +
+        `  ssh error: ${msg}\n` +
+        `Registry entry kept so you can retry. To clean up by hand:\n` +
+        `  ssh ${host} tmux kill-session -t ${worker.sessionName}\n` +
+        (worker.repoRoot && worker.workdir
+          ? `  ssh ${host} git -C ${worker.repoRoot} worktree remove --force ${worker.workdir}\n`
+          : '') +
+        (worker.branch && worker.repoRoot
+          ? `  ssh ${host} git -C ${worker.repoRoot} branch -D ${worker.branch}\n`
+          : '') +
+        `Then \`hydra worker delete ${worker.sessionName}\` again to drop the registry entry.`,
+      );
+    }
+
+    if (worker.repoRoot && worker.workdir) {
+      // Tiny pause: tmux's pane shell holds the worktree dir as its cwd; without
+      // a beat, `git worktree remove --force` can race and leave a dangling dir.
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // ── Step 2: remove worktree (any failure → keep registry) ──
+      // removeWorktree throws for both SSH transport failures AND real git
+      // failures (locked, partial fs state, etc.) — only "is not a working
+      // tree" is tolerated as already-gone. Either way we refuse to drop the
+      // registry entry so the user has a recovery path from `hydra list`.
+      try {
+        await remote.removeWorktree(worker.repoRoot, worker.workdir);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `Remote delete partially complete: tmux session killed on ${host}, but worktree removal failed.\n` +
+          `  cause: ${msg}\n` +
+          `Registry entry kept so you can retry. To clean up by hand:\n` +
+          `  ssh ${host} git -C ${worker.repoRoot} worktree remove --force ${worker.workdir}\n` +
+          (worker.branch
+            ? `  ssh ${host} git -C ${worker.repoRoot} branch -D ${worker.branch}\n`
+            : '') +
+          `Then \`hydra worker delete ${worker.sessionName}\` again to drop the registry entry.`,
+        );
+      }
+
+      // ── Step 3: delete branch (transport failure → warn, proceed) ──
+      // By this point tmux + worktree are gone. A branch left dangling is
+      // benign and recoverable, so we don't block the registry cleanup on it.
+      if (worker.branch) {
+        try {
+          await remote.deleteBranch(worker.repoRoot, worker.branch);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const w = `[hydra] remote delete: branch -D ${worker.branch} on ${host} failed: ${msg}. Run \`ssh ${host} git -C ${worker.repoRoot} branch -D ${worker.branch}\` to clean up.`;
+          console.warn(w);
+          warnings.push(w);
+        }
+      }
+    }
+
+    this.archiveEntry('worker', worker.sessionName, worker.sessionId, worker);
+
+    await this.updateSessionState((state) => {
+      if (state.workers[worker.sessionName]) {
+        delete state.workers[worker.sessionName];
+        state.updatedAt = new Date().toISOString();
+      }
+    });
+
+    if (warnings.length > 0) {
+      // Surface a single rolled-up notice on stderr so callers see it even when
+      // they only consume stdout (e.g. JSON mode).
+      console.warn(`[hydra] remote delete completed with ${warnings.length} warning(s) — see above.`);
+    }
+  }
+
   async stopWorker(sessionName: string): Promise<void> {
+    const existing = this.readSessionState().workers[sessionName];
+    if (existing?.remote) {
+      throw new Error(
+        `worker stop is not yet supported for remote workers (Epic #129 phase 2). ` +
+        `For now, use \`hydra worker delete ${sessionName}\` to tear it down, or ` +
+        `\`ssh ${existing.remote.host} tmux kill-session -t ${sessionName}\` to stop tmux without removing the worktree.`,
+      );
+    }
+
     try {
       await this.backend.killSession(sessionName);
     } catch { /* Already dead */ }
@@ -599,6 +867,13 @@ export class SessionManager {
     const existingWorker = this.readSessionState().workers[sessionName];
     if (!existingWorker) {
       throw new Error(`Worker "${sessionName}" not found in sessions.json`);
+    }
+
+    if (existingWorker.remote) {
+      throw new Error(
+        `worker start is not yet supported for remote workers (Epic #129 phase 2). ` +
+        `The local restart path uses local-only fs/git checks (cwd existence, agent-readiness polling) that don't translate to SSH.`,
+      );
     }
 
     if (!existingWorker.workdir || !fs.existsSync(existingWorker.workdir)) {
@@ -766,6 +1041,13 @@ export class SessionManager {
     const worker = state.workers[oldSessionName];
     if (!worker) {
       throw new Error(`Worker "${oldSessionName}" not found`);
+    }
+
+    if (worker.remote) {
+      throw new Error(
+        `worker rename is not yet supported for remote workers (Epic #129 phase 2). ` +
+        `Renaming requires git branch -m, worktree move, and tmux rename-session — none of which are wired up over SSH yet.`,
+      );
     }
 
     if (!worker.repoRoot) {
@@ -1134,6 +1416,7 @@ export class SessionManager {
         for (const w of Object.values(state.workers)) {
           w.sessionId ??= null;
           w.displayName ??= w.slug || this.extractSlugFromSessionName(w.sessionName);
+          // `remote` is intentionally left undefined for legacy/local workers.
         }
         for (const c of Object.values(state.copilots)) {
           c.sessionId ??= null;

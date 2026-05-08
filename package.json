@@ -286,7 +286,9 @@
     "smoke:session-file-resolve": "node out/smoke/sessionFileResolveSmoke.js",
     "smoke:cli-session-fields": "node out/smoke/cliSessionFieldsSmoke.js",
     "smoke:repo-registry": "node out/smoke/repoRegistrySmoke.js",
-    "test": "npm run compile && npm run smoke:tmux-attach && npm run smoke:codex-bypass && npm run smoke:completion-hook && npm run smoke:worker-delete && npm run smoke:telemetry && npm run smoke:telemetry-e2e && npm run smoke:session-file-resolve && npm run smoke:cli-session-fields && npm run smoke:repo-registry"
+    "smoke:remote-worker": "node out/smoke/remoteWorkerSmoke.js",
+    "smoke:posix-quote": "node out/smoke/posixQuoteSmoke.js",
+    "test": "npm run compile && npm run smoke:tmux-attach && npm run smoke:codex-bypass && npm run smoke:completion-hook && npm run smoke:worker-delete && npm run smoke:telemetry && npm run smoke:telemetry-e2e && npm run smoke:session-file-resolve && npm run smoke:cli-session-fields && npm run smoke:repo-registry && npm run smoke:posix-quote && npm run smoke:remote-worker"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

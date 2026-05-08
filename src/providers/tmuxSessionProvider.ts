@@ -7,6 +7,7 @@ import { getActiveBackend, MultiplexerSession, HydraRole } from '../utils/multip
 import { toCanonicalPath } from '../utils/path';
 import { SessionManager, WorkerInfo } from '../core/sessionManager';
 import { Worktree } from '../core/types';
+import { RemoteTmuxBackend, posixQuote } from '../core/remoteTmux';
 
 export type Classification = 'attached' | 'alive' | 'idle' | 'stopped' | 'orphan';
 
@@ -123,6 +124,83 @@ async function getWorktreeBranchLabel(worktreePath: string, fallbackLabel: strin
   }
 
   return fallbackLabel;
+}
+
+/**
+ * Probe a remote worker over SSH to fetch tmux liveness AND git porcelain
+ * status in a SINGLE round trip. Returns `null` if the probe times out or
+ * fails for any reason — the caller falls back to last-known registry data
+ * with a "(stale)" badge.
+ *
+ * Single-round-trip matters: every probe pays one full SSH handshake
+ * (~500ms typical, worse on cold tunnels). We can't afford one handshake
+ * per data field — it'd block the panel render for seconds. ControlMaster
+ * is the proper fix (~10ms per probe) but is out of scope for phase 1; user
+ * can opt in via their `~/.ssh/config`.
+ *
+ * Output format we ask the remote to produce:
+ *
+ *     tmux:alive | tmux:dead
+ *     ---
+ *     <git status --porcelain --branch output, possibly empty>
+ *
+ * 1500ms hard timeout per probe; ssh's own SIGTERM kills the process.
+ */
+interface RemoteWorkerProbe {
+  tmuxAlive: boolean;
+  branch: string;
+  gitDirty: number;
+  gitModified: number;
+  gitAdded: number;
+  gitDeleted: number;
+  gitUntracked: number;
+  commitsAhead: number;
+}
+
+async function probeRemoteWorker(
+  host: string,
+  sessionName: string,
+  worktreePath: string,
+): Promise<RemoteWorkerProbe | null> {
+  // Single-shot script: tmux liveness, separator, then git porcelain.
+  // Fails-soft on every line: missing tmux/git just leaves the section empty.
+  const script = [
+    `tmux has-session -t ${posixQuote(sessionName)} 2>/dev/null && echo tmux:alive || echo tmux:dead`,
+    `echo ---`,
+    `git -C ${posixQuote(worktreePath)} status --porcelain --branch 2>/dev/null || true`,
+  ].join('\n');
+
+  const remote = new RemoteTmuxBackend(host);
+  const result = await remote.probe(script, { timeoutMs: 1500 });
+  if (!result) return null;
+
+  // Parse: split into tmux marker + git block, ignore anything before/after.
+  const lines = result.stdout.split('\n');
+  const sepIdx = lines.findIndex(l => l.trim() === '---');
+  if (sepIdx < 0) return null;
+
+  const tmuxLine = lines.slice(0, sepIdx).map(l => l.trim()).find(Boolean) ?? '';
+  const tmuxAlive = tmuxLine === 'tmux:alive';
+
+  const gitLines = lines.slice(sepIdx + 1).filter(l => l.length > 0);
+  // First git line (if present) is `## branch...origin/branch [ahead N, behind M]`.
+  const branchLine = gitLines[0] ?? '';
+  let branch = '';
+  let commitsAhead = 0;
+  if (branchLine.startsWith('## ')) {
+    const branchMatch = branchLine.match(/^## ([^\s.]+)/);
+    if (branchMatch) branch = branchMatch[1];
+    const aheadMatch = branchLine.match(/\bahead (\d+)/);
+    if (aheadMatch) commitsAhead = parseInt(aheadMatch[1], 10) || 0;
+  }
+  const porcelain = parseGitPorcelainStatus(branchLine.startsWith('## ') ? gitLines.slice(1) : gitLines);
+
+  return {
+    tmuxAlive,
+    branch,
+    commitsAhead,
+    ...porcelain,
+  };
 }
 
 async function getWorktreeGitStatus(worktreePath: string): Promise<Pick<
@@ -535,6 +613,16 @@ export class TmuxSessionItem extends WorktreeItem {
   public readonly session: SessionWithStatus;
   public readonly detailItem: TmuxDetailItem;
   public readonly gitStatusItem?: GitStatusItem;
+  /**
+   * Set when this worker runs on a remote SSH host. Click-to-attach reads
+   * this and routes through `ssh -t <host> tmux attach` instead of the local
+   * tmux backend.
+   *
+   * `stale: true` means the panel render couldn't reach the host within the
+   * 1500ms probe budget — the row's data is the last-known state from
+   * sessions.json, NOT live. Visually shown as a dim cloud + " (stale)".
+   */
+  public readonly remote?: { host: string; stale?: boolean };
 
   constructor(
     session: SessionWithStatus,
@@ -547,7 +635,8 @@ export class TmuxSessionItem extends WorktreeItem {
     agentType?: string,
     repoRoot?: string,
     workerId?: number,
-    displayName?: string
+    displayName?: string,
+    remote?: { host: string; stale?: boolean },
   ) {
     const isRoot = Boolean(worktree?.isMain);
     const branchLabel = branchLabelOverride || worktree?.branch || (isRoot ? 'main' : session.slug);
@@ -567,12 +656,33 @@ export class TmuxSessionItem extends WorktreeItem {
 
     this.session = session;
     this.detailItem = new TmuxDetailItem(session, repoName, worktree, extensionUri);
+    this.remote = remote;
 
     const descParts: string[] = [];
     if (this.description) descParts.push(String(this.description));
     if (workerId != null) descParts.push(`#${workerId}`);
     if (agentType) descParts.push(`[${agentType}]`);
+    if (remote) {
+      const remoteLabel = remote.stale
+        ? `(remote: ${remote.host}; stale)`
+        : `(remote: ${remote.host})`;
+      descParts.push(remoteLabel);
+    }
     if (descParts.length > 0) this.description = descParts.join(' ');
+
+    if (remote) {
+      // Live → green cloud (data was fetched fresh over SSH within budget).
+      // Stale → dim cloud (we couldn't reach the host; row uses last-known
+      // registry data so user can still see the worker exists, but knows
+      // not to trust the git/tmux fields).
+      this.iconPath = remote.stale
+        ? new vscode.ThemeIcon('cloud', new vscode.ThemeColor('disabledForeground'))
+        : new vscode.ThemeIcon('cloud', new vscode.ThemeColor('charts.green'));
+      // Distinct contextValue so menu contributions can scope themselves to
+      // remote rows in the future (delete, attach, send) without changing
+      // existing menu entries that target 'workerItem'.
+      this.contextValue = 'remoteWorkerItem';
+    }
 
     const hasGitChanges = session.status.commitsAhead > 0 || session.status.gitModified > 0 ||
       session.status.gitDeleted > 0 || session.status.gitAdded > 0 || session.status.gitUntracked > 0;
@@ -888,7 +998,83 @@ export class WorkerProvider implements vscode.TreeDataProvider<TmuxItem> {
     const prMap = await fetchRepoPrStatuses(repoRoot);
     const items: TmuxItem[] = [];
 
+    // ── Parallel SSH probe for remote workers ──
+    // Fire ALL remote probes in parallel via Promise.allSettled so one slow
+    // host doesn't stall another's row. Each probe has its own 1500ms cap;
+    // failures resolve to `null` and the row falls back to last-known state
+    // with a "(stale)" badge. We never throw out of here — the panel must
+    // keep rendering even when nothing remote is reachable.
+    const remoteWorkers = workers.filter(w => w.remote);
+    const probeResults = remoteWorkers.length === 0
+      ? new Map<string, RemoteWorkerProbe | null>()
+      : new Map(
+          (await Promise.allSettled(
+            remoteWorkers.map(async w => {
+              const probe = await probeRemoteWorker(w.remote!.host, w.sessionName, w.workdir).catch(() => null);
+              return [w.sessionName, probe] as const;
+            }),
+          )).map(r => r.status === 'fulfilled' ? r.value : ['', null as RemoteWorkerProbe | null]),
+        );
+
     for (const w of workers) {
+      if (w.remote) {
+        const probe = probeResults.get(w.sessionName) ?? null;
+        const stale = probe === null;
+        const tmuxAlive = probe ? probe.tmuxAlive : (w.status === 'running');
+
+        // When the probe succeeds we use its live data; when it fails we keep
+        // the row visible with last-known fields (zeroes from the registry,
+        // since we never persisted git counters there) so the user can still
+        // click-to-attach and try to recover.
+        const status: SessionStatus = {
+          attached: false,
+          panes: 1,
+          lastActive: 0,
+          classification: tmuxAlive ? 'idle' : 'stopped',
+          cpuUsage: 0,
+          gitDirty: probe?.gitDirty ?? 0,
+          gitModified: probe?.gitModified ?? 0,
+          gitAdded: probe?.gitAdded ?? 0,
+          gitDeleted: probe?.gitDeleted ?? 0,
+          gitUntracked: probe?.gitUntracked ?? 0,
+          commitsAhead: probe?.commitsAhead ?? 0,
+        };
+
+        // PR badge: same lookup as local rows. Use the live branch from the
+        // probe when present (handles renamed branches on the remote);
+        // otherwise fall back to the registry-recorded branch.
+        const branchLabel = probe?.branch || w.branch || w.slug;
+        const pr = prMap.get(branchLabel);
+        if (pr) {
+          status.prNumber = pr.number;
+          status.prState = pr.state;
+        }
+
+        const session: SessionWithStatus = {
+          name: w.sessionName,
+          windows: 1,
+          attached: false,
+          status,
+          worktreePath: w.workdir,
+          slug: w.slug,
+          hydraRole: 'worker',
+          hydraAgent: w.agent,
+        };
+        const worktree: Worktree = { path: w.workdir, branch: branchLabel, isMain: false };
+        items.push(new TmuxSessionItem(
+          session, repoName, worktree, /* isCurrentWs */ false, /* hasGit */ false,
+          this._extensionUri, branchLabel, w.agent, repoRoot, w.workerId, w.displayName,
+          { host: w.remote.host, stale },
+        ));
+
+        if (stale) {
+          // One debug log per render cycle is fine; the user already sees the
+          // (stale) badge so we don't spam them with notifications.
+          console.debug(`[hydra] remote probe missed budget for ${w.sessionName} on ${w.remote.host}; rendering stale.`);
+        }
+        continue;
+      }
+
       const isCurrentWs = activePath
         ? isCurrentWorkspacePath(w.workdir, activePath)
         : false;
