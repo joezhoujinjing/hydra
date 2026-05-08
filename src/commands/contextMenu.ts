@@ -99,6 +99,10 @@ export async function openWorktree(item: TmuxItem): Promise<void> {
   await vscode.commands.executeCommand('vscode.openFolder', worktreeUri, true);
 }
 
+export async function reviewChanges(item: TmuxItem): Promise<void> {
+  await openWorktree(item);
+}
+
 export async function copyPath(item: TmuxItem): Promise<void> {
   const worktreePath = getWorktreePath(item);
   if (!worktreePath) {
