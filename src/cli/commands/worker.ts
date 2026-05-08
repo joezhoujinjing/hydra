@@ -232,6 +232,7 @@ export function registerWorkerCommands(program: Command): void {
       const globalOpts = program.opts() as OutputOpts;
       try {
         const backend = new TmuxBackendCore();
+        const identity = detectIdentity();
 
         if (opts.all) {
           // When --all, first positional is the message, second is undefined/empty
@@ -246,6 +247,9 @@ export function registerWorkerCommands(program: Command): void {
 
           const sent: string[] = [];
           for (const worker of running) {
+            if (identity?.role === 'copilot' && worker.copilotSessionName === identity.sessionName) {
+              sm.armCompletionNotification(worker.sessionName);
+            }
             await backend.sendMessage(worker.sessionName, message);
             sent.push(worker.sessionName);
           }
@@ -263,6 +267,11 @@ export function registerWorkerCommands(program: Command): void {
         } else {
           const session = sessionOrMessage;
           const message = messageOrUndefined;
+          const sm = new SessionManager(backend);
+          const worker = await sm.getWorker(session);
+          if (identity?.role === 'copilot' && worker?.copilotSessionName === identity.sessionName) {
+            sm.armCompletionNotification(session);
+          }
           await backend.sendMessage(session, message);
 
           outputResult(

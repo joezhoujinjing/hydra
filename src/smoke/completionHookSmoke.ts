@@ -15,6 +15,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 const COPILOT_SESSION = 'hydra-smoke-hook-copilot';
+const CAT_VISIBLE_COPIES_PER_NOTIFICATION = 2;
 
 function sq(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
@@ -24,8 +25,19 @@ function killSession(name: string): void {
   try { execSync(`tmux kill-session -t ${sq(name)}`, { stdio: 'ignore', timeout: 5000 }); } catch { /* */ }
 }
 
+function captureSession(name: string): string {
+  return execSync(
+    `tmux capture-pane -p -S -200 -t ${sq(name)}`,
+    { encoding: 'utf-8', timeout: 5000 },
+  );
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
 }
 
 async function main(): Promise<void> {
@@ -127,6 +139,8 @@ async function main(): Promise<void> {
   assert.ok(scriptContent.includes('paste-buffer'), 'Script should use paste-buffer');
   assert.ok(scriptContent.includes(hookInfo.copilotSessionName), 'Script should reference copilot session');
   assert.ok(scriptContent.includes('HYDRA_TMUX_SOCKET'), 'Script should handle custom tmux socket');
+  assert.ok(scriptContent.includes('PENDING='), 'Script should have a per-message pending marker');
+  assert.ok(scriptContent.includes('LOCKDIR='), 'Script should use a lock for duplicate hook entries');
 
   // Verify merge behavior: inject again and check Claude has 2 Stop entries
   sm['injectCompletionHook'](fakeWorktree, 'claude', hookInfo);
@@ -158,10 +172,35 @@ async function main(): Promise<void> {
     // Write test-specific hook configs that target our test copilot
     const runtimeWorktree = path.join(tempHome, 'runtime-worktree');
     fs.mkdirSync(runtimeWorktree, { recursive: true });
-    const testInfo = { ...hookInfo, copilotSessionName: COPILOT_SESSION };
-    sm['injectCompletionHook'](runtimeWorktree, 'claude', testInfo);
-    sm['injectCompletionHook'](runtimeWorktree, 'codex', testInfo);
-    sm['injectCompletionHook'](runtimeWorktree, 'gemini', testInfo);
+    const runtimeInfos = {
+      claude: {
+        ...hookInfo,
+        copilotSessionName: COPILOT_SESSION,
+        sessionName: 'repo_feat-auth-claude',
+        workerId: 71,
+        displayName: 'feat-auth-claude',
+        branch: 'feat/auth-claude',
+      },
+      codex: {
+        ...hookInfo,
+        copilotSessionName: COPILOT_SESSION,
+        sessionName: 'repo_feat-auth-codex',
+        workerId: 72,
+        displayName: 'feat-auth-codex',
+        branch: 'feat/auth-codex',
+      },
+      gemini: {
+        ...hookInfo,
+        copilotSessionName: COPILOT_SESSION,
+        sessionName: 'repo_feat-auth-gemini',
+        workerId: 73,
+        displayName: 'feat-auth-gemini',
+        branch: 'feat/auth-gemini',
+      },
+    };
+    sm['injectCompletionHook'](runtimeWorktree, 'claude', runtimeInfos.claude);
+    sm['injectCompletionHook'](runtimeWorktree, 'codex', runtimeInfos.codex);
+    sm['injectCompletionHook'](runtimeWorktree, 'gemini', runtimeInfos.gemini);
 
     const runtimeClaudeConfig = JSON.parse(
       fs.readFileSync(path.join(runtimeWorktree, '.claude', 'settings.json'), 'utf-8'),
@@ -178,47 +217,104 @@ async function main(): Promise<void> {
         agent: 'claude',
         command: runtimeClaudeConfig.hooks.Stop[0].hooks[0].command,
         expectedStdout: '',
+        info: runtimeInfos.claude,
       },
       {
         agent: 'codex',
         command: runtimeCodexConfig.hooks.Stop[0].hooks[0].command,
         expectedStdout: '{}',
+        info: runtimeInfos.codex,
       },
       {
         agent: 'gemini',
         command: runtimeGeminiConfig.hooks.AfterAgent[0].hooks[0].command,
         expectedStdout: '{}',
+        info: runtimeInfos.gemini,
       },
     ];
 
-    // Execute the exact command each agent hook config would run.
-    for (const { agent, command, expectedStdout } of hookCommands) {
+    // Without a Hydra-armed pending marker, the hook should be a no-op. This
+    // covers users typing directly in an attached worker terminal.
+    for (const { agent, command, expectedStdout, info } of hookCommands) {
       const stdout = execSync(command, {
         encoding: 'utf-8',
         timeout: 5000,
         env: { ...process.env, HOME: tempHome },
       });
-      assert.equal(stdout, expectedStdout, `${agent} hook stdout should match agent contract`);
+      assert.equal(stdout, expectedStdout, `${agent} unarmed hook stdout should match agent contract`);
+      const pendingPath = path.join(hydraDir, 'hooks', `notify-${info.sessionName}.pending`);
+      assert.ok(!fs.existsSync(pendingPath), `${agent} unarmed hook should not create pending marker`);
+    }
+
+    await sleep(500);
+    let paneOutput = captureSession(COPILOT_SESSION);
+    assert.equal(
+      countOccurrences(paneOutput, 'has completed'),
+      0,
+      `Unarmed hooks should not notify copilot, got:\n${paneOutput}`,
+    );
+
+    // Execute the exact command each agent hook config would run twice after
+    // arming. The first run should notify and consume pending; the second run
+    // should be a no-op until Hydra arms another copilot-originated message.
+    for (const { agent, command, expectedStdout, info } of hookCommands) {
+      sm['armCompletionNotification'](info.sessionName);
+      const pendingPath = path.join(hydraDir, 'hooks', `notify-${info.sessionName}.pending`);
+      assert.ok(fs.existsSync(pendingPath), `${agent} pending marker should exist before hook`);
+
+      for (let run = 1; run <= 2; run++) {
+        const stdout = execSync(command, {
+          encoding: 'utf-8',
+          timeout: 5000,
+          env: { ...process.env, HOME: tempHome },
+        });
+        assert.equal(stdout, expectedStdout, `${agent} hook stdout should match agent contract on run ${run}`);
+      }
+
+      assert.ok(!fs.existsSync(pendingPath), `${agent} hook should consume pending marker after notification`);
     }
 
     await sleep(1000);
 
-    // Capture the copilot pane and verify notification arrived
-    const paneOutput = execSync(
-      `tmux capture-pane -p -t ${sq(COPILOT_SESSION)}`,
-      { encoding: 'utf-8', timeout: 5000 },
-    );
+    // Capture the copilot pane and verify one notification arrived per agent.
+    paneOutput = captureSession(COPILOT_SESSION);
 
-    assert.ok(
-      paneOutput.includes('has completed'),
-      `Copilot pane should contain notification, got:\n${paneOutput}`,
+    assert.equal(
+      countOccurrences(paneOutput, 'has completed'),
+      hookCommands.length * CAT_VISIBLE_COPIES_PER_NOTIFICATION,
+      `Copilot pane should contain one notification per agent, got:\n${paneOutput}`,
     );
-    assert.ok(
-      paneOutput.includes('feat-auth'),
-      `Notification should mention worker name, got:\n${paneOutput}`,
-    );
+    for (const { agent, info } of hookCommands) {
+      assert.equal(
+        countOccurrences(paneOutput, `Worker #${info.workerId}`),
+        CAT_VISIBLE_COPIES_PER_NOTIFICATION,
+        `${agent} notification should appear exactly once, got:\n${paneOutput}`,
+      );
+    }
 
-    console.log('  Part 2 (live tmux notification): ok');
+    // Re-arm to simulate a later copilot-originated worker message. The hook
+    // should notify again after that message completes.
+    for (const { command, expectedStdout, info } of hookCommands) {
+      sm['armCompletionNotification'](info.sessionName);
+      const stdout = execSync(command, {
+        encoding: 'utf-8',
+        timeout: 5000,
+        env: { ...process.env, HOME: tempHome },
+      });
+      assert.equal(stdout, expectedStdout);
+    }
+
+    await sleep(1000);
+    paneOutput = captureSession(COPILOT_SESSION);
+    for (const { agent, info } of hookCommands) {
+      assert.equal(
+        countOccurrences(paneOutput, `Worker #${info.workerId}`),
+        2 * CAT_VISIBLE_COPIES_PER_NOTIFICATION,
+        `${agent} notification should appear again after re-arm, got:\n${paneOutput}`,
+      );
+    }
+
+    console.log('  Part 2 (live tmux arm/consume notification): ok');
   } finally {
     killSession(COPILOT_SESSION);
   }
