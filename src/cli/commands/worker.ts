@@ -1,15 +1,12 @@
-import * as path from 'path';
 import { Command } from 'commander';
 import { TmuxBackendCore } from '../../core/tmux';
 import { SessionManager } from '../../core/sessionManager';
 import { getRepoRootFromPath, localBranchExists } from '../../core/git';
-import { toCanonicalPath } from '../../core/path';
+import { resolveAgentSessionFile } from '../../core/path';
+import { resolveRepoInput } from '../../core/repoRegistry';
 import { outputResult, outputError, type OutputOpts } from '../output';
-import { detectIdentity } from '../identity';
-
-function expandPath(p: string): string {
-  return toCanonicalPath(p) || path.resolve(p);
-}
+import { detectCurrentTmuxIdentity, detectIdentity, getWorkerCreationBlockedMessage } from '../identity';
+import { getTelemetry, normalizeAgentForTelemetry } from '../../core/telemetry';
 
 export function registerWorkerCommands(program: Command): void {
   const worker = program
@@ -40,7 +37,17 @@ export function registerWorkerCommands(program: Command): void {
     }) => {
       const globalOpts = program.opts() as OutputOpts;
       try {
-        const repoPath = expandPath(opts.repo);
+        const identity = await detectCurrentTmuxIdentity() || detectIdentity();
+        if (identity?.role === 'worker') {
+          throw new Error(getWorkerCreationBlockedMessage(identity));
+        }
+
+        // Single dispatch helper: handles short-form, abs paths, and explicit
+        // relative paths (`.`, `./foo`, `../foo`). Decides managed-ness against
+        // the resolved (pre-rev-parse) path so the macOS /var → /private/var
+        // realpath flip in `git rev-parse --show-toplevel` doesn't defeat the
+        // comparison against ~/.hydra/repos/.
+        const { path: repoPath, isManaged: isManagedRepo } = resolveRepoInput(opts.repo);
         const repoRoot = await getRepoRootFromPath(repoPath);
 
         // Check if branch exists before create to detect resume
@@ -52,7 +59,6 @@ export function registerWorkerCommands(program: Command): void {
         // Auto-detect parent copilot if --copilot not explicitly set
         let copilotSessionName = opts.copilot;
         if (!copilotSessionName) {
-          const identity = detectIdentity();
           if (identity?.role === 'copilot') {
             copilotSessionName = identity.sessionName;
           }
@@ -67,9 +73,15 @@ export function registerWorkerCommands(program: Command): void {
           taskFile: opts.taskFile,
           copilotSessionName,
           notifyCopilot: opts.notifyCopilot,
+          fetchMode: isManagedRepo ? 'required' : 'best-effort',
         });
 
         const status = branchExisted ? 'exists' : 'created';
+
+        getTelemetry().capture(
+          branchExisted ? 'worker_resumed' : 'worker_created',
+          { agent: normalizeAgentForTelemetry(workerInfo.agent) },
+        );
 
         outputResult(
           {
@@ -106,6 +118,8 @@ export function registerWorkerCommands(program: Command): void {
         const backend = new TmuxBackendCore();
         const sm = new SessionManager(backend);
         await sm.deleteWorker(sessionName);
+
+        getTelemetry().capture('worker_deleted');
 
         outputResult(
           { status: 'deleted', session: sessionName },
@@ -212,10 +226,17 @@ export function registerWorkerCommands(program: Command): void {
         }
 
         const backend = new TmuxBackendCore();
-        const output = await backend.capturePane(sessionName, lines);
+        const sm = new SessionManager(backend);
+        const [output, worker] = await Promise.all([
+          backend.capturePane(sessionName, lines),
+          sm.getWorker(sessionName),
+        ]);
+        const sessionFile = worker
+          ? resolveAgentSessionFile(worker.agent, worker.workdir, worker.sessionId)
+          : null;
 
         outputResult(
-          { session: sessionName, lines, output },
+          { session: sessionName, lines, output, sessionId: worker?.sessionId ?? null, sessionFile },
           globalOpts,
           () => process.stdout.write(output),
         );

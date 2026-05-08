@@ -6,13 +6,55 @@ import * as coreGit from './git';
 import { ensureHydraGlobalConfig } from './hydraGlobalConfig';
 import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS, AGENT_READY_PATTERNS, AGENT_READY_TIMEOUT_MS, AGENT_READY_POLL_INTERVAL_MS, CLAUDE_TRUST_PROMPT_PATTERN } from './agentConfig';
 import { exec, resolveCommandPath } from './exec';
-import { getHydraArchiveFile, getHydraHome, getHydraSessionsFile } from './path';
+import { getHydraArchiveFile, getHydraHome, getHydraSessionsFile, toCanonicalPath } from './path';
 import { shellQuote } from './shell';
 
 const POST_CREATE_TIMEOUT_MS = AGENT_READY_TIMEOUT_MS + 15000;
 const SESSION_STATE_LOCK_TIMEOUT_MS = 10000;
 const SESSION_STATE_LOCK_RETRY_MS = 50;
 const SESSION_STATE_LOCK_STALE_MS = 120000;
+
+/** Known symlink paths that git may convert to plain text files on Windows. */
+const KNOWN_SYMLINK_PATHS = [
+  '.claude/skills',
+  '.codex/skills',
+  '.gemini/skills',
+  '.sudocode/skills',
+];
+
+/**
+ * On Windows, git converts symlinks to plain text files containing the target path.
+ * This function detects those broken symlinks and replaces them with NTFS junctions
+ * (which don't require admin privileges).
+ */
+function fixWindowsSymlinks(worktreeDir: string): void {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  for (const relPath of KNOWN_SYMLINK_PATHS) {
+    const fullPath = path.join(worktreeDir, relPath);
+    try {
+      const stat = fs.lstatSync(fullPath);
+      if (!stat.isFile()) {
+        continue;
+      }
+      // Git writes the symlink target as the file content
+      const target = fs.readFileSync(fullPath, 'utf-8').trim();
+      if (!target) {
+        continue;
+      }
+      const resolvedTarget = path.resolve(path.dirname(fullPath), target);
+      if (!fs.existsSync(resolvedTarget)) {
+        continue;
+      }
+      fs.unlinkSync(fullPath);
+      fs.symlinkSync(resolvedTarget, fullPath, 'junction');
+    } catch {
+      // Best-effort — skip if anything goes wrong
+    }
+  }
+}
 
 /**
  * Look up a worker's numeric ID from sessions.json.
@@ -87,6 +129,11 @@ export interface ArchiveState {
   entries: ArchivedSessionInfo[];
 }
 
+interface SavedWorkerMatch {
+  worker: WorkerInfo;
+  stateKey?: string;
+}
+
 export interface CreateWorkerOpts {
   repoRoot: string;
   branchName: string;
@@ -101,6 +148,14 @@ export interface CreateWorkerOpts {
   copilotSessionName?: string;
   /** Whether to notify the parent copilot when the worker completes (default: true). */
   notifyCopilot?: boolean;
+  /** Existing persisted identity to preserve when restoring an archived worker. */
+  preservedWorkerInfo?: WorkerInfo;
+  /**
+   * Pre-create fetch behaviour:
+   *   'best-effort' — default, swallow errors (used for ad-hoc abs-path repos)
+   *   'required'    — error out if fetch fails (used for ~/.hydra/repos/-managed repos)
+   */
+  fetchMode?: 'best-effort' | 'required';
 }
 
 export interface CreateCopilotOpts {
@@ -278,6 +333,11 @@ export class SessionManager {
     fs.closeSync(fs.openSync(this.getNotifyPendingPath(sessionName), 'w'));
   }
 
+  async getCopilot(sessionName: string): Promise<CopilotInfo | undefined> {
+    const state = await this.sync();
+    return state.copilots[sessionName];
+  }
+
   // ── Worker Lifecycle ──
 
   async createWorker(opts: CreateWorkerOpts): Promise<CreateWorkerResult> {
@@ -297,6 +357,12 @@ export class SessionManager {
 
     // Check if branch already exists (resume logic)
     const branchExists = await coreGit.localBranchExists(repoRoot, branchName);
+    const savedWorker = this.findSavedWorkerForBranch(
+      repoRoot,
+      branchName,
+      opts.preservedWorkerInfo,
+      { includeArchive: !!opts.preservedWorkerInfo },
+    );
     if (branchExists) {
       return this.resumeWorker(
         repoRoot,
@@ -305,13 +371,22 @@ export class SessionManager {
         agentType,
         agentCommand,
         task,
+        savedWorker,
         opts.copilotSessionName,
         opts.notifyCopilot !== false,
       );
     }
 
-    // Fetch latest from remote before creating worktree
-    await coreGit.fetchOrigin(repoRoot);
+    const preservedWorker = opts.preservedWorkerInfo ? savedWorker : undefined;
+
+    // Fetch latest from remote before creating worktree.
+    // Registry-managed repos (~/.hydra/repos/...) demand an up-to-date mirror,
+    // so we surface fetch failures instead of swallowing them silently.
+    if (opts.fetchMode === 'required') {
+      await coreGit.fetchOriginRequired(repoRoot);
+    } else {
+      await coreGit.fetchOrigin(repoRoot);
+    }
 
     // Detect base branch
     const baseBranch = await coreGit.getBaseBranchFromRepo(repoRoot, opts.baseBranchOverride);
@@ -327,7 +402,7 @@ export class SessionManager {
     }
 
     // Slug collision resolution
-    const slug = coreGit.branchNameToSlug(branchName, this.backend);
+    const slug = preservedWorker?.worker.slug || coreGit.branchNameToSlug(branchName, this.backend);
     let finalSlug = slug;
     let suffix = 1;
     while (await coreGit.isSlugTaken(finalSlug, repoSessionNamespace, repoRoot, this.backend)) {
@@ -337,6 +412,10 @@ export class SessionManager {
 
     // Create worktree
     const worktreePath = await coreGit.addWorktree(repoRoot, branchName, finalSlug, baseBranch);
+
+    // On Windows, git converts symlinks to plain text files containing the target path.
+    // Replace them with NTFS junctions so they work without admin privileges.
+    fixWindowsSymlinks(worktreePath);
 
     let taskFilename: string | undefined;
     if (taskFile) {
@@ -358,13 +437,17 @@ export class SessionManager {
     this.resolveImports(path.join(worktreePath, 'AGENTS.md'), repoRoot);
     this.resolveImports(path.join(worktreePath, 'GEMINI.md'), repoRoot);
 
-    // Inject agent completion hook (must be before agent launch so it reads the config)
-    const sessionName = this.backend.buildSessionName(repoSessionNamespace, finalSlug);
+    // Create tmux session + set metadata
+    const sessionName = preservedWorker?.worker.sessionName && preservedWorker.worker.slug === finalSlug
+      ? preservedWorker.worker.sessionName
+      : this.backend.buildSessionName(repoSessionNamespace, finalSlug);
     const copilotSessionName = opts.copilotSessionName;
     const shouldNotifyCopilot = opts.notifyCopilot !== false && !!copilotSessionName && !!(task || taskFile);
     if (shouldNotifyCopilot) {
       const peekState = this.readSessionState();
-      const workerId = peekState.workers[sessionName]?.workerId ?? peekState.nextWorkerId;
+      const workerId = peekState.workers[sessionName]?.workerId ??
+        preservedWorker?.worker.workerId ??
+        peekState.nextWorkerId;
       this.injectCompletionHook(worktreePath, agentType, {
         copilotSessionName,
         sessionName,
@@ -378,7 +461,6 @@ export class SessionManager {
       }
     }
 
-    // Create tmux session + set metadata
     await this.backend.createSession(sessionName, worktreePath);
     await this.backend.setSessionWorkdir(sessionName, worktreePath);
     await this.backend.setSessionRole(sessionName, 'worker');
@@ -413,7 +495,11 @@ export class SessionManager {
     // (sessionId may be null for Codex/Gemini until Phase 1 capture completes)
     const workerInfo = await this.updateSessionState((state) => {
       const now = new Date().toISOString();
-      const existingWorker = state.workers[sessionName];
+      if (preservedWorker?.stateKey && preservedWorker.stateKey !== sessionName) {
+        delete state.workers[preservedWorker.stateKey];
+      }
+
+      const existingWorker = state.workers[sessionName] || preservedWorker?.worker;
       const workerId = existingWorker?.workerId ?? state.nextWorkerId++;
 
       const nextWorker: WorkerInfo = {
@@ -461,21 +547,30 @@ export class SessionManager {
 
     const worker = this.readSessionState().workers[sessionName];
 
-    // Archive before removing
-    if (worker) {
-      this.archiveEntry('worker', worker.sessionName, worker.sessionId, worker);
-    }
-
     if (worker && worker.workdir && worker.repoRoot && fs.existsSync(worker.workdir)) {
       try {
         await coreGit.removeWorktree(worker.repoRoot, worker.workdir);
-      } catch { /* Force removal fallback */ }
+      } catch (error) {
+        await this.updateSessionState((state) => {
+          if (state.workers[sessionName]) {
+            state.workers[sessionName].status = 'stopped';
+            state.workers[sessionName].attached = false;
+            state.updatedAt = new Date().toISOString();
+          }
+        });
+        throw error;
+      }
 
       if (worker.branch) {
         try {
           await exec(`git branch -D ${shellQuote(worker.branch)}`, { cwd: worker.repoRoot });
         } catch { /* Branch may not exist */ }
       }
+    }
+
+    // Archive only after destructive cleanup has succeeded, so failed deletes remain retryable.
+    if (worker) {
+      this.archiveEntry('worker', worker.sessionName, worker.sessionId, worker);
     }
 
     await this.updateSessionState((state) => {
@@ -913,6 +1008,7 @@ export class SessionManager {
       branchName: worker.branch,
       agentType: worker.agent,
       resumeSessionId: entry.agentSessionId || undefined,
+      preservedWorkerInfo: worker,
     });
   }
 
@@ -1626,6 +1722,118 @@ export class SessionManager {
     }
   }
 
+  private findSavedWorkerForBranch(
+    repoRoot: string,
+    branchName: string,
+    preferredWorker?: WorkerInfo,
+    options?: { includeArchive?: boolean },
+  ): SavedWorkerMatch | undefined {
+    if (preferredWorker && this.workerMatchesRepoBranch(preferredWorker, repoRoot, branchName)) {
+      return { worker: this.normalizeSavedWorker(preferredWorker, repoRoot, branchName) };
+    }
+
+    const state = this.readSessionState();
+    let latestMatch: SavedWorkerMatch | undefined;
+    for (const [stateKey, worker] of Object.entries(state.workers)) {
+      if (!this.workerMatchesRepoBranch(worker, repoRoot, branchName)) continue;
+      const match = { worker: this.normalizeSavedWorker(worker, repoRoot, branchName), stateKey };
+      if (!latestMatch || this.workerTimestamp(match.worker) >= this.workerTimestamp(latestMatch.worker)) {
+        latestMatch = match;
+      }
+    }
+    if (latestMatch) return latestMatch;
+
+    if (!options?.includeArchive) return undefined;
+
+    let latestArchived: ArchivedSessionInfo | undefined;
+    for (const entry of this.readArchiveState().entries) {
+      if (entry.type !== 'worker') continue;
+      const worker = entry.data as WorkerInfo;
+      if (!this.workerMatchesRepoBranch(worker, repoRoot, branchName)) continue;
+      if (!latestArchived || Date.parse(entry.archivedAt || '') >= Date.parse(latestArchived.archivedAt || '')) {
+        latestArchived = entry;
+      }
+    }
+
+    if (!latestArchived) return undefined;
+    return {
+      worker: this.normalizeSavedWorker(latestArchived.data as WorkerInfo, repoRoot, branchName),
+    };
+  }
+
+  private normalizeSavedWorker(worker: WorkerInfo, repoRoot: string, branchName: string): WorkerInfo {
+    const slug = worker.slug || this.extractSlugFromSessionName(worker.sessionName) ||
+      coreGit.branchNameToSlug(branchName, this.backend);
+    const repoSessionNamespace = coreGit.getRepoSessionNamespace(repoRoot, this.backend);
+    return {
+      ...worker,
+      repoRoot: worker.repoRoot || repoRoot,
+      branch: worker.branch || branchName,
+      slug,
+      displayName: worker.displayName || slug,
+      sessionName: worker.sessionName || this.backend.buildSessionName(repoSessionNamespace, slug),
+      tmuxSession: worker.tmuxSession || worker.sessionName || this.backend.buildSessionName(repoSessionNamespace, slug),
+      sessionId: worker.sessionId ?? null,
+      copilotSessionName: worker.copilotSessionName ?? null,
+    };
+  }
+
+  private workerMatchesRepoBranch(worker: WorkerInfo, repoRoot: string, branchName: string): boolean {
+    if (!worker || worker.branch !== branchName) return false;
+    return this.samePath(worker.repoRoot, repoRoot);
+  }
+
+  private samePath(left?: string, right?: string): boolean {
+    const canonicalLeft = toCanonicalPath(left);
+    const canonicalRight = toCanonicalPath(right);
+    return !!canonicalLeft && !!canonicalRight && canonicalLeft === canonicalRight;
+  }
+
+  private workerTimestamp(worker: WorkerInfo): number {
+    return Date.parse(worker.lastSeenAt || worker.createdAt || '') || 0;
+  }
+
+  private async findExistingWorktreePath(
+    repoRoot: string,
+    branchName: string,
+    slug: string,
+    savedWorkdir?: string,
+    trustSavedWorkdir = false,
+    requireKnownBranch = false,
+  ): Promise<string | undefined> {
+    const candidates = [
+      savedWorkdir,
+      path.join(coreGit.getManagedRepoWorktreesDir(repoRoot), slug),
+      path.join(coreGit.getInRepoWorktreesDir(repoRoot), slug),
+      path.join(coreGit.getLegacyTmuxWorktreesDir(repoRoot, this.backend), slug),
+    ].filter((candidate): candidate is string => !!candidate);
+
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+      const canonical = toCanonicalPath(candidate) || path.resolve(candidate);
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
+      if (!fs.existsSync(candidate)) continue;
+
+      if (trustSavedWorkdir || await this.worktreePathMatchesBranch(repoRoot, candidate, branchName, requireKnownBranch)) {
+        return candidate;
+      }
+    }
+
+    return undefined;
+  }
+
+  private async worktreePathMatchesBranch(
+    repoRoot: string,
+    worktreePath: string,
+    branchName: string,
+    requireKnownBranch = false,
+  ): Promise<boolean> {
+    const worktreeBranch = await coreGit.getWorktreeBranch(repoRoot, worktreePath);
+    if (!worktreeBranch) return !requireKnownBranch;
+    return worktreeBranch === branchName;
+  }
+
   private async resumeWorker(
     repoRoot: string,
     branchName: string,
@@ -1633,18 +1841,32 @@ export class SessionManager {
     agentType: string,
     agentCommand: string,
     task?: string,
+    savedWorkerMatch?: SavedWorkerMatch,
     copilotSessionName?: string,
     notifyCopilot = false,
   ): Promise<CreateWorkerResult> {
-    const slug = coreGit.branchNameToSlug(branchName, this.backend);
-    const sessionName = this.backend.buildSessionName(repoSessionNamespace, slug);
-    const existingWorkerState = this.readSessionState().workers[sessionName];
+    const savedWorker = savedWorkerMatch?.worker;
+    const slug = savedWorker?.slug || coreGit.branchNameToSlug(branchName, this.backend);
+    const sessionName = savedWorker?.sessionName || this.backend.buildSessionName(repoSessionNamespace, slug);
+    const existingWorkerState = this.readSessionState().workers[sessionName] || savedWorker;
     const shouldNotifyCopilot = notifyCopilot &&
       !!copilotSessionName &&
+      !!task &&
       existingWorkerState?.copilotSessionName === copilotSessionName;
 
     const isRunning = await this.backend.hasSession(sessionName);
     if (isRunning) {
+      const sessionWorkdir = await this.backend.getSessionWorkdir(sessionName);
+      if (!savedWorker) {
+        const branchNeedsDisambiguation = branchName.trim() !== slug;
+        if (
+          (sessionWorkdir && !(await this.worktreePathMatchesBranch(repoRoot, sessionWorkdir, branchName, branchNeedsDisambiguation))) ||
+          (!sessionWorkdir && branchNeedsDisambiguation)
+        ) {
+          throw new Error(`Branch "${branchName}" exists but saved worker identity was not found for "${sessionName}".`);
+        }
+      }
+
       if (task) {
         if (shouldNotifyCopilot) {
           this.armCompletionNotification(sessionName);
@@ -1652,16 +1874,20 @@ export class SessionManager {
         await this.backend.sendKeys(sessionName, task);
       }
 
-      const workdir = await this.backend.getSessionWorkdir(sessionName) || '';
+      const workdir = sessionWorkdir || savedWorker?.workdir || '';
       const agent = await this.backend.getSessionAgent(sessionName) || agentType;
       const now = new Date().toISOString();
 
       const workerInfo = await this.updateSessionState((state) => {
-        const existingWorker = state.workers[sessionName];
+        if (savedWorkerMatch?.stateKey && savedWorkerMatch.stateKey !== sessionName) {
+          delete state.workers[savedWorkerMatch.stateKey];
+        }
+
+        const existingWorker = state.workers[sessionName] || savedWorker;
         const workerId = existingWorker?.workerId ?? state.nextWorkerId++;
         const nextWorker: WorkerInfo = {
           sessionName,
-          displayName: slug,
+          displayName: existingWorker?.displayName || slug,
           workerId,
           repo: coreGit.getRepoName(repoRoot),
           repoRoot,
@@ -1690,24 +1916,22 @@ export class SessionManager {
     }
 
     // Worktree exists but tmux is dead — check new and legacy locations
-    const worktreesDir = coreGit.getManagedRepoWorktreesDir(repoRoot);
-    let worktreePath = path.join(worktreesDir, slug);
-    if (!fs.existsSync(worktreePath)) {
-      // Fallback: check legacy in-repo location
-      const legacyDir = coreGit.getInRepoWorktreesDir(repoRoot);
-      const legacyPath = path.join(legacyDir, slug);
-      if (fs.existsSync(legacyPath)) {
-        worktreePath = legacyPath;
-      }
-    }
-    if (fs.existsSync(worktreePath)) {
+    const worktreePath = await this.findExistingWorktreePath(
+      repoRoot,
+      branchName,
+      slug,
+      savedWorker?.workdir,
+      false,
+      !savedWorker && branchName.trim() !== slug,
+    );
+    if (worktreePath && fs.existsSync(worktreePath)) {
       await this.backend.createSession(sessionName, worktreePath);
       await this.backend.setSessionWorkdir(sessionName, worktreePath);
       await this.backend.setSessionRole(sessionName, 'worker');
       await this.backend.setSessionAgent(sessionName, agentType);
 
       const now = new Date().toISOString();
-      const existingWorker = existingWorkerState;
+      const existingWorker = this.readSessionState().workers[sessionName] || savedWorker;
       const storedSessionId = existingWorker?.sessionId;
 
       // Resume or fresh start
@@ -1741,11 +1965,15 @@ export class SessionManager {
       }
 
       const workerInfo = await this.updateSessionState((state) => {
-        const currentWorker = state.workers[sessionName];
+        if (savedWorkerMatch?.stateKey && savedWorkerMatch.stateKey !== sessionName) {
+          delete state.workers[savedWorkerMatch.stateKey];
+        }
+
+        const currentWorker = state.workers[sessionName] || savedWorker;
         const workerId = currentWorker?.workerId ?? state.nextWorkerId++;
         const nextWorker: WorkerInfo = {
           sessionName,
-          displayName: slug,
+          displayName: currentWorker?.displayName || slug,
           workerId,
           repo: coreGit.getRepoName(repoRoot),
           repoRoot,

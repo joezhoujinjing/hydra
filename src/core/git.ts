@@ -347,6 +347,11 @@ export async function fetchOrigin(repoRoot: string): Promise<void> {
   }
 }
 
+/** Fetch latest refs from origin. Throws on failure (used for registry-managed repos). */
+export async function fetchOriginRequired(repoRoot: string): Promise<void> {
+  await exec('git fetch origin', { cwd: repoRoot });
+}
+
 /**
  * Check if the local base branch has commits ahead of its remote counterpart.
  * Returns the count of local-only commits, or 0 if not applicable.

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.2026050800] - 2026-05-08
+
+### Added
+- Telemetry framework with swappable backend and default PostHog transport (#133, #137)
+- Repo registry CLI with auto-fetch wiring (#135)
+- Surface session ID and session file path in logs and `list` output (#132)
+
+### Fixed
+- Replace broken symlinks with NTFS junctions on Windows worktrees (#126)
+- Ensure Enter is sent after message text in worker send (#122)
+- Avoid shell injection in sidebar git commands
+- Guard against nested worker creation
+- Worker delete consistency and worker resume slug identity
+
 ## [0.3.2026050600] - 2026-05-06
 
 ### Changed

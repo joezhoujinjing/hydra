@@ -222,6 +222,9 @@ async function main(): Promise<void> {
   process.env.HOME = tempHome;
 
   const hydraDir = path.join(tempHome, '.hydra');
+  process.env.HYDRA_HOME = hydraDir;
+  delete process.env.HYDRA_CONFIG_PATH;
+
   const sessionsFile = path.join(hydraDir, 'sessions.json');
   const archiveFile = path.join(hydraDir, 'archive.json');
 
@@ -314,6 +317,56 @@ async function main(): Promise<void> {
     assert.equal(removeWorktreeCalls, 1);
     assert.equal(branchDeleteCommands.length, 1);
     assert.match(branchDeleteCommands[0] || '', /git branch -D/);
+  }
+
+  {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-worker-delete-repo-'));
+    const workdir = fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-worker-delete-worktree-'));
+    const worker = buildWorker('worker-delete-worktree-fails', repoRoot, workdir);
+    writeWorkerState(sessionsFile, worker);
+    writeJson(archiveFile, { entries: [] });
+
+    const backend = new DeleteWorkerBackend([worker.sessionName]);
+
+    let removeWorktreeCalls = 0;
+    const branchDeleteCommands: string[] = [];
+    const restoreCoreGit = patchModule(coreGit, {
+      removeWorktree: async () => {
+        removeWorktreeCalls += 1;
+        throw makeExecError('worktree remove failed', 'contains modified or untracked files');
+      },
+    });
+    const restoreExec = patchModule(coreExec, {
+      exec: async (command: string) => {
+        branchDeleteCommands.push(command);
+        return '';
+      },
+    });
+
+    try {
+      const sm = new SessionManager(backend);
+      await assert.rejects(
+        sm.deleteWorker(worker.sessionName),
+        /worktree remove failed/,
+      );
+    } finally {
+      restoreExec();
+      restoreCoreGit();
+    }
+
+    const archive = readJson<{ entries: Array<Record<string, unknown>> }>(archiveFile, { entries: [] });
+    const state = readJson<{ workers: Record<string, { status?: string; attached?: boolean }> }>(
+      sessionsFile,
+      { workers: {} },
+    );
+    assert.equal(archive.entries.length, 0);
+    assert.ok(state.workers[worker.sessionName], 'sessions.json entry should remain after worktree removal failure');
+    assert.equal(state.workers[worker.sessionName]?.status, 'stopped');
+    assert.equal(state.workers[worker.sessionName]?.attached, false);
+    assert.equal(removeWorktreeCalls, 1);
+    assert.equal(branchDeleteCommands.length, 0);
+    assert.equal(await backend.hasSession(worker.sessionName), false);
+    assert.ok(fs.existsSync(workdir), 'worktree should remain after worktree removal failure');
   }
 
   {

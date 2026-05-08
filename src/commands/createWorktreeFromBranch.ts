@@ -15,6 +15,7 @@ import { exec } from '../utils/exec';
 import { getActiveBackend } from '../utils/multiplexer';
 import { WorktreeItem } from '../providers/tmuxSessionProvider';
 import { ensureBackendInstalled } from './ensureBackendInstalled';
+import { detectIdentity, getWorkerCreationBlockedMessage } from '../core/sessionIdentity';
 
 function formatFileStatusCounts(nameStatusOutput: string): string {
   const lines = nameStatusOutput.trim().split('\n').filter(l => l.length > 0);
@@ -62,6 +63,11 @@ export async function createWorktreeFromBranch(item: WorktreeItem | undefined): 
   let repoSessionNamespace: string;
   try {
     repoRoot = getRepoRoot();
+    const identity = detectIdentity(repoRoot);
+    if (identity?.role === 'worker') {
+      vscode.window.showErrorMessage(getWorkerCreationBlockedMessage(identity));
+      return;
+    }
     repoSessionNamespace = getRepoSessionNamespace(repoRoot);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
