@@ -4,10 +4,20 @@ import * as fs from 'fs/promises';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { resolveCommandPath } from '../core/exec';
+import { HYDRA_PREFIX_REVIEW, findReviewGroupColumn, focusEditorGroup } from '../utils/hydraEditorGroup';
 
 const execFile = promisify(execFileCallback);
 const REVIEW_SCHEME = 'hydra-git';
 const MAX_GIT_OUTPUT = 50 * 1024 * 1024;
+const REVIEW_LABEL_PREFIX = `${HYDRA_PREFIX_REVIEW} `;
+
+interface ReviewLayoutState {
+  column: vscode.ViewColumn;
+  maximized: boolean;
+}
+
+let reviewLayout: ReviewLayoutState | undefined;
+let layoutListenersRegistered = false;
 
 interface ReviewChange {
   status: string;
@@ -226,22 +236,27 @@ function getModifiedUri(worktreePath: string, change: ReviewChange): vscode.Uri 
 
 function getDiffTitle(worktreePath: string, baseRef: string, changes: ReviewChange[]): string {
   const name = path.basename(worktreePath);
-  return `${name}: ${changes.length} change${changes.length === 1 ? '' : 's'} since ${baseRef}`;
+  return `${REVIEW_LABEL_PREFIX}${name}: ${changes.length} change${changes.length === 1 ? '' : 's'} since ${baseRef}`;
+}
+
+function getFallbackDiffTitle(filePath: string, baseRef: string): string {
+  return `${REVIEW_LABEL_PREFIX}${filePath} (${baseRef} ↔ worker)`;
 }
 
 async function openFallbackDiff(
   worktreePath: string,
   baseCommit: string,
   baseRef: string,
-  changes: ReviewChange[]
+  changes: ReviewChange[],
+  targetColumn: vscode.ViewColumn,
 ): Promise<void> {
   const first = changes[0];
   await vscode.commands.executeCommand(
     'vscode.diff',
     getOriginalUri(worktreePath, baseCommit, first),
     getModifiedUri(worktreePath, first),
-    `${first.path} (${baseRef} ↔ worker)`,
-    { preview: false }
+    getFallbackDiffTitle(first.path, baseRef),
+    { preview: false, viewColumn: targetColumn }
   );
 
   if (changes.length > 1) {
@@ -251,8 +266,90 @@ async function openFallbackDiff(
   }
 }
 
+async function ensureReviewGroupFocused(): Promise<{ column: vscode.ViewColumn; created: boolean }> {
+  const existing = findReviewGroupColumn();
+  if (existing !== undefined) {
+    await focusEditorGroup(existing);
+    return { column: existing, created: false };
+  }
+
+  // Create a new group to the right of the active one. VS Code focuses the new group.
+  await vscode.commands.executeCommand('workbench.action.newGroupRight');
+  const column = vscode.window.tabGroups.activeTabGroup.viewColumn;
+  return { column, created: true };
+}
+
+async function maximizeReviewGroup(column: vscode.ViewColumn): Promise<boolean> {
+  // Only toggle when not already maximized by us — toggle is symmetric and would flip wrong direction.
+  if (reviewLayout?.maximized && reviewLayout.column === column) {
+    return true;
+  }
+  try {
+    await vscode.commands.executeCommand('workbench.action.toggleMaximizeEditorGroup');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensureReviewLayoutListeners(): void {
+  if (layoutListenersRegistered) {
+    return;
+  }
+  layoutListenersRegistered = true;
+
+  vscode.window.tabGroups.onDidChangeTabs(() => { void onReviewLayoutMaybeChanged(); });
+  vscode.window.tabGroups.onDidChangeTabGroups(() => { void onReviewLayoutMaybeChanged(); });
+}
+
+async function onReviewLayoutMaybeChanged(): Promise<void> {
+  const state = reviewLayout;
+  if (!state) {
+    return;
+  }
+
+  const group = vscode.window.tabGroups.all.find(g => g.viewColumn === state.column);
+
+  // Group disappeared (VS Code auto-closed the empty group, or user closed it manually).
+  // VS Code clears its own maximize state when the maximized group is removed.
+  if (!group) {
+    reviewLayout = undefined;
+    return;
+  }
+
+  // Last review tab closed but group lingers (e.g. workbench.editor.closeEmptyGroups disabled,
+  // or user dragged a non-review tab in earlier).
+  if (group.tabs.length === 0) {
+    if (state.maximized) {
+      try {
+        await focusEditorGroup(state.column);
+        await vscode.commands.executeCommand('workbench.action.toggleMaximizeEditorGroup');
+      } catch {
+        // best-effort
+      }
+    }
+    try {
+      await vscode.window.tabGroups.close(group);
+    } catch {
+      // best-effort
+    }
+    reviewLayout = undefined;
+    return;
+  }
+
+  // Group still has tabs. If the active group moved away while we believed we were maximized,
+  // the user must have manually unmaximized — sync our flag so we don't re-toggle the wrong way.
+  if (state.maximized) {
+    const active = vscode.window.tabGroups.activeTabGroup;
+    if (active.viewColumn !== state.column) {
+      state.maximized = false;
+    }
+  }
+}
+
 export async function openChangesReview(worktreePath: string): Promise<void> {
   ensureReviewContentProvider();
+  ensureReviewLayoutListeners();
 
   const baseRef = await getReviewBaseRef(worktreePath);
   const baseCommit = await getMergeBase(worktreePath, baseRef);
@@ -269,9 +366,21 @@ export async function openChangesReview(worktreePath: string): Promise<void> {
     getModifiedUri(worktreePath, change),
   ]);
 
+  const { column: targetColumn, created } = await ensureReviewGroupFocused();
+
   try {
     await vscode.commands.executeCommand('vscode.changes', getDiffTitle(worktreePath, baseRef, changes), resources);
   } catch {
-    await openFallbackDiff(worktreePath, baseCommit, baseRef, changes);
+    await openFallbackDiff(worktreePath, baseCommit, baseRef, changes, targetColumn);
+  }
+
+  if (created) {
+    const ok = await maximizeReviewGroup(targetColumn);
+    reviewLayout = { column: targetColumn, maximized: ok };
+  } else if (!reviewLayout) {
+    // Group existed before this session — leave maximize state alone, assume not maximized by us.
+    reviewLayout = { column: targetColumn, maximized: false };
+  } else {
+    reviewLayout.column = targetColumn;
   }
 }

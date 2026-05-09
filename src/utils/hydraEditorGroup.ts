@@ -4,6 +4,7 @@ import { HydraRole } from './multiplexer';
 
 export const HYDRA_PREFIX_COPILOT = 'Copilot:';
 export const HYDRA_PREFIX_WORKER = 'Worker:';
+export const HYDRA_PREFIX_REVIEW = 'Review:';
 
 /**
  * Scan tabGroups for a tab whose label starts with the given prefix.
@@ -36,6 +37,35 @@ export function getHydraEditorLocation(role?: HydraRole): vscode.TerminalEditorL
     existing = findGroupByPrefix(HYDRA_PREFIX_COPILOT) ?? findGroupByPrefix(HYDRA_PREFIX_WORKER);
   }
   return { viewColumn: existing ?? vscode.ViewColumn.Beside, preserveFocus: false };
+}
+
+/**
+ * Find the viewColumn of the editor group hosting Hydra review-changes diff tabs,
+ * identified by tab labels starting with HYDRA_PREFIX_REVIEW.
+ */
+export function findReviewGroupColumn(): vscode.ViewColumn | undefined {
+  return findGroupByPrefix(HYDRA_PREFIX_REVIEW);
+}
+
+const FOCUS_EDITOR_GROUP_COMMANDS = [
+  'workbench.action.focusFirstEditorGroup',
+  'workbench.action.focusSecondEditorGroup',
+  'workbench.action.focusThirdEditorGroup',
+  'workbench.action.focusFourthEditorGroup',
+  'workbench.action.focusFifthEditorGroup',
+  'workbench.action.focusSixthEditorGroup',
+  'workbench.action.focusSeventhEditorGroup',
+  'workbench.action.focusEighthEditorGroup',
+];
+
+/**
+ * Focus an editor group by 1-indexed viewColumn. No-op for out-of-range columns.
+ */
+export async function focusEditorGroup(column: vscode.ViewColumn): Promise<void> {
+  if (typeof column !== 'number' || column < 1 || column > FOCUS_EDITOR_GROUP_COMMANDS.length) {
+    return;
+  }
+  await vscode.commands.executeCommand(FOCUS_EDITOR_GROUP_COMMANDS[column - 1]);
 }
 
 const MAX_COPILOT_NAME_LENGTH = 20;
