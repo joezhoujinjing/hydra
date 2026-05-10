@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.2026051000] - 2026-05-10
+
+### Changed
+- Open worker review changes in a dedicated maximized editor group for a clearer review flow
+
 ## [0.3.2026050801] - 2026-05-08
 
 ### Added
