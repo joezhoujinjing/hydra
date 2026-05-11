@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { CopilotProvider, WorkerProvider, TmuxItem } from './providers/tmuxSessionProvider';
 import { attachCreate } from './commands/attachCreate';
 import { newTask } from './commands/newTask';
@@ -22,6 +23,9 @@ import { installCli, ensurePathInShellProfile } from './core/cliInstaller';
 import { detectAvailableAgents } from './utils/agentConfig';
 import { HYDRA_PREFIX_COPILOT, HYDRA_PREFIX_WORKER, buildHydraTerminalName } from './utils/hydraEditorGroup';
 import { lookupWorkerId } from './core/sessionManager';
+import { getHydraSessionsFile } from './core/path';
+
+const SESSION_REFRESH_DEBOUNCE_MS = 200;
 
 export function activate(context: vscode.ExtensionContext) {
   const copilotProvider = new CopilotProvider();
@@ -61,6 +65,7 @@ export function activate(context: vscode.ExtensionContext) {
   detectAndSetAgentContext();
 
   const refreshAll = () => { copilotProvider.refresh(); workerProvider.refresh(); };
+  registerSessionFileRefreshWatcher(context, refreshAll);
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -93,6 +98,38 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push({
       dispose: () => clearInterval(intervalId)
   });
+}
+
+function registerSessionFileRefreshWatcher(context: vscode.ExtensionContext, refreshAll: () => void): void {
+  const sessionsFile = getHydraSessionsFile();
+  const watcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(path.dirname(sessionsFile), path.basename(sessionsFile)),
+  );
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const scheduleRefresh = () => {
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+    }
+    refreshTimer = setTimeout(() => {
+      refreshTimer = undefined;
+      refreshAll();
+    }, SESSION_REFRESH_DEBOUNCE_MS);
+  };
+
+  context.subscriptions.push(
+    watcher,
+    watcher.onDidCreate(scheduleRefresh),
+    watcher.onDidChange(scheduleRefresh),
+    watcher.onDidDelete(scheduleRefresh),
+    {
+      dispose: () => {
+        if (refreshTimer) {
+          clearTimeout(refreshTimer);
+        }
+      },
+    },
+  );
 }
 
 function getShortName(sessionName: string): string {
