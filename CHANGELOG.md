@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.2026051301] - 2026-05-13
+
+### Changed
+- Improve native session sharing ergonomics with default share storage config, shorter public share commands, and clearer received copilot names
+
 ## [0.3.2026051300] - 2026-05-13
 
 ### Added
