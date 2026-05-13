@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.2026051302] - 2026-05-13
+
+### Fixed
+- Fix native worker share acceptance when the sender's worker worktree folder name differs from the receiver's repo clone path
+
 ## [0.3.2026051301] - 2026-05-13
 
 ### Changed
