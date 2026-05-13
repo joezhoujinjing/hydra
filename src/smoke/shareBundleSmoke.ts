@@ -8,6 +8,7 @@ import type { WorkerInfo } from '../core/sessionManager';
 import { createShareBundle, readBundle, writeBundle } from '../share/bundle';
 import { importCodexNativeSession } from '../share/codexAdapter';
 import { buildDefaultPublicBaseUrl, buildPublicHttpBundleUrl, downloadHttpBundle } from '../share/gcpStorage';
+import { collectRepoInfo, validateRepoMatch } from '../share/repo';
 
 const SESSION_ID = '019deccc-251c-7192-bf0d-e8ff36a0bb5e';
 
@@ -131,6 +132,19 @@ async function main(): Promise<void> {
 
   try {
     const repoRoot = createRepo(tempDir);
+    const workerWorktree = path.join(tempDir, 'worker-worktree');
+    runGit(repoRoot, ['branch', 'worker-branch']);
+    runGit(repoRoot, ['worktree', 'add', workerWorktree, 'worker-branch']);
+
+    const worktreeRepoInfo = await collectRepoInfo(workerWorktree);
+    assert.equal(worktreeRepoInfo.repoName, 'repo');
+    assert.equal(worktreeRepoInfo.branch, 'worker-branch');
+
+    await validateRepoMatch({
+      ...worktreeRepoInfo,
+      repoName: 'worker-worktree',
+    }, repoRoot);
+
     const sourceSessionFile = writeCodexSession(sourceHome);
 
     const bundle = await withHomeAsync(sourceHome, () => createShareBundle({
