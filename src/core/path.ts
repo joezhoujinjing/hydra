@@ -181,12 +181,19 @@ export interface HydraCliConfig {
   version?: string;
 }
 
+export interface HydraShareConfig {
+  bucket?: string;
+  prefix?: string;
+  publicBaseUrl?: string;
+}
+
 export interface HydraGlobalConfig {
   hydraHome?: string;
   hydraConfigPath?: string;
   HYDRA_HOME?: string;
   HYDRA_CONFIG_PATH?: string;
   cli?: HydraCliConfig;
+  share?: HydraShareConfig;
 }
 
 export interface HydraResolvedPaths {
