@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.2026051300] - 2026-05-13
+
+### Added
+- Native Codex session sharing for Hydra copilots and workers, with local bundle, GCS, and public HTTPS accept flows
+
+### Changed
+- Refresh the Hydra sidebar when session state changes
+
 ## [0.3.2026051000] - 2026-05-10
 
 ### Changed
