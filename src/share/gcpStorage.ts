@@ -11,18 +11,46 @@ export interface GcsLocationOptions {
   shareId: string;
 }
 
-function stripSlashes(value: string): string {
+export interface PublicHttpLocationOptions {
+  publicBaseUrl: string;
+  prefix?: string;
+  shareId: string;
+}
+
+export function stripSlashes(value: string): string {
   return value.replace(/^\/+/, '').replace(/\/+$/, '');
 }
 
+export function normalizeGcsBucket(bucket: string): string {
+  return bucket.replace(/^gs:\/\//, '').replace(/\/+$/, '').trim();
+}
+
 export function buildGcsBundleUrl(options: GcsLocationOptions): string {
-  const bucket = options.bucket.replace(/^gs:\/\//, '').replace(/\/+$/, '');
+  const bucket = normalizeGcsBucket(options.bucket);
   if (!bucket) {
     throw new Error('GCS bucket is required');
   }
   const prefix = stripSlashes(options.prefix || 'shares');
   const key = [prefix, options.shareId, 'bundle.json'].filter(Boolean).join('/');
   return `gs://${bucket}/${key}`;
+}
+
+export function buildPublicHttpBundleUrl(options: PublicHttpLocationOptions): string {
+  const baseUrl = options.publicBaseUrl.replace(/\/+$/, '').trim();
+  if (!baseUrl) {
+    throw new Error('Public base URL is required');
+  }
+  const prefix = stripSlashes(options.prefix || 'shares');
+  const key = [prefix, options.shareId, 'bundle.json'].filter(Boolean).join('/');
+  return `${baseUrl}/${key}`;
+}
+
+export function buildDefaultPublicBaseUrl(bucket: string): string {
+  const normalizedBucket = normalizeGcsBucket(bucket);
+  if (!normalizedBucket) {
+    throw new Error('GCS bucket is required');
+  }
+  return `https://storage.googleapis.com/${normalizedBucket}`;
 }
 
 export function resolveShareRef(

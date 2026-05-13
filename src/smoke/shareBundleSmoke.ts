@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import type { WorkerInfo } from '../core/sessionManager';
 import { createShareBundle, readBundle, writeBundle } from '../share/bundle';
 import { importCodexNativeSession } from '../share/codexAdapter';
-import { downloadHttpBundle } from '../share/gcpStorage';
+import { buildDefaultPublicBaseUrl, buildPublicHttpBundleUrl, downloadHttpBundle } from '../share/gcpStorage';
 
 const SESSION_ID = '019deccc-251c-7192-bf0d-e8ff36a0bb5e';
 
@@ -152,6 +152,18 @@ async function main(): Promise<void> {
     const bundlePath = path.join(tempDir, 'bundle.json');
     writeBundle(bundlePath, bundle);
     assert.equal(readBundle(bundlePath).shareId, 'share-smoke');
+    assert.equal(
+      buildDefaultPublicBaseUrl('gs://hydra-share-smoke'),
+      'https://storage.googleapis.com/hydra-share-smoke',
+    );
+    assert.equal(
+      buildPublicHttpBundleUrl({
+        publicBaseUrl: 'https://storage.googleapis.com/hydra-share-smoke/',
+        prefix: '/shares/',
+        shareId: 'share-smoke',
+      }),
+      'https://storage.googleapis.com/hydra-share-smoke/shares/share-smoke/bundle.json',
+    );
 
     const httpDownloadedBundlePath = path.join(tempDir, 'downloaded-bundle.json');
     await withBundleServer(bundlePath, async (url) => {
