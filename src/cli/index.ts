@@ -10,6 +10,7 @@ import { registerRepoCommands } from './commands/repo';
 import { registerDoctorCommand } from './commands/doctor';
 import { registerWhoamiCommand } from './commands/whoami';
 import { registerTestCommand } from './commands/test';
+import { registerShareCommands } from './commands/share';
 import { peekTelemetry } from '../core/telemetry';
 
 const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
@@ -57,5 +58,6 @@ registerRepoCommands(program);
 registerDoctorCommand(program);
 registerWhoamiCommand(program);
 registerTestCommand(program);
+registerShareCommands(program);
 
 program.parse();

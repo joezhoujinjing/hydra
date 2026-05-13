@@ -232,13 +232,15 @@ async function main(): Promise<void> {
       backend.sendKeysCalls[0]?.keys,
       `${smokeCodexCommand} ${BYPASS_FLAG}`,
     );
-    assert.ok(
+    assert.equal(
       backend.sendMessageCalls.some(call => call.sessionName === 'copilot-fresh' && call.message === '/status'),
+      false,
     );
     assert.equal(copilot.sessionId, '11111111-1111-4111-8111-111111111111');
   }
 
   {
+    const copilotRestoredWorkdir = fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-copilot-restored-'));
     const archive = readJson<{ entries: Array<Record<string, unknown>> }>(archiveFile, { entries: [] });
     archive.entries.push({
       type: 'copilot',
@@ -251,7 +253,7 @@ async function main(): Promise<void> {
         status: 'stopped',
         attached: false,
         agent: 'codex',
-        workdir: fs.mkdtempSync(path.join(os.tmpdir(), 'hydra-copilot-restored-')),
+        workdir: copilotRestoredWorkdir,
         tmuxSession: 'copilot-restored',
         createdAt: new Date().toISOString(),
         lastSeenAt: new Date().toISOString(),
@@ -270,7 +272,7 @@ async function main(): Promise<void> {
 
     assert.equal(
       command,
-      `${smokeCodexCommand} ${BYPASS_FLAG} resume '22222222-2222-4222-8222-222222222222'`,
+      `${smokeCodexCommand} ${BYPASS_FLAG} resume -C '${copilotRestoredWorkdir}' '22222222-2222-4222-8222-222222222222'`,
     );
     assert.ok(
       backend.capturePaneCalls.some(call => call.sessionName === 'copilot-restored'),
@@ -319,7 +321,7 @@ async function main(): Promise<void> {
     const command = lastSendKeysFor(backend, 'worker-start');
     assert.equal(
       command,
-      `${smokeCodexCommand} ${BYPASS_FLAG} resume '33333333-3333-4333-8333-333333333333'`,
+      `${smokeCodexCommand} ${BYPASS_FLAG} resume -C '${workerWorkdir}' '33333333-3333-4333-8333-333333333333'`,
     );
     assert.ok(
       backend.capturePaneCalls.some(call => call.sessionName === 'worker-start'),
@@ -382,7 +384,7 @@ async function main(): Promise<void> {
       const command = lastSendKeysFor(backend, 'worker-restored');
       assert.equal(
         command,
-        `${smokeCodexCommand} ${BYPASS_FLAG} resume '44444444-4444-4444-8444-444444444444'`,
+        `${smokeCodexCommand} ${BYPASS_FLAG} resume -C '${restoredWorktree}' '44444444-4444-4444-8444-444444444444'`,
       );
       assert.equal(result.workerInfo.sessionName, 'worker-restored');
       assert.equal(result.workerInfo.sessionId, '44444444-4444-4444-8444-444444444444');
@@ -477,7 +479,7 @@ async function main(): Promise<void> {
       assert.equal(result.workerInfo.workdir, fooSlashBarWorktree);
       assert.equal(
         lastSendKeysFor(backend, 'repo-ns_foo-bar-2'),
-        `${smokeCodexCommand} ${BYPASS_FLAG} resume 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'`,
+        `${smokeCodexCommand} ${BYPASS_FLAG} resume -C '${fooSlashBarWorktree}' 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'`,
       );
       assert.ok(
         backend.sendMessageCalls.some(call =>

@@ -61,7 +61,7 @@ export const CLAUDE_READY_DELAY_MS = 5000;
  */
 export const AGENT_READY_PATTERNS: Record<string, RegExp> = {
   claude: /⏵/,
-  codex: /⏵/,
+  codex: /⏵|(?:^|\n)\s*›\s*/m,
   gemini: /⏵/,
 };
 
@@ -70,6 +70,13 @@ export const AGENT_READY_PATTERNS: Record<string, RegExp> = {
  * When detected, send Enter to accept it before waiting for the actual input prompt.
  */
 export const CLAUDE_TRUST_PROMPT_PATTERN = /trust this folder/;
+
+/**
+ * Codex can ask which working directory to use when a session is resumed on
+ * another machine/path. Hydra passes -C where possible, but accepts the prompt
+ * as a fallback for older/newer Codex picker flows.
+ */
+export const CODEX_RESUME_CWD_PROMPT_PATTERN = /Choose working directory to resume this session/i;
 
 /** Maximum time (ms) to wait for agent readiness before giving up */
 export const AGENT_READY_TIMEOUT_MS = 30000;
@@ -97,6 +104,7 @@ export function buildAgentResumeCommand(
   agentType: string,
   agentBinary: string,
   sessionId: string,
+  workdir?: string,
 ): string | null {
   const quotedSessionId = shellQuoteForDisplay(sessionId);
   switch (agentType) {
@@ -105,7 +113,8 @@ export function buildAgentResumeCommand(
     }
     case 'codex': {
       const command = ensureCommandFlag(agentBinary, AGENT_YOLO_FLAGS.codex);
-      return appendCommandArgs(command, 'resume', quotedSessionId);
+      const cdArgs = workdir ? ['-C', shellQuoteForDisplay(workdir)] : [];
+      return appendCommandArgs(command, 'resume', ...cdArgs, quotedSessionId);
     }
     case 'gemini':
       return appendCommandArgs(agentBinary, `--resume ${quotedSessionId}`);

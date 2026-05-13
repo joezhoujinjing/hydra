@@ -4,12 +4,12 @@ import { randomUUID } from 'crypto';
 import { MultiplexerBackendCore } from './types';
 import * as coreGit from './git';
 import { ensureHydraGlobalConfig } from './hydraGlobalConfig';
-import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS, AGENT_READY_PATTERNS, AGENT_READY_TIMEOUT_MS, AGENT_READY_POLL_INTERVAL_MS, CLAUDE_TRUST_PROMPT_PATTERN } from './agentConfig';
+import { buildAgentLaunchCommand, buildAgentResumeCommand, DEFAULT_AGENT_COMMANDS, AGENT_SESSION_CAPTURE, CLAUDE_READY_DELAY_MS, AGENT_READY_PATTERNS, AGENT_READY_TIMEOUT_MS, AGENT_READY_POLL_INTERVAL_MS, CLAUDE_TRUST_PROMPT_PATTERN, CODEX_RESUME_CWD_PROMPT_PATTERN } from './agentConfig';
 import { exec, resolveCommandPath } from './exec';
 import { getHydraArchiveFile, getHydraHome, getHydraSessionsFile, toCanonicalPath } from './path';
 import { shellQuote } from './shell';
 
-const POST_CREATE_TIMEOUT_MS = AGENT_READY_TIMEOUT_MS + 15000;
+const POST_CREATE_TIMEOUT_MS = AGENT_READY_TIMEOUT_MS + 75000;
 const SESSION_STATE_LOCK_TIMEOUT_MS = 10000;
 const SESSION_STATE_LOCK_RETRY_MS = 50;
 const SESSION_STATE_LOCK_STALE_MS = 120000;
@@ -480,7 +480,7 @@ export class SessionManager {
 
     if (isResume) {
       sessionId = opts.resumeSessionId!;
-      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, sessionId);
+      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, sessionId, worktreePath);
       if (!resumeCmd) {
         throw new Error(`Agent "${agentType}" does not support session resume`);
       }
@@ -616,7 +616,7 @@ export class SessionManager {
     // Resume from stored session ID if available; otherwise fresh start
     const storedSessionId = existingWorker.sessionId;
     const resumeCmd = storedSessionId
-      ? buildAgentResumeCommand(agent, command, storedSessionId)
+      ? buildAgentResumeCommand(agent, command, storedSessionId, existingWorker.workdir)
       : null;
 
     let workerInfo: WorkerInfo;
@@ -703,7 +703,7 @@ export class SessionManager {
 
     if (isResume) {
       sessionId = opts.resumeSessionId!;
-      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, sessionId);
+      const resumeCmd = buildAgentResumeCommand(agentType, agentCommand, sessionId, opts.workdir);
       if (!resumeCmd) {
         throw new Error(`Agent "${agentType}" does not support session resume`);
       }
@@ -1605,6 +1605,7 @@ export class SessionManager {
 
     const deadline = Date.now() + AGENT_READY_TIMEOUT_MS;
     let trustPromptHandled = false;
+    let codexResumeCwdPromptHandled = false;
 
     // Initial delay before first poll (agent needs time to start the process)
     await this.sleep(AGENT_READY_POLL_INTERVAL_MS);
@@ -1613,16 +1614,31 @@ export class SessionManager {
       try {
         const output = await this.backend.capturePane(sessionName, 50);
 
-        if (pattern.test(output)) {
-          // Brief settle delay — TUI input handler may not be fully interactive yet
-          await this.sleep(AGENT_READY_POLL_INTERVAL_MS);
-          return;
-        }
-
         // Handle trust prompt: send Enter to accept "Yes, I trust this folder"
         if (!trustPromptHandled && CLAUDE_TRUST_PROMPT_PATTERN.test(output)) {
           await this.backend.sendKeys(sessionName, '');
           trustPromptHandled = true;
+          await this.sleep(AGENT_READY_POLL_INTERVAL_MS);
+          continue;
+        }
+
+        // Handle Codex resume cwd picker: accept the default selection and keep
+        // polling until the actual idle input prompt appears.
+        if (
+          agentType === 'codex' &&
+          !codexResumeCwdPromptHandled &&
+          CODEX_RESUME_CWD_PROMPT_PATTERN.test(output)
+        ) {
+          await this.backend.sendKeys(sessionName, '');
+          codexResumeCwdPromptHandled = true;
+          await this.sleep(AGENT_READY_POLL_INTERVAL_MS);
+          continue;
+        }
+
+        if (pattern.test(output)) {
+          // Brief settle delay — TUI input handler may not be fully interactive yet
+          await this.sleep(AGENT_READY_POLL_INTERVAL_MS);
+          return;
         }
       } catch {
         // Session may not be ready yet — keep polling
@@ -1648,24 +1664,30 @@ export class SessionManager {
     if (!config) return null;
 
     try {
-      // For Codex, accept the trust prompt first
+      // For Codex, wait for the TUI prompt before sending /status. Starting
+      // with Codex 0.129, the trust prompt and first paint can take long enough
+      // that fixed sleeps race the input handler and lose the status command.
       if (agentType === 'codex') {
-        await this.sleep(3000);
-        await this.backend.sendKeys(sessionName, ''); // Enter to accept trust prompt
-        await this.sleep(config.readyDelayMs);
+        await this.waitForAgentReady(sessionName, agentType);
       } else {
         await this.sleep(config.readyDelayMs);
+      }
+
+      const existingOutput = await this.backend.capturePane(sessionName, 400);
+      const existingMatch = existingOutput.match(config.sessionIdPattern);
+      if (existingMatch?.[1]) {
+        return existingMatch[1];
       }
 
       // Send status slash command (use sendMessage for reliable Enter delivery to TUIs)
       await this.backend.sendMessage(sessionName, config.statusCommand);
 
       // Poll pane output until session ID is found
-      const maxAttempts = 10;
+      const maxAttempts = agentType === 'codex' ? 30 : 10;
       const pollInterval = config.captureDelayMs;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         await this.sleep(pollInterval);
-        const output = await this.backend.capturePane(sessionName, 200);
+        const output = await this.backend.capturePane(sessionName, 400);
         const match = output.match(config.sessionIdPattern);
         if (match?.[1]) {
           return match[1];
@@ -1936,7 +1958,7 @@ export class SessionManager {
 
       // Resume or fresh start
       const resumeCmd = storedSessionId
-        ? buildAgentResumeCommand(agentType, agentCommand, storedSessionId)
+        ? buildAgentResumeCommand(agentType, agentCommand, storedSessionId, worktreePath)
         : null;
 
       let postCreatePromise: Promise<void>;
