@@ -38,6 +38,28 @@ async function collectRemotes(repoRoot: string): Promise<Record<string, string>>
   return remotes;
 }
 
+function repoNameFromRemoteUrl(url: string): string | null {
+  const normalized = normalizeRemoteUrl(url);
+  const repoName = normalized.split('/').filter(Boolean).pop();
+  return repoName || null;
+}
+
+function getRepoNameFromRemotes(remotes: Record<string, string>, repoRoot: string): string {
+  const originRepoName = remotes.origin ? repoNameFromRemoteUrl(remotes.origin) : null;
+  if (originRepoName) {
+    return originRepoName;
+  }
+
+  for (const remoteUrl of Object.values(remotes)) {
+    const repoName = repoNameFromRemoteUrl(remoteUrl);
+    if (repoName) {
+      return repoName;
+    }
+  }
+
+  return getRepoName(repoRoot);
+}
+
 export async function collectRepoInfo(workdir: string): Promise<ShareRepoInfo> {
   let repoRoot: string;
   try {
@@ -53,7 +75,7 @@ export async function collectRepoInfo(workdir: string): Promise<ShareRepoInfo> {
   ]);
 
   return {
-    repoName: getRepoName(repoRoot),
+    repoName: getRepoNameFromRemotes(remotes, repoRoot),
     repoRoot,
     branch,
     headCommit,
@@ -102,16 +124,18 @@ export async function validateRepoMatch(
     throw new Error(`Target repo path is not a git repository: ${targetRepoRoot}`);
   }
 
-  if (bundleRepo.repoName && targetRepo.repoName && bundleRepo.repoName !== targetRepo.repoName) {
+  const bundleRemoteCount = Object.keys(bundleRepo.remotes || {}).length;
+  const targetRemoteCount = Object.keys(targetRepo.remotes || {}).length;
+  const canCompareRemotes = bundleRemoteCount > 0 && targetRemoteCount > 0;
+  const hasSharedRemote = canCompareRemotes && hasCommonRemote(bundleRepo.remotes, targetRepo.remotes);
+  if (canCompareRemotes && !hasSharedRemote) {
+    throw new Error('Repo remote mismatch. Use --allow-mismatch to override.');
+  }
+
+  if (!hasSharedRemote && bundleRepo.repoName && targetRepo.repoName && bundleRepo.repoName !== targetRepo.repoName) {
     throw new Error(
       `Repo name mismatch: share is for "${bundleRepo.repoName}", target is "${targetRepo.repoName}". Use --allow-mismatch to override.`,
     );
-  }
-
-  const bundleRemoteCount = Object.keys(bundleRepo.remotes || {}).length;
-  const targetRemoteCount = Object.keys(targetRepo.remotes || {}).length;
-  if (bundleRemoteCount > 0 && targetRemoteCount > 0 && !hasCommonRemote(bundleRepo.remotes, targetRepo.remotes)) {
-    throw new Error('Repo remote mismatch. Use --allow-mismatch to override.');
   }
 
   if (bundleRepo.headCommit && !(await commitExists(targetRepo.repoRoot, bundleRepo.headCommit))) {
