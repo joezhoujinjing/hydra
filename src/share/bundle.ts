@@ -3,9 +3,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { resolveAgentSessionFile } from '../core/path';
 import type { CopilotInfo, WorkerInfo } from '../core/sessionManager';
+import { exportClaudeNativeSession } from './claudeAdapter';
 import { exportCodexNativeSession } from './codexAdapter';
 import { collectRepoInfo } from './repo';
-import type { HydraShareBundle, ShareHydraSessionInfo } from './types';
+import type { HydraShareBundle, ShareAgent, ShareHydraSessionInfo } from './types';
 
 export type ShareableSession =
   | { type: 'copilot'; data: CopilotInfo }
@@ -15,27 +16,31 @@ export function generateShareId(): string {
   return crypto.randomBytes(8).toString('hex');
 }
 
-function assertCodexSession(session: ShareableSession): string {
-  if (session.data.agent !== 'codex') {
-    throw new Error(`Only Codex sessions can be shared natively. Session agent is "${session.data.agent}".`);
-  }
-  if (!session.data.sessionId) {
-    throw new Error(`Session "${session.data.sessionName}" does not have a captured Codex session ID yet.`);
-  }
-  const sessionFile = resolveAgentSessionFile('codex', session.data.workdir, session.data.sessionId);
-  if (!sessionFile) {
-    throw new Error(`Codex session file not found for session "${session.data.sessionName}".`);
-  }
-  return session.data.sessionId;
+function isShareAgent(agent: string): agent is ShareAgent {
+  return agent === 'codex' || agent === 'claude';
 }
 
-function buildHydraSessionInfo(session: ShareableSession, sessionId: string): ShareHydraSessionInfo {
+function assertShareableSession(session: ShareableSession): { agent: ShareAgent; sessionId: string } {
+  if (!isShareAgent(session.data.agent)) {
+    throw new Error(`Only Codex and Claude sessions can be shared natively. Session agent is "${session.data.agent}".`);
+  }
+  if (!session.data.sessionId) {
+    throw new Error(`Session "${session.data.sessionName}" does not have a captured ${session.data.agent} session ID yet.`);
+  }
+  const sessionFile = resolveAgentSessionFile(session.data.agent, session.data.workdir, session.data.sessionId);
+  if (!sessionFile) {
+    throw new Error(`${session.data.agent} session file not found for session "${session.data.sessionName}".`);
+  }
+  return { agent: session.data.agent, sessionId: session.data.sessionId };
+}
+
+function buildHydraSessionInfo(session: ShareableSession, agent: ShareAgent, sessionId: string): ShareHydraSessionInfo {
   if (session.type === 'copilot') {
     return {
       type: 'copilot',
       sessionName: session.data.sessionName,
       displayName: session.data.displayName || session.data.sessionName,
-      agent: 'codex',
+      agent,
       workdir: session.data.workdir,
       agentSessionId: sessionId,
     };
@@ -45,7 +50,7 @@ function buildHydraSessionInfo(session: ShareableSession, sessionId: string): Sh
     type: 'worker',
     sessionName: session.data.sessionName,
     displayName: session.data.displayName || session.data.slug || session.data.sessionName,
-    agent: 'codex',
+    agent,
     workdir: session.data.workdir,
     agentSessionId: sessionId,
     worker: {
@@ -63,8 +68,11 @@ export async function createShareBundle(
   session: ShareableSession,
   shareId = generateShareId(),
 ): Promise<HydraShareBundle> {
-  const sessionId = assertCodexSession(session);
+  const { agent, sessionId } = assertShareableSession(session);
   const repo = await collectRepoInfo(session.data.workdir);
+  const agents = agent === 'codex'
+    ? { codex: exportCodexNativeSession(session.data.workdir, sessionId) }
+    : { claude: exportClaudeNativeSession(session.data.workdir, sessionId) };
 
   return {
     schemaVersion: 1,
@@ -76,10 +84,8 @@ export async function createShareBundle(
       keyHint: null,
     },
     repo,
-    hydraSession: buildHydraSessionInfo(session, sessionId),
-    agents: {
-      codex: exportCodexNativeSession(session.data.workdir, sessionId),
-    },
+    hydraSession: buildHydraSessionInfo(session, agent, sessionId),
+    agents,
   };
 }
 
@@ -107,13 +113,15 @@ export function validateBundle(bundle: HydraShareBundle): void {
   if (!bundle.shareId) {
     throw new Error('Share bundle is missing shareId');
   }
-  if (bundle.hydraSession?.agent !== 'codex') {
-    throw new Error('Only Codex share bundles are supported');
+  const agent = bundle.hydraSession?.agent;
+  if (!agent || !isShareAgent(agent)) {
+    throw new Error(`Unsupported share bundle agent: ${agent || 'missing'}`);
   }
   if (!bundle.hydraSession?.agentSessionId) {
     throw new Error('Share bundle is missing agentSessionId');
   }
-  if (bundle.agents?.codex?.adapter !== 'codex') {
-    throw new Error('Share bundle is missing Codex native session payload');
+  const payload = bundle.agents?.[agent];
+  if (!payload || payload.adapter !== agent) {
+    throw new Error(`Share bundle is missing ${agent} native session payload`);
   }
 }

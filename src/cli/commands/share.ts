@@ -29,6 +29,7 @@ import {
   uploadBundle,
 } from '../../share/gcpStorage';
 import { importCodexNativeSession } from '../../share/codexAdapter';
+import { importClaudeNativeSession } from '../../share/claudeAdapter';
 import { ensureLocalBranchFromRemote, validateRepoMatch } from '../../share/repo';
 import type { HydraShareBundle, ShareHydraWorkerInfo } from '../../share/types';
 import { outputError, outputResult, type OutputOpts } from '../output';
@@ -57,6 +58,11 @@ interface ShareConfigOpts {
   public?: boolean;
   publicBaseUrl?: string;
   clear?: boolean;
+}
+
+interface NativeImportResult {
+  written: string[];
+  skipped: string[];
 }
 
 function expandPath(inputPath: string): string {
@@ -106,7 +112,7 @@ function findShareableSession(
 function warnUnencrypted(globalOpts: OutputOpts, yes?: boolean): void {
   if (!globalOpts.quiet && !yes) {
     console.error(
-      'Warning: Hydra share bundles are not encrypted yet. Anyone with access to this GCS object can read the Codex session contents.',
+      'Warning: Hydra share bundles are not encrypted yet. Anyone with access to this GCS object can read the agent session contents.',
     );
   }
 }
@@ -144,7 +150,7 @@ async function stopSessionForExport(
   const sessionFile = await waitForNativeSessionFile(session);
   if (!sessionFile) {
     throw new Error(
-      `Timed out waiting for Codex to flush native session data for "${session.data.sessionName}". ` +
+      `Timed out waiting for ${session.data.agent} to flush native session data for "${session.data.sessionName}". ` +
       'Try again after the agent has exited.',
     );
   }
@@ -286,7 +292,7 @@ function buildImportedWorkerInfo(
     slug,
     status: 'stopped',
     attached: false,
-    agent: 'codex',
+    agent: bundleSession.agent,
     workdir,
     tmuxSession: sessionName,
     createdAt: now,
@@ -296,22 +302,49 @@ function buildImportedWorkerInfo(
   };
 }
 
+function importNativeSession(
+  bundle: HydraShareBundle,
+  targetWorkdir: string,
+  opts: AcceptShareOpts,
+): NativeImportResult {
+  switch (bundle.hydraSession.agent) {
+    case 'codex': {
+      const payload = bundle.agents.codex;
+      if (!payload) {
+        throw new Error('Share bundle is missing Codex native session payload');
+      }
+      return importCodexNativeSession(payload, { force: opts.force });
+    }
+    case 'claude': {
+      const payload = bundle.agents.claude;
+      if (!payload) {
+        throw new Error('Share bundle is missing Claude native session payload');
+      }
+      return importClaudeNativeSession(payload, targetWorkdir, { force: opts.force });
+    }
+    default:
+      throw new Error(`Unsupported share bundle agent: ${bundle.hydraSession.agent}`);
+  }
+}
+
 async function acceptCopilot(
   sm: SessionManager,
   backend: TmuxBackendCore,
   bundle: HydraShareBundle,
   repoRoot: string,
   opts: AcceptShareOpts,
-): Promise<CopilotInfo> {
+): Promise<{ session: CopilotInfo; nativeImport: NativeImportResult }> {
   const sessionName = backend.sanitizeSessionName(opts.session || bundle.hydraSession.sessionName);
-  return sm.createCopilotAndFinalize({
+  const nativeImport = importNativeSession(bundle, repoRoot, opts);
+  const session = await sm.createCopilotAndFinalize({
     workdir: repoRoot,
-    agentType: 'codex',
+    agentType: bundle.hydraSession.agent,
     name: opts.session ? sessionName : bundle.hydraSession.displayName,
     sessionName,
     agentCommand: opts.agentCommand,
     resumeSessionId: bundle.hydraSession.agentSessionId,
   });
+  return { session, nativeImport };
 }
 
 async function acceptWorker(
@@ -320,7 +353,7 @@ async function acceptWorker(
   bundle: HydraShareBundle,
   repoRoot: string,
   opts: AcceptShareOpts,
-): Promise<WorkerInfo> {
+): Promise<{ session: WorkerInfo; nativeImport: NativeImportResult }> {
   const worker = bundle.hydraSession.worker;
   if (!worker) {
     throw new Error('Worker share bundle is missing worker metadata');
@@ -336,11 +369,12 @@ async function acceptWorker(
     slug,
     sessionName,
   );
+  const nativeImport = importNativeSession(bundle, workdir, opts);
 
   const { workerInfo, postCreatePromise } = await sm.createWorker({
     repoRoot,
     branchName: worker.branch,
-    agentType: 'codex',
+    agentType: bundle.hydraSession.agent,
     agentCommand: opts.agentCommand,
     resumeSessionId: bundle.hydraSession.agentSessionId,
     preservedWorkerInfo,
@@ -348,7 +382,7 @@ async function acceptWorker(
     fetchMode: 'best-effort',
   });
   await postCreatePromise;
-  return workerInfo;
+  return { session: workerInfo, nativeImport };
 }
 
 function formatShareConfigForOutput(): Record<string, string | null> {
@@ -440,11 +474,11 @@ export function registerShareCommands(program: Command): void {
 
   share
     .command('create <session>')
-    .description('Create a native Codex share bundle locally or upload it to GCS')
+    .description('Create a native agent share bundle locally or upload it to GCS')
     .option('--bucket <bucket>', 'GCS bucket for share bundles')
     .option('--prefix <prefix>', 'GCS object prefix', 'shares')
     .option('--out <path>', 'Write the share bundle to a local file instead of GCS')
-    .option('--stop', 'Send /quit before exporting so Codex flushes native session data')
+    .option('--stop', 'Send /quit before exporting so the agent flushes native session data')
     .option('--yes', 'Acknowledge that the bundle is not encrypted')
     .action(async (sessionName: string, opts: CreateShareOpts) => {
       const globalOpts = program.opts() as OutputOpts;
@@ -505,7 +539,7 @@ export function registerShareCommands(program: Command): void {
             destination,
             session: session.data.sessionName,
             type: session.type,
-            agent: 'codex',
+            agent: session.data.agent,
             agentSessionId: session.data.sessionId,
             encryption: bundle.encryption,
             publicUrl,
@@ -519,7 +553,7 @@ export function registerShareCommands(program: Command): void {
             }
             console.log(`  Session:    ${session.data.sessionName}`);
             console.log(`  Type:       ${session.type}`);
-            console.log(`  Agent:      codex`);
+            console.log(`  Agent:      ${session.data.agent}`);
             console.log(`  Session ID: ${session.data.sessionId}`);
           },
         );
@@ -530,13 +564,13 @@ export function registerShareCommands(program: Command): void {
 
   share
     .command('accept <share-ref>')
-    .description('Accept a local, GCS, or HTTPS native Codex share bundle and resume it locally')
+    .description('Accept a local, GCS, or HTTPS native agent share bundle and resume it locally')
     .requiredOption('--repo <path>', 'Path to the local copy of the shared repository')
     .option('--bucket <bucket>', 'GCS bucket when share-ref is a share ID')
     .option('--prefix <prefix>', 'GCS object prefix', 'shares')
     .option('--session <name>', 'Override the local Hydra session name')
-    .option('--agent-command <command>', 'Override the Codex command used to resume the shared session')
-    .option('--force', 'Overwrite an existing Codex session file if contents differ')
+    .option('--agent-command <command>', 'Override the agent command used to resume the shared session')
+    .option('--force', 'Overwrite an existing native session file if contents differ')
     .option('--allow-mismatch', 'Allow repo remote or commit mismatch')
     .action(async (shareRef: string, opts: AcceptShareOpts) => {
       const globalOpts = program.opts() as OutputOpts;
@@ -547,13 +581,13 @@ export function registerShareCommands(program: Command): void {
         const resolvedRepoInput = resolveRepoInput(opts.repo);
         const repoRoot = await getRepoRootFromPath(expandPath(resolvedRepoInput.path));
         await validateRepoMatch(bundle.repo, repoRoot, opts.allowMismatch);
-        const nativeImport = importCodexNativeSession(bundle.agents.codex, { force: opts.force });
 
         const backend = new TmuxBackendCore();
         const sm = new SessionManager(backend);
         const result = bundle.hydraSession.type === 'copilot'
           ? await acceptCopilot(sm, backend, bundle, repoRoot, opts)
           : await acceptWorker(sm, backend, bundle, repoRoot, opts);
+        const session = result.session;
 
         outputResult(
           {
@@ -561,20 +595,20 @@ export function registerShareCommands(program: Command): void {
             shareId: bundle.shareId,
             source,
             type: bundle.hydraSession.type,
-            session: result.sessionName,
-            agent: 'codex',
+            session: session.sessionName,
+            agent: bundle.hydraSession.agent,
             agentSessionId: bundle.hydraSession.agentSessionId,
-            workdir: result.workdir,
-            nativeSessionFiles: nativeImport,
+            workdir: session.workdir,
+            nativeSessionFiles: result.nativeImport,
           },
           globalOpts,
           () => {
             console.log(`Accepted share: ${bundle.shareId}`);
             console.log(`  Source:     ${source}`);
-            console.log(`  Session:    ${result.sessionName}`);
+            console.log(`  Session:    ${session.sessionName}`);
             console.log(`  Type:       ${bundle.hydraSession.type}`);
-            console.log(`  Agent:      codex`);
-            console.log(`  Workdir:    ${result.workdir}`);
+            console.log(`  Agent:      ${bundle.hydraSession.agent}`);
+            console.log(`  Workdir:    ${session.workdir}`);
             console.log(`  Session ID: ${bundle.hydraSession.agentSessionId}`);
           },
         );
