@@ -57,6 +57,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('hydra.startCopilotClaude', () => createCopilotWithAgent('claude')),
     vscode.commands.registerCommand('hydra.startCopilotCodex', () => createCopilotWithAgent('codex')),
     vscode.commands.registerCommand('hydra.startCopilotGemini', () => createCopilotWithAgent('gemini')),
+    vscode.commands.registerCommand('hydra.startCopilotSudocode', () => createCopilotWithAgent('sudocode')),
   );
 
   ensureHydraGlobalConfig();
@@ -179,6 +180,7 @@ async function detectAndSetAgentContext(): Promise<void> {
     vscode.commands.executeCommand('setContext', 'hydra.claudeAvailable', available.includes('claude'));
     vscode.commands.executeCommand('setContext', 'hydra.codexAvailable', available.includes('codex'));
     vscode.commands.executeCommand('setContext', 'hydra.geminiAvailable', available.includes('gemini'));
+    vscode.commands.executeCommand('setContext', 'hydra.sudocodeAvailable', available.includes('sudocode'));
     vscode.commands.executeCommand('setContext', 'hydra.noAgentsAvailable', available.length === 0);
   } catch {
     // Best-effort — don't block activation
