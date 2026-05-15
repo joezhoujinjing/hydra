@@ -1,4 +1,5 @@
 export type ShareSessionType = 'copilot' | 'worker';
+export type ShareAgent = 'codex' | 'claude';
 
 export interface ShareEncryptionInfo {
   enabled: false;
@@ -27,7 +28,7 @@ export interface ShareHydraSessionInfo {
   type: ShareSessionType;
   sessionName: string;
   displayName: string;
-  agent: 'codex';
+  agent: ShareAgent;
   workdir: string;
   agentSessionId: string;
   worker?: ShareHydraWorkerInfo;
@@ -48,6 +49,14 @@ export interface CodexNativeSessionPayload {
   files: NativeSessionFile[];
 }
 
+export interface ClaudeNativeSessionPayload {
+  adapter: 'claude';
+  adapterVersion: 1;
+  sessionId: string;
+  sourceWorkdir: string;
+  files: NativeSessionFile[];
+}
+
 export interface HydraShareBundle {
   schemaVersion: 1;
   shareId: string;
@@ -56,6 +65,7 @@ export interface HydraShareBundle {
   repo: ShareRepoInfo;
   hydraSession: ShareHydraSessionInfo;
   agents: {
-    codex: CodexNativeSessionPayload;
+    codex?: CodexNativeSessionPayload;
+    claude?: ClaudeNativeSessionPayload;
   };
 }

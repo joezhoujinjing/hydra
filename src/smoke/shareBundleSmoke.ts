@@ -4,8 +4,10 @@ import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { encodeClaudeWorkdir } from '../core/path';
 import type { WorkerInfo } from '../core/sessionManager';
 import { createShareBundle, readBundle, writeBundle } from '../share/bundle';
+import { importClaudeNativeSession } from '../share/claudeAdapter';
 import { importCodexNativeSession } from '../share/codexAdapter';
 import { buildDefaultPublicBaseUrl, buildPublicHttpBundleUrl, downloadHttpBundle } from '../share/gcpStorage';
 import { collectRepoInfo, validateRepoMatch } from '../share/repo';
@@ -70,7 +72,20 @@ function writeCodexSession(home: string, contents = '{"type":"session"}\n'): str
   return sessionFile;
 }
 
-function buildWorker(repoRoot: string): WorkerInfo {
+function writeClaudeSession(home: string, workdir: string, contents = `{"type":"user","sessionId":"${SESSION_ID}"}\n`): string {
+  const sessionFile = path.join(
+    home,
+    '.claude',
+    'projects',
+    encodeClaudeWorkdir(workdir),
+    `${SESSION_ID}.jsonl`,
+  );
+  fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+  fs.writeFileSync(sessionFile, contents, 'utf-8');
+  return sessionFile;
+}
+
+function buildWorker(repoRoot: string, agent = 'codex'): WorkerInfo {
   return {
     sessionName: 'repo-feat-share',
     displayName: 'feat-share',
@@ -81,7 +96,7 @@ function buildWorker(repoRoot: string): WorkerInfo {
     slug: 'feat-share',
     status: 'running',
     attached: false,
-    agent: 'codex',
+    agent,
     workdir: repoRoot,
     tmuxSession: 'repo-feat-share',
     createdAt: '2026-05-12T00:00:00.000Z',
@@ -156,9 +171,10 @@ async function main(): Promise<void> {
     assert.equal(bundle.shareId, 'share-smoke');
     assert.equal(bundle.encryption.enabled, false);
     assert.equal(bundle.hydraSession.type, 'worker');
+    assert.equal(bundle.hydraSession.agent, 'codex');
     assert.equal(bundle.hydraSession.agentSessionId, SESSION_ID);
-    assert.equal(bundle.agents.codex.files.length, 1);
-    assert.equal(bundle.agents.codex.files[0]?.homeRelativePath, path.relative(sourceHome, sourceSessionFile));
+    assert.equal(bundle.agents.codex?.files.length, 1);
+    assert.equal(bundle.agents.codex?.files[0]?.homeRelativePath, path.relative(sourceHome, sourceSessionFile));
     assert.equal(bundle.repo.repoName, 'repo');
     assert.equal(bundle.repo.branch, 'main');
     assert.equal(bundle.repo.remotes.origin, 'git@github.com:example/repo.git');
@@ -188,24 +204,59 @@ async function main(): Promise<void> {
       JSON.parse(fs.readFileSync(bundlePath, 'utf-8')),
     );
 
-    const firstImport = withHome(targetHome, () => importCodexNativeSession(bundle.agents.codex));
+    const firstImport = withHome(targetHome, () => importCodexNativeSession(bundle.agents.codex!));
     assert.equal(firstImport.written.length, 1);
     assert.equal(firstImport.skipped.length, 0);
     assert.equal(fs.readFileSync(firstImport.written[0]!, 'utf-8'), fs.readFileSync(sourceSessionFile, 'utf-8'));
 
-    const secondImport = withHome(targetHome, () => importCodexNativeSession(bundle.agents.codex));
+    const secondImport = withHome(targetHome, () => importCodexNativeSession(bundle.agents.codex!));
     assert.equal(secondImport.written.length, 0);
     assert.equal(secondImport.skipped.length, 1);
 
     fs.writeFileSync(firstImport.written[0]!, 'conflict\n', 'utf-8');
     assert.throws(
-      () => withHome(targetHome, () => importCodexNativeSession(bundle.agents.codex)),
+      () => withHome(targetHome, () => importCodexNativeSession(bundle.agents.codex!)),
       /already exists with different contents/,
     );
 
-    const forcedImport = withHome(targetHome, () => importCodexNativeSession(bundle.agents.codex, { force: true }));
+    const forcedImport = withHome(targetHome, () => importCodexNativeSession(bundle.agents.codex!, { force: true }));
     assert.equal(forcedImport.written.length, 1);
     assert.equal(fs.readFileSync(forcedImport.written[0]!, 'utf-8'), fs.readFileSync(sourceSessionFile, 'utf-8'));
+
+    const sourceClaudeSessionFile = writeClaudeSession(sourceHome, repoRoot);
+    const claudeBundle = await withHomeAsync(sourceHome, () => createShareBundle({
+      type: 'worker',
+      data: buildWorker(repoRoot, 'claude'),
+    }, 'claude-share-smoke'));
+    assert.equal(claudeBundle.hydraSession.agent, 'claude');
+    assert.equal(claudeBundle.agents.claude?.adapter, 'claude');
+    assert.equal(claudeBundle.agents.claude?.files[0]?.homeRelativePath, path.relative(sourceHome, sourceClaudeSessionFile));
+
+    const claudeBundlePath = path.join(tempDir, 'claude-bundle.json');
+    writeBundle(claudeBundlePath, claudeBundle);
+    assert.equal(readBundle(claudeBundlePath).agents.claude?.adapter, 'claude');
+
+    const targetClaudeWorkdir = path.join(tempDir, 'receiver-repo');
+    fs.mkdirSync(targetClaudeWorkdir, { recursive: true });
+    const claudeImport = withHome(targetHome, () => importClaudeNativeSession(
+      claudeBundle.agents.claude!,
+      targetClaudeWorkdir,
+    ));
+    const expectedClaudeSessionFile = path.join(
+      targetHome,
+      '.claude',
+      'projects',
+      encodeClaudeWorkdir(path.resolve(targetClaudeWorkdir)),
+      `${SESSION_ID}.jsonl`,
+    );
+    assert.deepEqual(claudeImport.written, [expectedClaudeSessionFile]);
+    assert.equal(fs.readFileSync(expectedClaudeSessionFile, 'utf-8'), fs.readFileSync(sourceClaudeSessionFile, 'utf-8'));
+
+    const secondClaudeImport = withHome(targetHome, () => importClaudeNativeSession(
+      claudeBundle.agents.claude!,
+      targetClaudeWorkdir,
+    ));
+    assert.deepEqual(secondClaudeImport.skipped, [expectedClaudeSessionFile]);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
